@@ -15,7 +15,6 @@
 
 #include "serial/json_serializer.h"
 
-#include <algorithm>
 #include <cmath>
 #include <format>
 #include <initializer_list>
@@ -607,68 +606,80 @@ namespace timing
 
 namespace fers_signal
 {
+	namespace
+	{
+		template <class... Ts>
+		struct overloaded : Ts...
+		{
+			using Ts::operator()...;
+		};
+		template <class... Ts>
+		overloaded(Ts...) -> overloaded<Ts...>;
+	}
+
 	void to_json(nlohmann::json& j, const RadarSignal& rs) // NOLINT(*-use-internal-linkage)
 	{
 		j = nlohmann::json{{"id", sim_id_to_json(rs.getId())},
 						   {"name", rs.getName()},
 						   {"power", rs.getPower()},
 						   {"carrier_frequency", rs.getCarrier()}};
-		if (dynamic_cast<const CwSignal*>(rs.getSignal()) != nullptr)
-		{
-			j["cw"] = nlohmann::json::object();
-		}
-		else if (const auto* sfcw = rs.getSteppedFrequencySignal(); sfcw != nullptr)
-		{
-			j["stepped_frequency"] = {{"start_frequency_offset", sfcw->getStartFrequencyOffset()},
-									  {"step_size", sfcw->getStepSize()},
-									  {"step_count", sfcw->getStepCount()},
-									  {"dwell_time", sfcw->getDwellTime()},
-									  {"step_period", sfcw->getStepPeriod()}};
-			if (sfcw->getSweepCount().has_value())
-			{
-				j["stepped_frequency"]["sweep_count"] = *sfcw->getSweepCount();
-			}
-		}
-		else if (const auto* fmcw = rs.getFmcwChirpSignal(); fmcw != nullptr)
-		{
-			j["fmcw_linear_chirp"] = {{"direction", std::string(fmcwChirpDirectionToken(fmcw->getDirection()))},
-									  {"chirp_bandwidth", fmcw->getChirpBandwidth()},
-									  {"chirp_duration", fmcw->getChirpDuration()},
-									  {"chirp_period", fmcw->getChirpPeriod()}};
-			if (std::abs(fmcw->getStartFrequencyOffset()) > EPSILON)
-			{
-				j["fmcw_linear_chirp"]["start_frequency_offset"] = fmcw->getStartFrequencyOffset();
-			}
-			if (fmcw->getChirpCount().has_value())
-			{
-				j["fmcw_linear_chirp"]["chirp_count"] = *fmcw->getChirpCount();
-			}
-		}
-		else if (const auto* triangle = rs.getFmcwTriangleSignal(); triangle != nullptr)
-		{
-			j["fmcw_triangle"] = {{"chirp_bandwidth", triangle->getChirpBandwidth()},
-								  {"chirp_duration", triangle->getChirpDuration()}};
-			if (std::abs(triangle->getStartFrequencyOffset()) > EPSILON)
-			{
-				j["fmcw_triangle"]["start_frequency_offset"] = triangle->getStartFrequencyOffset();
-			}
-			if (triangle->getTriangleCount().has_value())
-			{
-				j["fmcw_triangle"]["triangle_count"] = *triangle->getTriangleCount();
-			}
-		}
-		else
-		{
-			if (const auto& filename = rs.getFilename(); filename.has_value())
-			{
-				j["pulsed_from_file"] = {{"filename", *filename}};
-			}
-			else
-			{
-				throw std::logic_error("Attempted to serialize a file-based waveform named '" + rs.getName() +
-									   "' without a source filename.");
-			}
-		}
+
+		std::visit(overloaded{// Switch on the waveform type.
+							  [&](const CwSignal&) { j["cw"] = nlohmann::json::object(); },
+							  [&](const FmcwChirpSignal& fmcw)
+							  {
+								  j["fmcw_linear_chirp"] = {
+									  {"direction", std::string(fmcwChirpDirectionToken(fmcw.getDirection()))},
+									  {"chirp_bandwidth", fmcw.getChirpBandwidth()},
+									  {"chirp_duration", fmcw.getChirpDuration()},
+									  {"chirp_period", fmcw.getChirpPeriod()}};
+								  if (std::abs(fmcw.getStartFrequencyOffset()) > EPSILON)
+								  {
+									  j["fmcw_linear_chirp"]["start_frequency_offset"] = fmcw.getStartFrequencyOffset();
+								  }
+								  if (fmcw.getChirpCount().has_value())
+								  {
+									  j["fmcw_linear_chirp"]["chirp_count"] = *fmcw.getChirpCount();
+								  }
+							  },
+							  [&](const SteppedFrequencySignal& sfcw)
+							  {
+								  j["stepped_frequency"] = {{"start_frequency_offset", sfcw.getStartFrequencyOffset()},
+															{"step_size", sfcw.getStepSize()},
+															{"step_count", sfcw.getStepCount()},
+															{"dwell_time", sfcw.getDwellTime()},
+															{"step_period", sfcw.getStepPeriod()}};
+								  if (sfcw.getSweepCount().has_value())
+								  {
+									  j["stepped_frequency"]["sweep_count"] = *sfcw.getSweepCount();
+								  }
+							  },
+							  [&](const FmcwTriangleSignal& triangle)
+							  {
+								  j["fmcw_triangle"] = {{"chirp_bandwidth", triangle.getChirpBandwidth()},
+														{"chirp_duration", triangle.getChirpDuration()}};
+								  if (std::abs(triangle.getStartFrequencyOffset()) > EPSILON)
+								  {
+									  j["fmcw_triangle"]["start_frequency_offset"] = triangle.getStartFrequencyOffset();
+								  }
+								  if (triangle.getTriangleCount().has_value())
+								  {
+									  j["fmcw_triangle"]["triangle_count"] = *triangle.getTriangleCount();
+								  }
+							  },
+							  [&](const SampledSignal& sampled)
+							  {
+								  if (const auto& filename = sampled.getFilename(); filename.has_value())
+								  {
+									  j["pulsed_from_file"] = {{"filename", *filename}};
+								  }
+								  else
+								  {
+									  throw std::logic_error("Attempted to serialize a file-based waveform named '" +
+															 rs.getName() + "' without a source filename.");
+								  }
+							  }},
+				   rs.getWaveform());
 	}
 
 	void from_json(const nlohmann::json& j, std::unique_ptr<RadarSignal>& rs) // NOLINT(*-use-internal-linkage)
@@ -680,9 +691,7 @@ namespace fers_signal
 
 		if (j.contains("cw"))
 		{
-			auto cw_signal = std::make_unique<CwSignal>();
-			rs = std::make_unique<RadarSignal>(name, power, carrier, params::endTime() - params::startTime(),
-											   std::move(cw_signal), id);
+			rs = std::make_unique<RadarSignal>(name, power, carrier, CwSignal(), id);
 		}
 		else if (j.contains("stepped_frequency"))
 		{
@@ -702,12 +711,11 @@ namespace fers_signal
 				}
 				sweep_count = static_cast<std::size_t>(parsed_count);
 			}
-			auto sfcw_signal = std::make_unique<SteppedFrequencySignal>(
+			auto sfcw_signal = SteppedFrequencySignal(
 				sfcw_json.at("start_frequency_offset").get<RealType>(), sfcw_json.at("step_size").get<RealType>(),
 				static_cast<std::size_t>(step_count), sfcw_json.at("dwell_time").get<RealType>(),
 				sfcw_json.at("step_period").get<RealType>(), sweep_count);
-			rs = std::make_unique<RadarSignal>(name, power, carrier, sfcw_signal->getDwellTime(),
-											   std::move(sfcw_signal), id);
+			rs = std::make_unique<RadarSignal>(name, power, carrier, sfcw_signal, id);
 			validate_fmcw_waveform(*rs, "Waveform '" + name + "'");
 		}
 		else if (j.contains("fmcw_linear_chirp"))
@@ -725,12 +733,11 @@ namespace fers_signal
 				chirp_count = static_cast<std::size_t>(parsed_count);
 			}
 
-			auto fmcw_signal = std::make_unique<FmcwChirpSignal>(
-				fmcw_json.at("chirp_bandwidth").get<RealType>(), fmcw_json.at("chirp_duration").get<RealType>(),
-				fmcw_json.at("chirp_period").get<RealType>(), fmcw_json.value("start_frequency_offset", 0.0),
-				chirp_count, direction);
-			rs = std::make_unique<RadarSignal>(name, power, carrier, fmcw_signal->getChirpDuration(),
-											   std::move(fmcw_signal), id);
+			auto fmcw_signal = FmcwChirpSignal(fmcw_json.at("chirp_bandwidth").get<RealType>(),
+											   fmcw_json.at("chirp_duration").get<RealType>(),
+											   fmcw_json.at("chirp_period").get<RealType>(),
+											   fmcw_json.value("start_frequency_offset", 0.0), chirp_count, direction);
+			rs = std::make_unique<RadarSignal>(name, power, carrier, fmcw_signal, id);
 			validate_fmcw_waveform(*rs, "Waveform '" + name + "'");
 		}
 		else if (j.contains("fmcw_triangle"))
@@ -752,11 +759,10 @@ namespace fers_signal
 				triangle_count = static_cast<std::size_t>(parsed_count);
 			}
 
-			auto fmcw_signal = std::make_unique<FmcwTriangleSignal>(
-				fmcw_json.at("chirp_bandwidth").get<RealType>(), fmcw_json.at("chirp_duration").get<RealType>(),
-				fmcw_json.value("start_frequency_offset", 0.0), triangle_count);
-			rs = std::make_unique<RadarSignal>(name, power, carrier, fmcw_signal->getTrianglePeriod(),
-											   std::move(fmcw_signal), id);
+			auto fmcw_signal = FmcwTriangleSignal(fmcw_json.at("chirp_bandwidth").get<RealType>(),
+												  fmcw_json.at("chirp_duration").get<RealType>(),
+												  fmcw_json.value("start_frequency_offset", 0.0), triangle_count);
+			rs = std::make_unique<RadarSignal>(name, power, carrier, std::move(fmcw_signal), id);
 			validate_fmcw_waveform(*rs, "Waveform '" + name + "'");
 		}
 		else if (j.contains("pulsed_from_file"))

@@ -14,12 +14,12 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <variant>
 #include <vector>
 
 #include "core/config.h"
@@ -45,24 +45,29 @@ namespace fers_signal
 	/// Parses a schema chirp direction token.
 	[[nodiscard]] FmcwChirpDirection parseFmcwChirpDirection(std::string_view direction);
 
-	/**
-	 * @class Signal
-	 * @brief Class for handling radar waveform signal data.
-	 */
-	class Signal
+	/// Digital signal implementation.
+	class SampledSignal
 	{
 	public:
-		virtual ~Signal() = default;
+		SampledSignal() = default;
+		~SampledSignal() = default;
 
-		Signal() = default;
+		SampledSignal(const SampledSignal&) noexcept = delete;
+		SampledSignal& operator=(const SampledSignal&) noexcept = delete;
+		SampledSignal(SampledSignal&&) noexcept = default;
+		SampledSignal& operator=(SampledSignal&&) noexcept = default;
 
-		Signal(const Signal&) = delete;
+		/**
+		 * @brief Sets the filename associated with this signal.
+		 * @param filename The source filename.
+		 */
+		void setFilename(const std::string& filename) noexcept { _filename = filename; }
 
-		Signal& operator=(const Signal&) = delete;
-
-		Signal(Signal&&) = default;
-
-		Signal& operator=(Signal&&) = default;
+		/**
+		 * @brief Gets the filename associated with this signal.
+		 * @return The source filename, if one was set.
+		 */
+		[[nodiscard]] const std::optional<std::string>& getFilename() const noexcept { return _filename; }
 
 		/**
 		 * @brief Clears the internal signal data.
@@ -86,32 +91,38 @@ namespace fers_signal
 		[[nodiscard]] RealType getRate() const noexcept { return _rate; }
 
 		/// Gets the number of native samples held by this signal.
-		[[nodiscard]] unsigned getSampleCount() const noexcept { return _size; }
+		[[nodiscard]] size_t getSampleCount() const noexcept { return _data.size(); }
+
+		/**
+		 * @brief Gets the duration of the radar signal.
+		 *
+		 * @return The duration of the radar signal.
+		 */
+		[[nodiscard]] RealType getDuration() const noexcept
+		{
+			return static_cast<RealType>(getSampleCount()) * getRate();
+		}
 
 		/**
 		 * @brief Renders the signal data based on interpolation points.
 		 *
 		 * @param points A vector of interpolation points used to render the signal.
-		 * @param size Reference to store the size of the rendered data.
 		 * @param fracWinDelay Fractional window delay to apply during rendering.
 		 * @return A vector of rendered complex signal data.
 		 */
-		virtual std::vector<ComplexType> render(const std::vector<interp::InterpPoint>& points, unsigned& size,
-												double fracWinDelay) const;
+		[[nodiscard]] std::vector<ComplexType> render(const std::vector<interp::InterpPoint>& points,
+													  double fracWinDelay, const RealType amplitudeScale) const;
 
 		/// Renders a bounded absolute-time slice on the requested output grid.
-		[[nodiscard]] virtual std::vector<ComplexType> renderSlice(const std::vector<interp::InterpPoint>& points,
-																   RealType outputStartTime, RealType outputSampleRate,
-																   std::size_t sampleCount,
-																   RealType fracWinDelay) const;
-
-		/// Returns true when this signal belongs to the FMCW waveform family.
-		[[nodiscard]] virtual bool isFmcwFamily() const noexcept { return false; }
+		[[nodiscard]] std::vector<ComplexType> renderSlice(const std::vector<interp::InterpPoint>& points,
+														   RealType outputStartTime, RealType outputSampleRate,
+														   std::size_t sampleCount, RealType fracWinDelay,
+														   const RealType amplitudeScale) const;
 
 	private:
 		std::vector<ComplexType> _data; ///< The complex signal data.
-		unsigned _size{0}; ///< The size of the signal data.
 		RealType _rate{0}; ///< The sample rate of the signal.
+		std::optional<std::string> _filename; ///< The original filename for file-based signals.
 
 		/**
 		 * @brief Calculates weights and delays for rendering.
@@ -121,12 +132,13 @@ namespace fers_signal
 		 * @param sampleTime Current sample time.
 		 * @param idelay Integer delay value.
 		 * @param fracWinDelay Fractional window delay to apply.
+		 * @param fracWinDelay The amplitude scaling to apply (typically from `RadarSignal`).
 		 * @return A tuple containing amplitude, phase, fractional delay, and sample unwrap index.
 		 */
-		[[nodiscard]] std::tuple<double, double, double, int>
+		[[nodiscard]] std::tuple<RealType, RealType, RealType, long>
 		calculateWeightsAndDelays(std::vector<interp::InterpPoint>::const_iterator iter,
 								  std::vector<interp::InterpPoint>::const_iterator next, double sampleTime,
-								  double idelay, double fracWinDelay) const noexcept;
+								  RealType idelay, RealType fracWinDelay, const RealType amplitudeScale) const noexcept;
 
 		/**
 		 * @brief Performs convolution with a filter.
@@ -138,179 +150,20 @@ namespace fers_signal
 		 * @param iSampleUnwrap Unwrapped sample index for the convolution.
 		 * @return The result of the convolution for the given sample.
 		 */
-		ComplexType performConvolution(int i, const double* filt, int filtLength, double amplitude,
-									   int iSampleUnwrap) const noexcept;
-	};
-
-	/**
-	 * @class RadarSignal
-	 * @brief Class representing a radar signal with associated properties.
-	 */
-	class RadarSignal
-	{
-	public:
-		/**
-		 * @brief Constructs a RadarSignal object.
-		 *
-		 * @param name The name of the radar signal.
-		 * @param power The power of the radar signal.
-		 * @param carrierfreq The carrier frequency of the radar signal.
-		 * @param length The length of the radar signal.
-		 * @param signal A unique pointer to the `Signal` object containing the waveform data.
-		 * @throws std::runtime_error if the signal is null.
-		 */
-		RadarSignal(std::string name, RealType power, RealType carrierfreq, RealType length,
-					std::unique_ptr<Signal> signal, const SimId id = 0);
-
-		~RadarSignal() = default;
-
-		RadarSignal(const RadarSignal&) noexcept = delete;
-
-		RadarSignal& operator=(const RadarSignal&) noexcept = delete;
-
-		RadarSignal(RadarSignal&&) noexcept = delete;
-
-		RadarSignal& operator=(RadarSignal&&) noexcept = delete;
-
-		/**
-		 * @brief Sets the filename associated with this signal.
-		 * @param filename The source filename.
-		 */
-		void setFilename(const std::string& filename) noexcept { _filename = filename; }
-
-		/**
-		 * @brief Gets the filename associated with this signal.
-		 * @return The source filename, if one was set.
-		 */
-		[[nodiscard]] const std::optional<std::string>& getFilename() const noexcept { return _filename; }
-
-		/**
-		 * @brief Gets the power of the radar signal.
-		 *
-		 * @return The power of the radar signal.
-		 */
-		[[nodiscard]] RealType getPower() const noexcept { return _power; }
-
-		/**
-		 * @brief Gets the carrier frequency of the radar signal.
-		 *
-		 * @return The carrier frequency of the radar signal.
-		 */
-		[[nodiscard]] RealType getCarrier() const noexcept { return _carrierfreq; }
-
-		/**
-		 * @brief Gets the name of the radar signal.
-		 *
-		 * @return The name of the radar signal.
-		 */
-		[[nodiscard]] const std::string& getName() const noexcept { return _name; }
-
-		/**
-		 * @brief Gets the unique ID of the radar signal.
-		 *
-		 * @return The radar signal SimId.
-		 */
-		[[nodiscard]] SimId getId() const noexcept { return _id; }
-
-		/**
-		 * @brief Gets the sample rate of the radar signal.
-		 *
-		 * @return The sample rate of the radar signal.
-		 */
-		[[nodiscard]] RealType getRate() const noexcept { return _signal->getRate(); }
-
-		/// Gets the number of native samples in the underlying signal.
-		[[nodiscard]] unsigned getSampleCount() const noexcept { return _signal->getSampleCount(); }
-
-		/**
-		 * @brief Gets the length of the radar signal.
-		 *
-		 * @return The length of the radar signal.
-		 */
-		[[nodiscard]] RealType getLength() const noexcept { return _length; }
-
-		/**
-		 * @brief Gets the underlying signal object.
-		 * @return A const pointer to the Signal object.
-		 */
-		[[nodiscard]] const Signal* getSignal() const noexcept { return _signal.get(); }
-
-		/// Returns true when this signal is a continuous-wave signal.
-		[[nodiscard]] bool isCw() const noexcept;
-
-		/// Returns true when this signal is an FMCW linear chirp signal.
-		[[nodiscard]] bool isFmcwChirp() const noexcept;
-
-		/// Returns true when this signal is an FMCW triangular modulation signal.
-		[[nodiscard]] bool isFmcwTriangle() const noexcept;
-
-		/// Returns true when this signal belongs to the FMCW waveform family.
-		[[nodiscard]] bool isFmcwFamily() const noexcept;
-
-		/// Returns true when this signal is a stepped-frequency CW waveform.
-		[[nodiscard]] bool isSteppedFrequency() const noexcept;
-
-		/// Gets the FMCW chirp implementation, if this signal owns one.
-		[[nodiscard]] const class FmcwChirpSignal* getFmcwChirpSignal() const noexcept;
-
-		/// Gets the FMCW triangle implementation, if this signal owns one.
-		[[nodiscard]] const class FmcwTriangleSignal* getFmcwTriangleSignal() const noexcept;
-
-		/// Gets the stepped-frequency implementation, if this signal owns one.
-		[[nodiscard]] const class SteppedFrequencySignal* getSteppedFrequencySignal() const noexcept;
-
-		/**
-		 * @brief Renders the radar signal.
-		 *
-		 * @param points A vector of interpolation points.
-		 * @param size Reference to store the size of the rendered data.
-		 * @param fracWinDelay Fractional window delay to apply during rendering.
-		 * @return A vector of rendered complex radar signal data.
-		 */
-		std::vector<ComplexType> render(const std::vector<interp::InterpPoint>& points, unsigned& size,
-										RealType fracWinDelay) const;
-
-		/// Renders a bounded absolute-time slice on the requested output grid.
-		[[nodiscard]] std::vector<ComplexType> renderSlice(const std::vector<interp::InterpPoint>& points,
-														   RealType outputStartTime, RealType outputSampleRate,
-														   std::size_t sampleCount, RealType fracWinDelay) const;
-
-	private:
-		std::string _name; ///< The name of the radar signal.
-		SimId _id; ///< Unique ID for this radar signal.
-		RealType _power; ///< The power of the radar signal.
-		RealType _carrierfreq; ///< The carrier frequency of the radar signal.
-		RealType _length; ///< The length of the radar signal.
-		std::unique_ptr<Signal> _signal; ///< The `Signal` object containing the radar signal data.
-		std::optional<std::string> _filename; ///< The original filename for file-based signals.
+		ComplexType performConvolution(long i, const RealType* filt, long filtLength, RealType amplitude,
+									   long iSampleUnwrap) const noexcept;
 	};
 
 	/// Continuous-wave signal implementation.
-	class CwSignal final : public Signal
+	class CwSignal final
 	{
 	public:
 		CwSignal() = default;
-
-		~CwSignal() override = default;
-
-		CwSignal(const CwSignal&) noexcept = delete;
-
-		CwSignal& operator=(const CwSignal&) noexcept = delete;
-
-		CwSignal(CwSignal&&) noexcept = delete;
-
-		CwSignal& operator=(CwSignal&&) noexcept = delete;
-
-		/**
-		 * @brief Renders the signal data. For CW signals, this is a no-op.
-		 * @return An empty vector of complex signal data.
-		 */
-		std::vector<ComplexType> render(const std::vector<interp::InterpPoint>& points, unsigned& size,
-										RealType fracWinDelay) const override;
+		~CwSignal() = default;
 	};
 
 	/// Stepped-frequency continuous-wave signal implementation.
-	class SteppedFrequencySignal final : public Signal
+	class SteppedFrequencySignal final
 	{
 	public:
 		/// Active SFCW dwell selected for one local waveform time.
@@ -329,15 +182,7 @@ namespace fers_signal
 							   RealType dwell_time, RealType step_period,
 							   std::optional<std::size_t> sweep_count = std::nullopt);
 
-		~SteppedFrequencySignal() override = default;
-
-		SteppedFrequencySignal(const SteppedFrequencySignal&) noexcept = delete;
-
-		SteppedFrequencySignal& operator=(const SteppedFrequencySignal&) noexcept = delete;
-
-		SteppedFrequencySignal(SteppedFrequencySignal&&) noexcept = delete;
-
-		SteppedFrequencySignal& operator=(SteppedFrequencySignal&&) noexcept = delete;
+		~SteppedFrequencySignal() = default;
 
 		/// Gets the first-step offset from carrier in hertz.
 		[[nodiscard]] RealType getStartFrequencyOffset() const noexcept { return _start_frequency_offset; }
@@ -382,10 +227,6 @@ namespace fers_signal
 		[[nodiscard]] std::optional<StepState> activeStepAt(RealType time_since_segment_start,
 															RealType carrier_frequency) const noexcept;
 
-		/// Renders the signal data. For SFCW signals, this is a no-op.
-		std::vector<ComplexType> render(const std::vector<interp::InterpPoint>& points, unsigned& size,
-										RealType fracWinDelay) const override;
-
 	private:
 		RealType _start_frequency_offset{}; ///< First-step frequency offset relative to carrier in hertz.
 		RealType _step_size{}; ///< Uniform frequency step in hertz.
@@ -396,7 +237,7 @@ namespace fers_signal
 	};
 
 	/// FMCW linear chirp signal implementation.
-	class FmcwChirpSignal final : public Signal
+	class FmcwChirpSignal final
 	{
 	public:
 		/// Constructs an FMCW chirp signal with timing and sweep parameters.
@@ -404,15 +245,7 @@ namespace fers_signal
 						RealType start_frequency_offset = 0.0, std::optional<std::size_t> chirp_count = std::nullopt,
 						FmcwChirpDirection direction = FmcwChirpDirection::Up);
 
-		~FmcwChirpSignal() override = default;
-
-		FmcwChirpSignal(const FmcwChirpSignal&) noexcept = delete;
-
-		FmcwChirpSignal& operator=(const FmcwChirpSignal&) noexcept = delete;
-
-		FmcwChirpSignal(FmcwChirpSignal&&) noexcept = delete;
-
-		FmcwChirpSignal& operator=(FmcwChirpSignal&&) noexcept = delete;
+		~FmcwChirpSignal() = default;
 
 		/// Gets the chirp bandwidth in hertz.
 		[[nodiscard]] RealType getChirpBandwidth() const noexcept { return _chirp_bandwidth; }
@@ -444,9 +277,6 @@ namespace fers_signal
 		/// Returns true when this chirp sweeps downward.
 		[[nodiscard]] bool isDownChirp() const noexcept { return _direction == FmcwChirpDirection::Down; }
 
-		/// Returns false for linear chirps; triangles override this shape predicate.
-		[[nodiscard]] bool isTriangle() const noexcept { return false; }
-
 		/// Returns the active chirp index for a time since the segment start.
 		[[nodiscard]] std::optional<std::size_t> activeChirpIndexAt(RealType time_since_segment_start) const noexcept;
 
@@ -463,12 +293,6 @@ namespace fers_signal
 		[[nodiscard]] std::optional<RealType>
 		instantaneousBasebandPhase(RealType time_since_segment_start) const noexcept;
 
-		/// Renders an FMCW waveform from interpolation points.
-		std::vector<ComplexType> render(const std::vector<interp::InterpPoint>& points, unsigned& size,
-										RealType fracWinDelay) const override;
-
-		[[nodiscard]] bool isFmcwFamily() const noexcept override { return true; }
-
 	private:
 		RealType _chirp_bandwidth{}; ///< Chirp bandwidth in hertz.
 		RealType _chirp_duration{}; ///< Active chirp duration in seconds.
@@ -480,22 +304,14 @@ namespace fers_signal
 	};
 
 	/// FMCW symmetric triangular modulation signal implementation.
-	class FmcwTriangleSignal final : public Signal
+	class FmcwTriangleSignal final
 	{
 	public:
 		/// Constructs an FMCW triangular modulation signal.
 		FmcwTriangleSignal(RealType chirp_bandwidth, RealType chirp_duration, RealType start_frequency_offset = 0.0,
 						   std::optional<std::size_t> triangle_count = std::nullopt);
 
-		~FmcwTriangleSignal() override = default;
-
-		FmcwTriangleSignal(const FmcwTriangleSignal&) noexcept = delete;
-
-		FmcwTriangleSignal& operator=(const FmcwTriangleSignal&) noexcept = delete;
-
-		FmcwTriangleSignal(FmcwTriangleSignal&&) noexcept = delete;
-
-		FmcwTriangleSignal& operator=(FmcwTriangleSignal&&) noexcept = delete;
+		~FmcwTriangleSignal() = default;
 
 		/// Gets the chirp bandwidth in hertz.
 		[[nodiscard]] RealType getChirpBandwidth() const noexcept { return _chirp_bandwidth; }
@@ -518,21 +334,12 @@ namespace fers_signal
 		/// Gets the full, unreduced phase accumulated by one leg.
 		[[nodiscard]] RealType getDeltaPhiUp() const noexcept { return _delta_phi_up; }
 
-		/// Returns true for triangular FMCW waveforms.
-		[[nodiscard]] bool isTriangle() const noexcept { return true; }
-
 		/// Computes baseband phase at a time since the triangle train start.
 		[[nodiscard]] RealType basebandPhaseForTriangleTime(RealType triangle_time) const noexcept;
 
 		/// Computes instantaneous baseband phase at a time since segment start.
 		[[nodiscard]] std::optional<RealType>
 		instantaneousBasebandPhase(RealType time_since_segment_start) const noexcept;
-
-		/// Renders an FMCW waveform from interpolation points.
-		std::vector<ComplexType> render(const std::vector<interp::InterpPoint>& points, unsigned& size,
-										RealType fracWinDelay) const override;
-
-		[[nodiscard]] bool isFmcwFamily() const noexcept override { return true; }
 
 	private:
 		RealType _chirp_bandwidth{}; ///< Chirp bandwidth in hertz.
@@ -542,5 +349,106 @@ namespace fers_signal
 		RealType _chirp_rate{}; ///< Frequency sweep rate magnitude in hertz per second.
 		RealType _triangle_period{}; ///< Full triangle period in seconds.
 		RealType _delta_phi_up{}; ///< Full, unreduced phase accumulated by one leg.
+	};
+
+
+	using Waveform = std::variant<SampledSignal, CwSignal, SteppedFrequencySignal, FmcwChirpSignal, FmcwTriangleSignal>;
+
+	/**
+	 * @class RadarSignal
+	 * @brief Class representing a radar signal with associated properties.
+	 */
+	class RadarSignal
+	{
+	public:
+		/**
+		 * @brief Constructs a RadarSignal object.
+		 *
+		 * @param name The name of the radar signal.
+		 * @param power The power of the radar signal.
+		 * @param carrierfreq The carrier frequency of the radar signal.
+		 * @param length The length of the radar signal.
+		 * @param signal A unique pointer to the `Signal` object containing the waveform data.
+		 * @throws std::runtime_error if the signal is null.
+		 */
+		RadarSignal(std::string name, RealType power, RealType carrierfreq, Waveform wave, const SimId id = 0);
+
+		~RadarSignal() = default;
+
+		RadarSignal(const RadarSignal&) noexcept = delete;
+
+		RadarSignal& operator=(const RadarSignal&) noexcept = delete;
+
+		RadarSignal(RadarSignal&&) noexcept = delete;
+
+		RadarSignal& operator=(RadarSignal&&) noexcept = delete;
+
+		/**
+		 * @brief Gets the power of the radar signal.
+		 *
+		 * @return The power of the radar signal.
+		 */
+		[[nodiscard]] RealType getPower() const noexcept { return _power; }
+
+		/**
+		 * @brief Gets the carrier frequency of the radar signal.
+		 *
+		 * @return The carrier frequency of the radar signal.
+		 */
+		[[nodiscard]] RealType getCarrier() const noexcept { return _carrierfreq; }
+
+		/**
+		 * @brief Gets the name of the radar signal.
+		 *
+		 * @return The name of the radar signal.
+		 */
+		[[nodiscard]] const std::string& getName() const noexcept { return _name; }
+
+		/**
+		 * @brief Gets the unique ID of the radar signal.
+		 *
+		 * @return The radar signal SimId.
+		 */
+		[[nodiscard]] SimId getId() const noexcept { return _id; }
+
+
+		/// Returns true when this signal is a sampled signal, used by pulsed radar.
+		[[nodiscard]] bool isSampled() const noexcept;
+
+		/// Returns true when this signal is a continuous-wave signal.
+		[[nodiscard]] bool isCw() const noexcept;
+
+		/// Returns true when this signal is an FMCW linear chirp signal.
+		[[nodiscard]] bool isFmcwChirp() const noexcept;
+
+		/// Returns true when this signal is an FMCW triangular modulation signal.
+		[[nodiscard]] bool isFmcwTriangle() const noexcept;
+
+		/// Returns true when this signal belongs to the FMCW waveform family.
+		[[nodiscard]] bool isFmcwFamily() const noexcept;
+
+		/// Returns true when this signal is a stepped-frequency CW waveform.
+		[[nodiscard]] bool isSteppedFrequency() const noexcept;
+
+		/// Gets the sampled waveform, if this signal owns one.
+		[[nodiscard]] const SampledSignal* getSampledSignal() const noexcept;
+
+		/// Gets the FMCW chirp implementation, if this signal owns one.
+		[[nodiscard]] const FmcwChirpSignal* getFmcwChirpSignal() const noexcept;
+
+		/// Gets the FMCW triangle implementation, if this signal owns one.
+		[[nodiscard]] const FmcwTriangleSignal* getFmcwTriangleSignal() const noexcept;
+
+		/// Gets the stepped-frequency implementation, if this signal owns one.
+		[[nodiscard]] const SteppedFrequencySignal* getSteppedFrequencySignal() const noexcept;
+
+		[[nodiscard]] const Waveform& getWaveform() const noexcept;
+
+	private:
+		std::string _name; ///< The name of the radar signal.
+		SimId _id; ///< Unique ID for this radar signal.
+		RealType _power; ///< The power of the radar signal.
+		RealType _carrierfreq; ///< The carrier frequency of the radar signal.
+		Waveform _wave; ///< The `Signal` object containing the radar signal data.
 	};
 }

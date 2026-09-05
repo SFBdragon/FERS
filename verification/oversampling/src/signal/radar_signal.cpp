@@ -31,9 +31,9 @@ namespace fers_signal
 
 	RadarSignal::RadarSignal(std::string name, const RealType power, const RealType carrierfreq, const RealType length,
 							 std::unique_ptr<Signal> signal) :
-		_name(std::move(name)), _power(power), _carrierfreq(carrierfreq), _length(length), _signal(std::move(signal))
+		_name(std::move(name)), _power(power), _carrierfreq(carrierfreq), _length(length), _wave(std::move(signal))
 	{
-		if (!_signal)
+		if (!_wave)
 		{
 			throw std::runtime_error("Signal is empty");
 		}
@@ -42,7 +42,7 @@ namespace fers_signal
 	std::vector<ComplexType> RadarSignal::render(const std::vector<interp::InterpPoint>& points, unsigned& size,
 												 const RealType fracWinDelay) const
 	{
-		auto data = _signal->render(points, size, fracWinDelay);
+		auto data = _wave->render(points, size, fracWinDelay);
 		const RealType scale = std::sqrt(_power);
 
 		std::ranges::for_each(data, [scale](auto& value) { value *= scale; });
@@ -86,11 +86,11 @@ namespace fers_signal
 		auto iter = points.begin();
 		auto next = points.size() > 1 ? std::next(iter) : iter;
 		const RealType idelay = std::round(_rate * iter->delay);
-		RealType sample_time = iter->time;
+		RealType sample_time = iter->rx_time;
 
 		for (int i = 0; i < static_cast<int>(_size); ++i)
 		{
-			if (sample_time > next->time && next != iter)
+			if (sample_time > next->rx_time && next != iter)
 			{
 				iter = next;
 				if (std::next(next) != points.end())
@@ -111,16 +111,16 @@ namespace fers_signal
 		return out;
 	}
 
-	constexpr std::tuple<RealType, RealType, RealType, int>
+	constexpr std::tuple<RealType, RealType, RealType, long>
 	Signal::calculateWeightsAndDelays(const std::vector<interp::InterpPoint>::const_iterator iter,
 									  const std::vector<interp::InterpPoint>::const_iterator next,
 									  const RealType sampleTime, const RealType idelay,
 									  const RealType fracWinDelay) const noexcept
 	{
-		const RealType bw = iter < next ? (sampleTime - iter->time) / (next->time - iter->time) : 0.0;
+		const RealType bw = iter < next ? (sampleTime - iter->rx_time) / (next->rx_time - iter->rx_time) : 0.0;
 
-		const RealType amplitude = std::lerp(std::sqrt(iter->power), std::sqrt(next->power), bw);
-		const RealType phase = std::lerp(iter->phase, next->phase, bw);
+		const RealType amplitude = std::lerp(std::sqrt(iter->gain), std::sqrt(next->gain), bw);
+		const RealType phase = std::lerp(iter->phase_delay, next->phase_delay, bw);
 		RealType fdelay = -(std::lerp(iter->delay, next->delay, bw) * _rate - idelay + fracWinDelay);
 
 		const int i_sample_unwrap = static_cast<int>(std::floor(fdelay));
@@ -129,8 +129,8 @@ namespace fers_signal
 		return {amplitude, phase, fdelay, i_sample_unwrap};
 	}
 
-	ComplexType Signal::performConvolution(const int i, const RealType* filt, const int filtLength,
-										   const RealType amplitude, const int iSampleUnwrap) const noexcept
+	ComplexType Signal::performConvolution(const long i, const RealType* filt, const long filtLength,
+										   const RealType amplitude, const long iSampleUnwrap) const noexcept
 	{
 		const int start = std::max(-filtLength / 2, -i);
 		const int end = std::min(filtLength / 2, static_cast<int>(_size) - i);

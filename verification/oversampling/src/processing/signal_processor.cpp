@@ -37,14 +37,13 @@ namespace
 	void processResponse(const serial::Response* resp, std::vector<ComplexType>& localWindow, const RealType rate,
 						 const RealType start, const RealType fracDelay, const unsigned localWindowSize)
 	{
-		unsigned psize;
-		RealType prate;
-		const auto array = resp->renderBinary(prate, psize, fracDelay);
+		// TODO_SHAUN fixme
+		const auto array = resp->renderSlice(rate, start, std::size_t sampleCount, fracDelay);
 		int start_sample = static_cast<int>(std::round(rate * (resp->startTime() - start)));
 		const unsigned roffset = start_sample < 0 ? static_cast<unsigned>(-start_sample) : 0u;
 		start_sample = std::max(start_sample, 0);
 
-		for (unsigned i = roffset; i < psize && i + static_cast<unsigned>(start_sample) < localWindowSize; ++i)
+		for (unsigned i = roffset; i < array.size() && i + static_cast<unsigned>(start_sample) < localWindowSize; ++i)
 		{
 			localWindow[i + static_cast<unsigned>(start_sample)] += array[i];
 		}

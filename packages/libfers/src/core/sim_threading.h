@@ -29,10 +29,10 @@
 #include "core/config.h"
 #include "core/output_config.h"
 #include "core/output_metadata.h"
-#include "core/parameters.h"
 #include "core/receiver_output.h"
 #include "core/sim_events.h"
 #include "core/simulation_state.h"
+#include "propagation/propagation_model.h"
 #include "signal/dsp_filters.h"
 #include "simulation/channel_model.h"
 
@@ -188,11 +188,13 @@ namespace core
 
 	private:
 		/// Calculates one streaming I/Q sample for the receiver at the specified time step.
-		[[nodiscard]] ComplexType calculateStreamingSample(radar::Receiver* rx, RealType t_step,
+		[[nodiscard]] ComplexType calculateStreamingSample(radar::Receiver* rx, const RealType rx_time,
 														   const std::vector<ActiveStreamingSource>& streaming_sources,
 														   ReceiverTrackerCache& tracker_cache) const;
 
+
 		/// Adds tracker storage for a newly active streaming source.
+
 		void appendStreamingTrackerSource();
 
 		/// Removes tracker storage for a streaming source that has ended.
@@ -279,7 +281,7 @@ namespace core
 		void ensureCwPhaseNoiseLookup();
 
 		/// Returns the dechirp reference mixer for a receiver at one sample time.
-		[[nodiscard]] std::optional<ComplexType> calculateDechirpMixer(radar::Receiver* rx, RealType t_step,
+		[[nodiscard]] std::optional<ComplexType> calculateDechirpMixer(radar::Receiver* rx, RealType rx_time,
 																	   ReceiverTrackerCache& tracker_cache) const;
 
 		/// Adds pulsed interference into a completed high-rate IF block before resampling.
@@ -305,13 +307,6 @@ namespace core
 		void initializeFinalizers();
 
 		/**
-		 * @brief Routes a calculated radar response to the appropriate receiver inbox or log.
-		 * @param rx Pointer to the receiving radar object.
-		 * @param response The calculated response to route.
-		 */
-		void routeResponse(radar::Receiver* rx, std::unique_ptr<serial::Response> response) const;
-
-		/**
 		 * @brief Throttles and emits progress updates to the reporter.
 		 */
 		void updateProgress();
@@ -335,6 +330,7 @@ namespace core
 
 		World* _world; ///< Pointer to the simulation world state.
 		pool::ThreadPool& _pool; ///< Reference to the global thread pool.
+		std::shared_ptr<propagation::PropagationModel> _propagation; ///< Shared thread-safe propagation model instance.
 		std::shared_ptr<ProgressReporter> _reporter; ///< Shared progress reporter instance.
 		std::vector<std::jthread> _finalizer_threads; ///< Collection of dedicated pulsed finalizer threads.
 		std::shared_ptr<OutputMetadataCollector> _metadata_collector; ///< Collector for generated output metadata.

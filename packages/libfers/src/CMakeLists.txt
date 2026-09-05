@@ -27,6 +27,8 @@ set(LIBFERS_PRIVATE_HEADERS
 	${CMAKE_CURRENT_LIST_DIR}/core/world.h
 	${CMAKE_CURRENT_LIST_DIR}/processing/finalizer.h
 	${CMAKE_CURRENT_LIST_DIR}/processing/finalizer_pipeline.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/propagation_model.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/pointscatter/pointscatter.h
 	${CMAKE_CURRENT_LIST_DIR}/core/rendering_job.h
 	${CMAKE_CURRENT_LIST_DIR}/core/receiver_output.h
 	${CMAKE_CURRENT_LIST_DIR}/core/simulation_state.h
@@ -98,6 +100,8 @@ set(LIBFERS_SOURCES
 	${CMAKE_CURRENT_LIST_DIR}/radar/receiver.cpp
 	${CMAKE_CURRENT_LIST_DIR}/radar/target.cpp
 	${CMAKE_CURRENT_LIST_DIR}/radar/transmitter.cpp
+	${CMAKE_CURRENT_LIST_DIR}/propagation/propagation_model.cpp
+	${CMAKE_CURRENT_LIST_DIR}/propagation/pointscatter/pointscatter.cpp
 	${CMAKE_CURRENT_LIST_DIR}/serial/json_serializer.cpp
 	${CMAKE_CURRENT_LIST_DIR}/serial/fmcw_validation.cpp
 	${CMAKE_CURRENT_LIST_DIR}/serial/hdf5_output_sink.cpp

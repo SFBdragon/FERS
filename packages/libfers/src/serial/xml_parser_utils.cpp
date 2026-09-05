@@ -664,9 +664,7 @@ namespace serial::xml_parser_utils
 		}
 		else if (waveform.childElement("cw", 0).isValid())
 		{
-			auto cw_signal = std::make_unique<fers_signal::CwSignal>();
-			auto wave = std::make_unique<fers_signal::RadarSignal>(
-				name, power, carrier, ctx.parameters.end - ctx.parameters.start, std::move(cw_signal), id);
+			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, fers_signal::CwSignal(), id);
 			ctx.world->add(std::move(wave));
 		}
 		else if (const XmlElement sfcw_element = waveform.childElement("stepped_frequency", 0); sfcw_element.isValid())
@@ -693,11 +691,10 @@ namespace serial::xml_parser_utils
 				sweep_count = static_cast<std::size_t>(raw_count);
 			}
 
-			auto sfcw_signal = std::make_unique<fers_signal::SteppedFrequencySignal>(
-				start_frequency_offset, step_size, static_cast<std::size_t>(raw_step_count), dwell_time, step_period,
-				sweep_count);
-			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, sfcw_signal->getDwellTime(),
-																   std::move(sfcw_signal), id);
+			auto sfcw_signal = fers_signal::SteppedFrequencySignal(start_frequency_offset, step_size,
+																   static_cast<std::size_t>(raw_step_count), dwell_time,
+																   step_period, sweep_count);
+			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, std::move(sfcw_signal), id);
 			validate_fmcw_waveform(*wave, "Waveform '" + name + "'");
 			ctx.world->add(std::move(wave));
 		}
@@ -728,11 +725,9 @@ namespace serial::xml_parser_utils
 				chirp_count = static_cast<std::size_t>(raw_count);
 			}
 
-			auto fmcw_signal = std::make_unique<fers_signal::FmcwChirpSignal>(
-				chirp_bandwidth, chirp_duration, chirp_period, start_frequency_offset, chirp_count, direction);
-			// RadarSignal length is the active chirp duration, not T_rep. The repeat period only spaces chirps.
-			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, chirp_duration,
-																   std::move(fmcw_signal), id);
+			auto fmcw_signal = fers_signal::FmcwChirpSignal(chirp_bandwidth, chirp_duration, chirp_period,
+															start_frequency_offset, chirp_count, direction);
+			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, std::move(fmcw_signal), id);
 			validate_fmcw_waveform(*wave, "Waveform '" + name + "'");
 			ctx.world->add(std::move(wave));
 		}
@@ -761,10 +756,9 @@ namespace serial::xml_parser_utils
 				triangle_count = static_cast<std::size_t>(raw_count);
 			}
 
-			auto fmcw_signal = std::make_unique<fers_signal::FmcwTriangleSignal>(
-				chirp_bandwidth, chirp_duration, start_frequency_offset, triangle_count);
-			auto wave = std::make_unique<fers_signal::RadarSignal>(
-				name, power, carrier, fmcw_signal->getTrianglePeriod(), std::move(fmcw_signal), id);
+			auto fmcw_signal = fers_signal::FmcwTriangleSignal(chirp_bandwidth, chirp_duration, start_frequency_offset,
+															   triangle_count);
+			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, std::move(fmcw_signal), id);
 			validate_fmcw_waveform(*wave, "Waveform '" + name + "'");
 			ctx.world->add(std::move(wave));
 		}

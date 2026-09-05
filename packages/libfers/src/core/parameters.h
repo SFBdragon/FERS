@@ -200,8 +200,13 @@ namespace params
 	 * @brief Set the simulation sampling rate.
 	 * @param rate The new simulation sampling rate.
 	 */
-	inline void setSimSamplingRate(const RealType rate) noexcept
+	inline void setSimSamplingRate(const RealType rate)
 	{
+		if (rate <= 0)
+		{
+			throw std::runtime_error("Simulation sampling rate must be > 0");
+		}
+
 		params.sim_sampling_rate = rate;
 		LOG(logging::Level::DEBUG, "Simulation sampling rate set to: {:.5f} Hz", rate);
 	}

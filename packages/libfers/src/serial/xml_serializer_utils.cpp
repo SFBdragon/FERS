@@ -24,6 +24,7 @@
 
 namespace serial::xml_serializer_utils
 {
+
 	void addChildWithText(const XmlElement& parent, const std::string& name, const std::string& text)
 	{
 		parent.addChild(name).setText(text);
@@ -110,60 +111,61 @@ namespace serial::xml_serializer_utils
 		addChildWithNumber(parent, "power", waveform.getPower());
 		addChildWithNumber(parent, "carrier_frequency", waveform.getCarrier());
 
-		if (dynamic_cast<const fers_signal::CwSignal*>(waveform.getSignal()) != nullptr)
-		{
-			(void)parent.addChild("cw"); // Empty element
-		}
-		else if (const auto* fmcw = waveform.getFmcwChirpSignal(); fmcw != nullptr)
-		{
-			const XmlElement fmcw_elem = parent.addChild("fmcw_linear_chirp");
-			fmcw_elem.setAttribute("direction",
-								   std::string(fers_signal::fmcwChirpDirectionToken(fmcw->getDirection())));
-			addChildWithNumber(fmcw_elem, "chirp_bandwidth", fmcw->getChirpBandwidth());
-			addChildWithNumber(fmcw_elem, "chirp_duration", fmcw->getChirpDuration());
-			addChildWithNumber(fmcw_elem, "chirp_period", fmcw->getChirpPeriod());
-			if (std::abs(fmcw->getStartFrequencyOffset()) > EPSILON)
-			{
-				addChildWithNumber(fmcw_elem, "start_frequency_offset", fmcw->getStartFrequencyOffset());
-			}
-			if (fmcw->getChirpCount().has_value())
-			{
-				addChildWithNumber(fmcw_elem, "chirp_count", static_cast<RealType>(*fmcw->getChirpCount()));
-			}
-		}
-		else if (const auto* sfcw = waveform.getSteppedFrequencySignal(); sfcw != nullptr)
-		{
-			const XmlElement sfcw_elem = parent.addChild("stepped_frequency");
-			addChildWithNumber(sfcw_elem, "start_frequency_offset", sfcw->getStartFrequencyOffset());
-			addChildWithNumber(sfcw_elem, "step_size", sfcw->getStepSize());
-			addChildWithNumber(sfcw_elem, "step_count", static_cast<RealType>(sfcw->getStepCount()));
-			addChildWithNumber(sfcw_elem, "dwell_time", sfcw->getDwellTime());
-			addChildWithNumber(sfcw_elem, "step_period", sfcw->getStepPeriod());
-			if (sfcw->getSweepCount().has_value())
-			{
-				addChildWithNumber(sfcw_elem, "sweep_count", static_cast<RealType>(*sfcw->getSweepCount()));
-			}
-		}
-		else if (const auto* triangle = waveform.getFmcwTriangleSignal(); triangle != nullptr)
-		{
-			const XmlElement fmcw_elem = parent.addChild("fmcw_triangle");
-			addChildWithNumber(fmcw_elem, "chirp_bandwidth", triangle->getChirpBandwidth());
-			addChildWithNumber(fmcw_elem, "chirp_duration", triangle->getChirpDuration());
-			if (std::abs(triangle->getStartFrequencyOffset()) > EPSILON)
-			{
-				addChildWithNumber(fmcw_elem, "start_frequency_offset", triangle->getStartFrequencyOffset());
-			}
-			if (triangle->getTriangleCount().has_value())
-			{
-				addChildWithNumber(fmcw_elem, "triangle_count", static_cast<RealType>(*triangle->getTriangleCount()));
-			}
-		}
-		else
-		{
-			const XmlElement pulsed_file = parent.addChild("pulsed_from_file");
-			const auto& filename = waveform.getFilename();
-			pulsed_file.setAttribute("filename", filename.value_or(""));
-		}
+		std::visit(
+			overloaded{
+				[&](const fers_signal::CwSignal&) { (void)parent.addChild("cw"); },
+				[&](const fers_signal::FmcwChirpSignal& fmcw)
+				{
+					const XmlElement fmcw_elem = parent.addChild("fmcw_linear_chirp");
+					fmcw_elem.setAttribute("direction",
+										   std::string(fers_signal::fmcwChirpDirectionToken(fmcw.getDirection())));
+					addChildWithNumber(fmcw_elem, "chirp_bandwidth", fmcw.getChirpBandwidth());
+					addChildWithNumber(fmcw_elem, "chirp_duration", fmcw.getChirpDuration());
+					addChildWithNumber(fmcw_elem, "chirp_period", fmcw.getChirpPeriod());
+					if (std::abs(fmcw.getStartFrequencyOffset()) > EPSILON)
+					{
+						addChildWithNumber(fmcw_elem, "start_frequency_offset", fmcw.getStartFrequencyOffset());
+					}
+					if (fmcw.getChirpCount().has_value())
+					{
+						addChildWithNumber(fmcw_elem, "chirp_count", static_cast<RealType>(*fmcw.getChirpCount()));
+					}
+				},
+				[&](const fers_signal::SteppedFrequencySignal& sfcw)
+				{
+					const XmlElement sfcw_elem = parent.addChild("stepped_frequency");
+					addChildWithNumber(sfcw_elem, "start_frequency_offset", sfcw.getStartFrequencyOffset());
+					addChildWithNumber(sfcw_elem, "step_size", sfcw.getStepSize());
+					addChildWithNumber(sfcw_elem, "step_count", static_cast<RealType>(sfcw.getStepCount()));
+					addChildWithNumber(sfcw_elem, "dwell_time", sfcw.getDwellTime());
+					addChildWithNumber(sfcw_elem, "step_period", sfcw.getStepPeriod());
+					if (sfcw.getSweepCount().has_value())
+					{
+						addChildWithNumber(sfcw_elem, "sweep_count", static_cast<RealType>(*sfcw.getSweepCount()));
+					}
+				},
+				[&](const fers_signal::FmcwTriangleSignal& triangle)
+				{
+					const XmlElement fmcw_elem = parent.addChild("fmcw_triangle");
+					addChildWithNumber(fmcw_elem, "chirp_bandwidth", triangle.getChirpBandwidth());
+					addChildWithNumber(fmcw_elem, "chirp_duration", triangle.getChirpDuration());
+					if (std::abs(triangle.getStartFrequencyOffset()) > EPSILON)
+					{
+						addChildWithNumber(fmcw_elem, "start_frequency_offset", triangle.getStartFrequencyOffset());
+					}
+					if (triangle.getTriangleCount().has_value())
+					{
+						addChildWithNumber(fmcw_elem, "triangle_count",
+										   static_cast<RealType>(*triangle.getTriangleCount()));
+					}
+				},
+				[&](const fers_signal::SampledSignal& sampled)
+				{
+					const XmlElement pulsed_file = parent.addChild("pulsed_from_file");
+					const auto& filename = sampled.getFilename();
+					pulsed_file.setAttribute("filename", filename.value_or(""));
+				}},
+			waveform.getWaveform());
 	}
 
 	void serializeTiming(const timing::PrototypeTiming& timing, const XmlElement& parent)

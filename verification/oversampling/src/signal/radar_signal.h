@@ -50,13 +50,13 @@ namespace fers_signal
 		unsigned _size{0};
 		RealType _rate{0};
 
-		[[nodiscard]] constexpr std::tuple<double, double, double, int>
+		[[nodiscard]] constexpr std::tuple<double, double, double, long>
 		calculateWeightsAndDelays(std::vector<interp::InterpPoint>::const_iterator iter,
-								  std::vector<interp::InterpPoint>::const_iterator next, double sampleTime, double idelay,
-								  double fracWinDelay) const noexcept;
+								  std::vector<interp::InterpPoint>::const_iterator next, double sampleTime,
+								  double idelay, double fracWinDelay) const noexcept;
 
-		ComplexType performConvolution(int i, const double* filt, int filtLength, double amplitude,
-									   int iSampleUnwrap) const noexcept;
+		ComplexType performConvolution(long i, const double* filt, long filtLength, double amplitude,
+									   long iSampleUnwrap) const noexcept;
 	};
 
 	class RadarSignal
@@ -75,9 +75,9 @@ namespace fers_signal
 		[[nodiscard]] RealType getPower() const noexcept { return _power; }
 		[[nodiscard]] RealType getCarrier() const noexcept { return _carrierfreq; }
 		[[nodiscard]] const std::string& getName() const noexcept { return _name; }
-		[[nodiscard]] RealType getRate() const noexcept { return _signal->getRate(); }
+		[[nodiscard]] RealType getRate() const noexcept { return _wave->getRate(); }
 		[[nodiscard]] RealType getLength() const noexcept { return _length; }
-		[[nodiscard]] const Signal* getSignal() const noexcept { return _signal.get(); }
+		[[nodiscard]] const Signal* getSignal() const noexcept { return _wave.get(); }
 
 		std::vector<ComplexType> render(const std::vector<interp::InterpPoint>& points, unsigned& size,
 										RealType fracWinDelay) const;
@@ -87,7 +87,7 @@ namespace fers_signal
 		RealType _power;
 		RealType _carrierfreq;
 		RealType _length;
-		std::unique_ptr<Signal> _signal;
+		std::unique_ptr<Signal> _wave;
 		std::optional<std::string> _filename;
 	};
 

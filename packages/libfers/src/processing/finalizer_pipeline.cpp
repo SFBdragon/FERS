@@ -8,10 +8,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <highfive/highfive.hpp>
-#include <limits>
 #include <optional>
 #include <ranges>
 #include <stdexcept>
@@ -21,6 +21,7 @@
 #include "core/output_metadata.h"
 #include "core/parameters.h"
 #include "processing/signal_processor.h"
+#include "propagation/propagation_model.h"
 #include "radar/receiver.h"
 #include "radar/target.h"
 #include "radar/transmitter.h"
@@ -111,12 +112,13 @@ namespace processing::pipeline
 		return {rounded_start, fractional_delay};
 	}
 
-	void applyStreamingInterference(std::span<ComplexType> window, const RealType actual_start, const RealType dt,
-									const radar::Receiver* receiver,
-									const std::vector<core::ActiveStreamingSource>& streaming_sources,
-									const std::vector<std::unique_ptr<radar::Target>>* targets,
-									core::ReceiverTrackerCache& tracker_cache,
-									const simulation::CwPhaseNoiseLookup* phase_noise_lookup)
+	static void applyStreamingInterference(std::span<ComplexType> window, const RealType actual_start,
+										   const RealType dt, const propagation::PropagationModel& prop,
+										   radar::Receiver* receiver,
+										   const std::vector<core::ActiveStreamingSource>& streaming_sources,
+										   const std::vector<std::unique_ptr<radar::Target>>* targets,
+										   core::ReceiverTrackerCache& tracker_cache,
+										   const simulation::CwPhaseNoiseLookup* phase_noise_lookup)
 	{
 		const simulation::CwPhaseNoiseLookup* lookup = phase_noise_lookup;
 		std::optional<simulation::CwPhaseNoiseLookup> owned_lookup;
@@ -148,22 +150,12 @@ namespace processing::pipeline
 		RealType t_sample = actual_start;
 		for (auto& window_sample : window)
 		{
+			const auto paths = prop.findRxFromTxPaths(receiver, streaming_sources, t_sample);
 			ComplexType streaming_interference_sample{0.0, 0.0};
-			for (std::size_t source_index = 0; source_index < streaming_sources.size(); ++source_index)
+			for (const auto& path : paths)
 			{
-				const auto& streaming_source = streaming_sources[source_index];
-				if (!receiver->checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
-				{
-					streaming_interference_sample += simulation::calculateStreamingDirectPathContribution(
-						streaming_source, receiver, t_sample, lookup, &tracker_cache.direct[source_index]);
-				}
-				for (std::size_t target_index = 0; target_index < targets->size(); ++target_index)
-				{
-					const auto& target_ptr = (*targets)[target_index];
-					streaming_interference_sample += simulation::calculateStreamingReflectedPathContribution(
-						streaming_source, receiver, target_ptr.get(), t_sample, lookup,
-						&tracker_cache.reflected[source_index][target_index]);
-				}
+				streaming_interference_sample += simulation::calculateStreamingPathContribution(
+					*path.source, receiver, path, t_sample, lookup, nullptr);
 			}
 			window_sample += streaming_interference_sample;
 			t_sample += dt;
@@ -184,22 +176,21 @@ namespace processing::pipeline
 	{
 		for (const auto& response : interference_log)
 		{
-			unsigned psize = 0;
-			RealType prate = std::numeric_limits<RealType>::quiet_NaN();
-			const auto rendered_pulse = response->renderBinary(prate, psize, 0.0);
-			const RealType rate_tolerance = std::numeric_limits<RealType>::epsilon() *
-				std::max(std::abs(prate), std::abs(output_sample_rate)) * 16.0;
-			if (std::abs(prate - output_sample_rate) > rate_tolerance)
+			const auto sample_count =
+				static_cast<std::size_t>(std::ceil(response->getRxDuration() * output_sample_rate));
+			if (sample_count == 0)
 			{
-				throw std::runtime_error(
-					"Pulsed interference sample rate must match the streaming output sample rate.");
+				// Notably, response always adds a leading and trailing zero point a nonzero amount of time away.
+				// This is assuming params::rate() and params::simSamplingRate() are nonzero - both are checked.
+				throw std::logic_error("Response duration and output sample rate should always be nonzero.");
 			}
 
-			const RealType pulse_end_time = response->startTime() + static_cast<RealType>(psize) / prate;
+			const auto rendered_pulse =
+				response->renderSlice(output_sample_rate, response->startTime(), sample_count, 0.0);
+
 			const auto pulse_start_index =
 				static_cast<long long>(std::floor((response->startTime() - params::startTime()) * output_sample_rate));
-			const auto pulse_end_index =
-				static_cast<long long>(std::ceil((pulse_end_time - params::startTime()) * output_sample_rate));
+			const auto pulse_end_index = pulse_start_index + static_cast<long long>(rendered_pulse.size());
 			const auto buffer_end_index = static_cast<long long>(iq_buffer.size());
 
 			for (const auto& span : active_spans)
@@ -245,7 +236,7 @@ namespace processing::pipeline
 	{
 		if (params::oversampleRatio() > 1)
 		{
-			buffer = std::move(fers_signal::downsample(buffer));
+			buffer = fers_signal::downsample(buffer);
 		}
 	}
 

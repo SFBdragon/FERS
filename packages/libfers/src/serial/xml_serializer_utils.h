@@ -196,4 +196,16 @@ namespace serial::xml_serializer_utils
 	 * @param parent The parent XML element.
 	 */
 	void serializePlatform(const radar::Platform& platform, const core::World& world, const XmlElement& parent);
+
+	namespace
+	{
+
+		template <class... Ts>
+		struct overloaded : Ts...
+		{
+			using Ts::operator()...;
+		};
+		template <class... Ts>
+		overloaded(Ts...) -> overloaded<Ts...>;
+	}
 }

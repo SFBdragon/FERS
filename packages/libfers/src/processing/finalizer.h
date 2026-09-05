@@ -19,6 +19,7 @@
 
 #include "core/receiver_output.h"
 #include "core/simulation_state.h"
+#include "propagation/propagation_model.h"
 
 namespace radar
 {
@@ -71,8 +72,8 @@ namespace processing
 	 * @param output_dir Output directory for the simulation files.
 	 */
 	void runPulsedFinalizer(radar::Receiver* receiver, const std::vector<std::unique_ptr<radar::Target>>* targets,
+							std::shared_ptr<const propagation::PropagationModel> prop,
 							const std::shared_ptr<core::ProgressReporter>& reporter, const std::string& output_dir,
 							const std::shared_ptr<core::OutputMetadataCollector>& metadata_collector = nullptr,
 							core::ReceiverOutputSink* output_sink = nullptr);
-
 }

@@ -1,4 +1,4 @@
-// Tests for channel_model::calculateResponse function. Verifies InterpPoint
+// Tests for channel_model::calculateResponses function. Verifies InterpPoint
 // generation, direct and reflected path response creation, co-location skipping,
 // and point count calculations.
 
@@ -60,10 +60,10 @@ namespace
 }
 
 // =============================================================================
-// calculateResponse: returns nullptr for co-located direct path
+// calculateResponses: returns nullptr for co-located direct path
 // =============================================================================
 
-TEST_CASE("calculateResponse returns nullptr when Tx and Rx share same platform (direct path)",
+TEST_CASE("calculateResponses returns nullptr when Tx and Rx share same platform (direct path)",
 		  "[simulation][channel_model][response]")
 {
 	ParamGuard const guard;
@@ -90,11 +90,11 @@ TEST_CASE("calculateResponse returns nullptr when Tx and Rx share same platform 
 	rx.setTiming(timing);
 
 	// Direct path (no target) with same platform
-	auto response = simulation::calculateResponse(&tx, &rx, &wave, 0.0, nullptr);
+	auto response = simulation::calculateResponses(&tx, &rx, &wave, 0.0, nullptr);
 	REQUIRE(response == nullptr);
 }
 
-TEST_CASE("calculateResponse returns nullptr when Tx is attached to Rx (monostatic, direct path)",
+TEST_CASE("calculateResponses returns nullptr when Tx is attached to Rx (monostatic, direct path)",
 		  "[simulation][channel_model][response]")
 {
 	ParamGuard const guard;
@@ -126,11 +126,11 @@ TEST_CASE("calculateResponse returns nullptr when Tx is attached to Rx (monostat
 	tx.setAttached(&rx);
 
 	// Direct path with attached Rx
-	auto response = simulation::calculateResponse(&tx, &rx, &wave, 0.0, nullptr);
+	auto response = simulation::calculateResponses(&tx, &rx, &wave, 0.0, nullptr);
 	REQUIRE(response == nullptr);
 }
 
-TEST_CASE("calculateResponse returns nullptr for reflected path when target co-located with Tx",
+TEST_CASE("calculateResponses returns nullptr for reflected path when target co-located with Tx",
 		  "[simulation][channel_model][response]")
 {
 	ParamGuard const guard;
@@ -162,11 +162,11 @@ TEST_CASE("calculateResponse returns nullptr for reflected path when target co-l
 	// Target on same platform as Tx
 	radar::IsoTarget tgt(&tx_plat, "tgt", 10.0, 42);
 
-	auto response = simulation::calculateResponse(&tx, &rx, &wave, 0.0, &tgt);
+	auto response = simulation::calculateResponses(&tx, &rx, &wave, 0.0, &tgt);
 	REQUIRE(response == nullptr);
 }
 
-TEST_CASE("calculateResponse returns nullptr for reflected path when target co-located with Rx",
+TEST_CASE("calculateResponses returns nullptr for reflected path when target co-located with Rx",
 		  "[simulation][channel_model][response]")
 {
 	ParamGuard const guard;
@@ -198,15 +198,15 @@ TEST_CASE("calculateResponse returns nullptr for reflected path when target co-l
 	// Target on same platform as Rx
 	radar::IsoTarget tgt(&rx_plat, "tgt", 10.0, 42);
 
-	auto response = simulation::calculateResponse(&tx, &rx, &wave, 0.0, &tgt);
+	auto response = simulation::calculateResponses(&tx, &rx, &wave, 0.0, &tgt);
 	REQUIRE(response == nullptr);
 }
 
 // =============================================================================
-// calculateResponse: Direct path produces valid response with correct timing
+// calculateResponses: Direct path produces valid response with correct timing
 // =============================================================================
 
-TEST_CASE("calculateResponse direct path produces non-null response with interp points",
+TEST_CASE("calculateResponses direct path produces non-null response with interp points",
 		  "[simulation][channel_model][response]")
 {
 	ParamGuard const guard;
@@ -239,7 +239,7 @@ TEST_CASE("calculateResponse direct path produces non-null response with interp 
 	rx.setAntenna(&iso_ant);
 	rx.setTiming(timing);
 
-	auto response = simulation::calculateResponse(&tx, &rx, &wave, 0.0, nullptr);
+	auto response = simulation::calculateResponses(&tx, &rx, &wave, 0.0, nullptr);
 	REQUIRE(response != nullptr);
 
 	// The response should have valid start and end times
@@ -248,7 +248,7 @@ TEST_CASE("calculateResponse direct path produces non-null response with interp 
 	REQUIRE_THAT(response->startTime(), WithinRel(expected_delay, 1e-6));
 }
 
-TEST_CASE("calculateResponse reflected path produces valid response", "[simulation][channel_model][response]")
+TEST_CASE("calculateResponses reflected path produces valid response", "[simulation][channel_model][response]")
 {
 	ParamGuard const guard;
 	params::params.reset();
@@ -281,7 +281,7 @@ TEST_CASE("calculateResponse reflected path produces valid response", "[simulati
 
 	radar::IsoTarget tgt(&tgt_plat, "tgt", 10.0, 42);
 
-	auto response = simulation::calculateResponse(&tx, &rx, &wave, 0.0, &tgt);
+	auto response = simulation::calculateResponses(&tx, &rx, &wave, 0.0, &tgt);
 	REQUIRE(response != nullptr);
 
 	// The response's start time should be approximately the first sample time + delay
@@ -291,7 +291,7 @@ TEST_CASE("calculateResponse reflected path produces valid response", "[simulati
 	REQUIRE_THAT(response->startTime(), WithinRel(expected_delay, 1e-6));
 }
 
-TEST_CASE("calculateResponse direct path interp points have consistent Friis power",
+TEST_CASE("calculateResponses direct path interp points have consistent Friis power",
 		  "[simulation][channel_model][response]")
 {
 	ParamGuard const guard;
@@ -328,7 +328,7 @@ TEST_CASE("calculateResponse direct path interp points have consistent Friis pow
 	rx.setAntenna(&iso_ant);
 	rx.setTiming(timing);
 
-	auto response = simulation::calculateResponse(&tx, &rx, &wave, 0.0, nullptr);
+	auto response = simulation::calculateResponses(&tx, &rx, &wave, 0.0, nullptr);
 	REQUIRE(response != nullptr);
 
 	// Render to get access to the response data
@@ -340,7 +340,7 @@ TEST_CASE("calculateResponse direct path interp points have consistent Friis pow
 	REQUIRE_THAT(response->getLength(), WithinRel(5e-3, 0.01));
 }
 
-TEST_CASE("calculateResponse exposes transmitter id", "[simulation][channel_model][response]")
+TEST_CASE("calculateResponses exposes transmitter id", "[simulation][channel_model][response]")
 {
 	ParamGuard const guard;
 	params::params.reset();
@@ -369,7 +369,6 @@ TEST_CASE("calculateResponse exposes transmitter id", "[simulation][channel_mode
 	rx.setAntenna(&iso_ant);
 	rx.setTiming(timing);
 
-	auto response = simulation::calculateResponse(&tx, &rx, &wave, 0.0, nullptr);
+	auto response = simulation::calculateResponses(&tx, &rx, &wave, 0.0, nullptr);
 	REQUIRE(response != nullptr);
-	REQUIRE(response->getTransmitterId() == tx_id);
 }

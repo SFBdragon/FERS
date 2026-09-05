@@ -18,7 +18,6 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <complex>
@@ -36,6 +35,7 @@
 #include "processing/finalizer.h"
 #include "processing/finalizer_pipeline.h"
 #include "processing/signal_processor.h"
+#include "propagation/propagation_model.h"
 #include "radar/receiver.h"
 #include "radar/target.h"
 #include "radar/transmitter.h"
@@ -47,7 +47,6 @@
 #include "sim_events.h"
 #include "simulation/channel_model.h"
 #include "thread_pool.h"
-#include "timing/timing.h"
 #include "world.h"
 
 using logging::Level;
@@ -940,8 +939,8 @@ namespace core
 			if (receiver_ptr->getMode() == OperationMode::PULSED_MODE)
 			{
 				_finalizer_threads.emplace_back(processing::runPulsedFinalizer, receiver_ptr.get(),
-												&_world->getTargets(), _reporter, _output_dir, _metadata_collector,
-												_output_sink);
+												&_world->getTargets(), _propagation, _reporter, _output_dir,
+												_metadata_collector, _output_sink);
 			}
 		}
 	}
@@ -1463,6 +1462,7 @@ namespace core
 												true);
 	}
 
+	// NOLINTNEXTLINE TODO_SHAUN remove
 	void SimulationEngine::addPulsedInterferenceSamples(std::span<ComplexType> block,
 														std::span<const ComplexType> rendered_pulse,
 														const long long dest_begin, const long long dest_end,
@@ -1516,7 +1516,7 @@ namespace core
 		for (const auto& response : receiver->getPulsedInterferenceLog())
 		{
 			const RealType pulse_rate = response->sampleRate();
-			const unsigned pulse_size = response->sampleCount();
+			const size_t pulse_size = response->sampleCount();
 			if (pulse_rate <= 0.0 || pulse_size == 0)
 			{
 				continue;
@@ -1552,7 +1552,7 @@ namespace core
 		}
 	}
 
-	std::optional<ComplexType> SimulationEngine::calculateDechirpMixer(Receiver* rx, const RealType t_step,
+	std::optional<ComplexType> SimulationEngine::calculateDechirpMixer(Receiver* rx, const RealType rx_time,
 																	   ReceiverTrackerCache& tracker_cache) const
 	{
 		RealType reference_phase = 0.0;
@@ -1562,25 +1562,25 @@ namespace core
 			tracker_cache.dechirp_reference.resize(dechirp_sources.size());
 		}
 
-		if (!tracker_cache.last_dechirp_time.has_value() || t_step < *tracker_cache.last_dechirp_time)
+		if (!tracker_cache.last_dechirp_time.has_value() || rx_time < *tracker_cache.last_dechirp_time)
 		{
 			tracker_cache.active_dechirp_source_index = 0;
 			std::ranges::fill(tracker_cache.dechirp_reference, FmcwChirpBoundaryTracker{});
 		}
-		tracker_cache.last_dechirp_time = t_step;
+		tracker_cache.last_dechirp_time = rx_time;
 
 		bool reference_active = false;
 		auto& source_index = tracker_cache.active_dechirp_source_index;
-		while (source_index < dechirp_sources.size() && t_step >= dechirp_sources[source_index].segment_end)
+		while (source_index < dechirp_sources.size() && rx_time >= dechirp_sources[source_index].segment_end)
 		{
 			++source_index;
 		}
 		if (source_index < dechirp_sources.size())
 		{
 			const auto& reference_source = dechirp_sources[source_index];
-			if (t_step >= reference_source.segment_start && t_step < reference_source.segment_end &&
+			if (rx_time >= reference_source.segment_start && rx_time < reference_source.segment_end &&
 				simulation::calculateStreamingReferencePhase(
-					reference_source, t_step, &tracker_cache.dechirp_reference[source_index], reference_phase))
+					reference_source, rx_time, &tracker_cache.dechirp_reference[source_index], reference_phase))
 			{
 				reference_active = true;
 			}
@@ -1594,12 +1594,12 @@ namespace core
 		RealType receiver_phase = 0.0;
 		if (rx->getDechirpMode() == Receiver::DechirpMode::Physical && _cw_phase_noise_lookup)
 		{
-			receiver_phase = _cw_phase_noise_lookup->sample(rx->getTiming().get(), t_step);
+			receiver_phase = _cw_phase_noise_lookup->sample(rx->getTiming().get(), rx_time);
 		}
 		return std::polar(1.0, reference_phase + receiver_phase);
 	}
 
-	ComplexType SimulationEngine::calculateStreamingSample(Receiver* rx, const RealType t_step,
+	ComplexType SimulationEngine::calculateStreamingSample(Receiver* rx, const RealType rx_time,
 														   const std::vector<ActiveStreamingSource>& streaming_sources,
 														   ReceiverTrackerCache& tracker_cache) const
 	{
@@ -1607,7 +1607,7 @@ namespace core
 		std::optional<ComplexType> dechirp_mixer;
 		if (dechirping)
 		{
-			dechirp_mixer = calculateDechirpMixer(rx, t_step, tracker_cache);
+			dechirp_mixer = calculateDechirpMixer(rx, rx_time, tracker_cache);
 			if (!dechirp_mixer.has_value())
 			{
 				return {0.0, 0.0};
@@ -1619,23 +1619,14 @@ namespace core
 														  ? simulation::StreamingTimingPhaseMode::None
 														  : simulation::StreamingTimingPhaseMode::TransmitterOnly);
 
+
+		const auto paths = _propagation->findRxFromTxPaths(rx, streaming_sources, rx_time);
+
 		ComplexType total_sample{0.0, 0.0};
-		for (std::size_t source_index = 0; source_index < streaming_sources.size(); ++source_index)
+		for (const auto& path : paths)
 		{
-			const auto& streaming_source = streaming_sources[source_index];
-			if (!rx->checkFlag(Receiver::RecvFlag::FLAG_NODIRECT))
-			{
-				total_sample += simulation::calculateStreamingDirectPathContribution(
-					streaming_source, rx, t_step, _cw_phase_noise_lookup.get(), &tracker_cache.direct[source_index],
-					timing_phase_mode);
-			}
-			for (std::size_t target_index = 0; target_index < _world->getTargets().size(); ++target_index)
-			{
-				const auto& target_ptr = _world->getTargets()[target_index];
-				total_sample += simulation::calculateStreamingReflectedPathContribution(
-					streaming_source, rx, target_ptr.get(), t_step, _cw_phase_noise_lookup.get(),
-					&tracker_cache.reflected[source_index][target_index], timing_phase_mode);
-			}
+			total_sample += simulation::calculateStreamingPathContribution(
+				*path.source, rx, path, rx_time, _cw_phase_noise_lookup.get(), nullptr, timing_phase_mode);
 		}
 
 		if (!dechirping)
@@ -1810,37 +1801,9 @@ namespace core
 		// NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
 	}
 
-	void SimulationEngine::routeResponse(Receiver* rx, std::unique_ptr<serial::Response> response) const
-	{
-		if (!response)
-		{
-			return;
-		}
-		if (rx->getMode() == OperationMode::PULSED_MODE)
-		{
-			rx->addResponseToInbox(std::move(response));
-		}
-		else
-		{
-			rx->addInterferenceToLog(std::move(response));
-		}
-	}
-
 	void SimulationEngine::handleTxPulsedStart(Transmitter* tx, const RealType t_event)
 	{
-		for (const auto& rx_ptr : _world->getReceivers())
-		{
-			if (!rx_ptr->checkFlag(Receiver::RecvFlag::FLAG_NODIRECT))
-			{
-				routeResponse(rx_ptr.get(), simulation::calculateResponse(tx, rx_ptr.get(), tx->getSignal(), t_event));
-			}
-			for (const auto& target_ptr : _world->getTargets())
-			{
-				routeResponse(
-					rx_ptr.get(),
-					simulation::calculateResponse(tx, rx_ptr.get(), tx->getSignal(), t_event, target_ptr.get()));
-			}
-		}
+		simulation::calculateResponses(*tx, *_propagation, t_event);
 
 		const RealType next_theoretical_time = t_event + 1.0 / tx->getPrf();
 		if (const auto next_pulse_opt = tx->getNextPulseTime(next_theoretical_time);

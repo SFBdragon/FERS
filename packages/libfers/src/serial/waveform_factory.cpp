@@ -31,7 +31,6 @@
 #include "signal/radar_signal.h"
 
 using fers_signal::RadarSignal;
-using fers_signal::Signal;
 
 namespace
 {
@@ -80,10 +79,10 @@ namespace
 		serial::readPulseData(filepath.string(), data);
 		const unsigned sample_count = checked_sample_count(data.size(), filepath.string());
 
-		auto signal = std::make_unique<Signal>();
-		signal->load(data, sample_count, params::rate());
-		return std::make_unique<RadarSignal>(
-			name, power, carrierFreq, static_cast<RealType>(sample_count) / params::rate(), std::move(signal), id);
+		fers_signal::SampledSignal wave{};
+		wave.setFilename(name);
+		wave.load(data, sample_count, params::rate());
+		return std::make_unique<RadarSignal>(name, power, carrierFreq, std::move(wave), id);
 	}
 
 	/**
@@ -134,9 +133,10 @@ namespace
 			throw std::runtime_error("Could not read full waveform from file '" + filepath.string() + "'");
 		}
 
-		auto signal = std::make_unique<Signal>();
-		signal->load(data, length, rate);
-		return std::make_unique<RadarSignal>(name, power, carrierFreq, rlength / rate, std::move(signal), id);
+		fers_signal::SampledSignal signal{};
+		signal.setFilename(name);
+		signal.load(data, length, rate);
+		return std::make_unique<RadarSignal>(name, power, carrierFreq, std::move(signal), id);
 	}
 
 	/**
@@ -163,13 +163,11 @@ namespace serial
 		if (hasExtension(extension, ".csv"))
 		{
 			auto wave = loadWaveformFromCsvFile(name, filepath, power, carrierFreq, id);
-			wave->setFilename(filename);
 			return wave;
 		}
 		if (hasExtension(extension, ".h5"))
 		{
 			auto wave = loadWaveformFromHdf5File(name, filepath, power, carrierFreq, id);
-			wave->setFilename(filename);
 			return wave;
 		}
 

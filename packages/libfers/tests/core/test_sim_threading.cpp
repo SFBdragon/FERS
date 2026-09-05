@@ -1635,7 +1635,7 @@ TEST_CASE("SimulationEngine routeResponse handles null responses safely", "[core
 	ParamGuard const guard;
 	auto world = std::make_unique<core::World>();
 
-	// Put Tx and Rx on the EXACT SAME platform to force calculateResponse to return nullptr
+	// Put Tx and Rx on the EXACT SAME platform to force calculateResponses to return nullptr
 	// (Simulation skips direct path calculations for co-located far-field antennas).
 	auto plat = std::make_unique<radar::Platform>("SharedPlat", 200);
 	plat->getMotionPath()->addCoord(math::Coord{math::Vec3(0, 0, 0), 0});
@@ -1674,7 +1674,7 @@ TEST_CASE("SimulationEngine routeResponse handles null responses safely", "[core
 	pool::ThreadPool pool(1);
 	core::SimulationEngine engine(world.get(), pool, nullptr, ".");
 
-	// This will call calculateResponse, which returns nullptr because they share a platform,
+	// This will call calculateResponses, which returns nullptr because they share a platform,
 	// and then pass it to routeResponse. It should return early without crashing.
 	REQUIRE_NOTHROW(engine.handleTxPulsedStart(tx_ptr, 0.0));
 
