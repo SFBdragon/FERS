@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <queue>
+#include <stdexcept>
 #include <tuple>
 #include <vector>
 
@@ -37,8 +38,12 @@ namespace
 	void processResponse(const serial::Response* resp, std::vector<ComplexType>& localWindow, const RealType rate,
 						 const RealType start, const RealType fracDelay, const unsigned localWindowSize)
 	{
-		// TODO_SHAUN fixme
-		const auto array = resp->renderSlice(rate, start, std::size_t sampleCount, fracDelay);
+		const auto sample_count = static_cast<std::size_t>(std::ceil(resp->getRxDuration() * rate));
+		if (sample_count == 0)
+		{
+			throw std::logic_error("Response duration and output sample rate should always be nonzero.");
+		}
+		const auto array = resp->renderSlice(rate, resp->startTime(), sample_count, fracDelay);
 		int start_sample = static_cast<int>(std::round(rate * (resp->startTime() - start)));
 		const unsigned roffset = start_sample < 0 ? static_cast<unsigned>(-start_sample) : 0u;
 		start_sample = std::max(start_sample, 0);
