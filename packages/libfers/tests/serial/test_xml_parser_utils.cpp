@@ -72,10 +72,7 @@ namespace
 		serial::xml_parser_utils::AssetLoaders loaders;
 		loaders.loadWaveform =
 			[](const std::string& name, const std::filesystem::path&, RealType power, RealType carrierFreq, SimId id)
-		{
-			auto sig = std::make_unique<fers_signal::CwSignal>();
-			return std::make_unique<fers_signal::RadarSignal>(name, power, carrierFreq, 1.0, std::move(sig), id);
-		};
+		{ return std::make_unique<fers_signal::RadarSignal>(name, power, carrierFreq, fers_signal::CwSignal{}, id); };
 		loaders.loadXmlAntenna = [](const std::string& name, const std::string&, SimId id)
 		{ return std::make_unique<antenna::Isotropic>(name, id); };
 		loaders.loadH5Antenna = [](const std::string& name, const std::string&, SimId id)
@@ -429,7 +426,7 @@ TEST_CASE("parseWaveform validates FMCW chirp schema constraints", "[serial][xml
 		const auto* fmcw = wave->getFmcwChirpSignal();
 		REQUIRE(fmcw != nullptr);
 		REQUIRE(fmcw->isDownChirp());
-		REQUIRE_THAT(wave->getLength(), WithinAbs(1.0e-3, 1.0e-12));
+		REQUIRE_THAT(fmcw->getChirpDuration(), WithinAbs(1.0e-3, 1.0e-12));
 	}
 
 	SECTION("well-formed FMCW triangle waveform")
@@ -451,7 +448,7 @@ TEST_CASE("parseWaveform validates FMCW chirp schema constraints", "[serial][xml
 		const auto* triangle = wave->getFmcwTriangleSignal();
 		REQUIRE(triangle != nullptr);
 		REQUIRE(wave->isFmcwFamily());
-		REQUIRE_THAT(wave->getLength(), WithinAbs(2.0e-3, 1.0e-12));
+		REQUIRE_THAT(triangle->getTrianglePeriod(), WithinAbs(2.0e-3, 1.0e-12));
 		REQUIRE(triangle->getTriangleCount().has_value());
 		REQUIRE(triangle->getTriangleCount().value_or(0u) == 4u);
 	}
@@ -477,7 +474,7 @@ TEST_CASE("parseWaveform validates FMCW chirp schema constraints", "[serial][xml
 		const auto* sfcw = wave->getSteppedFrequencySignal();
 		REQUIRE(sfcw != nullptr);
 		REQUIRE(wave->isSteppedFrequency());
-		REQUIRE_THAT(wave->getLength(), WithinAbs(1.0e-4, 1.0e-12));
+		REQUIRE_THAT(sfcw->getDwellTime(), WithinAbs(1.0e-4, 1.0e-12));
 		REQUIRE_THAT(sfcw->getStartFrequencyOffset(), WithinAbs(-1.0e6, 1e-6));
 		REQUIRE_THAT(sfcw->getStepSize(), WithinAbs(2.0e5, 1e-9));
 		REQUIRE(sfcw->getStepCount() == 8u);
@@ -854,8 +851,7 @@ TEST_CASE("parseTransmitter resolves references and builds object with schedule"
 	ctx.master_seeder = &seeder;
 
 	// Populate dependencies
-	auto wave =
-		std::make_unique<fers_signal::RadarSignal>("w1", 1.0, 1e9, 1.0, std::make_unique<fers_signal::CwSignal>(), 10);
+	auto wave = std::make_unique<fers_signal::RadarSignal>("w1", 1.0, 1e9, fers_signal::CwSignal{}, 10);
 	auto ant = std::make_unique<antenna::Isotropic>("a1", 20);
 	auto tim = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	tim->setFrequency(1e6);
@@ -898,8 +894,8 @@ TEST_CASE("parseTransmitter rejects FMCW waveform and mode mismatches", "[serial
 	ctx.world = &world;
 	ctx.master_seeder = &seeder;
 
-	auto fmcw_signal = std::make_unique<fers_signal::FmcwChirpSignal>(1.0e6, 1.0e-3, 1.0e-3);
-	world.add(std::make_unique<fers_signal::RadarSignal>("fmcw_wave", 1.0, 1e9, 1.0e-3, std::move(fmcw_signal), 10));
+	world.add(std::make_unique<fers_signal::RadarSignal>("fmcw_wave", 1.0, 1e9,
+														 fers_signal::FmcwChirpSignal(1.0e6, 1.0e-3, 1.0e-3), 10));
 	world.add(std::make_unique<antenna::Isotropic>("a1", 20));
 	auto timing_proto = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	timing_proto->setFrequency(1e6);
@@ -948,8 +944,8 @@ TEST_CASE("parseTransmitter accepts native SFCW mode and rejects invalid SFCW bl
 	ctx.world = &world;
 	ctx.master_seeder = &seeder;
 
-	auto sfcw_signal = std::make_unique<fers_signal::SteppedFrequencySignal>(0.0, 1.0e5, 4, 1.0e-4, 2.0e-4);
-	world.add(std::make_unique<fers_signal::RadarSignal>("sfcw_wave", 1.0, 1e9, 1.0e-4, std::move(sfcw_signal), 10));
+	world.add(std::make_unique<fers_signal::RadarSignal>(
+		"sfcw_wave", 1.0, 1e9, fers_signal::SteppedFrequencySignal(0.0, 1.0e5, 4, 1.0e-4, 2.0e-4), 10));
 	world.add(std::make_unique<antenna::Isotropic>("a1", 20));
 	auto timing_proto = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	timing_proto->setFrequency(1e6);
@@ -996,8 +992,8 @@ TEST_CASE("parseTransmitter validates FMCW schedule duration against chirp timin
 	ctx.world = &world;
 	ctx.master_seeder = &seeder;
 
-	auto fmcw_signal = std::make_unique<fers_signal::FmcwChirpSignal>(1.0e6, 1.0e-3, 2.0e-3);
-	world.add(std::make_unique<fers_signal::RadarSignal>("fmcw_wave", 1.0, 1e9, 1.0e-3, std::move(fmcw_signal), 10));
+	world.add(std::make_unique<fers_signal::RadarSignal>("fmcw_wave", 1.0, 1e9,
+														 fers_signal::FmcwChirpSignal(1.0e6, 1.0e-3, 2.0e-3), 10));
 	world.add(std::make_unique<antenna::Isotropic>("a1", 20));
 	auto timing_proto = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	timing_proto->setFrequency(1e6);
@@ -1213,8 +1209,7 @@ TEST_CASE("parseMonostatic reuses one shared timing instance for a common timing
 	ctx.world = &world;
 	ctx.master_seeder = &seeder;
 
-	world.add(
-		std::make_unique<fers_signal::RadarSignal>("w1", 1.0, 1e9, 1.0, std::make_unique<fers_signal::CwSignal>(), 10));
+	world.add(std::make_unique<fers_signal::RadarSignal>("w1", 1.0, 1e9, fers_signal::CwSignal{}, 10));
 	world.add(std::make_unique<antenna::Isotropic>("a1", 20));
 	auto timing_proto = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	timing_proto->setFrequency(1e6);
@@ -1252,8 +1247,8 @@ TEST_CASE("parseMonostatic derives FMCW mode from the monostatic block without r
 	ctx.world = &world;
 	ctx.master_seeder = &seeder;
 
-	auto fmcw_signal = std::make_unique<fers_signal::FmcwChirpSignal>(1.0e6, 1.0e-3, 1.0e-3);
-	world.add(std::make_unique<fers_signal::RadarSignal>("w1", 1.0, 1e9, 1.0e-3, std::move(fmcw_signal), 10));
+	world.add(std::make_unique<fers_signal::RadarSignal>("w1", 1.0, 1e9,
+														 fers_signal::FmcwChirpSignal(1.0e6, 1.0e-3, 1.0e-3), 10));
 	world.add(std::make_unique<antenna::Isotropic>("a1", 20));
 	auto timing_proto = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	timing_proto->setFrequency(1e6);

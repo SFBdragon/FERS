@@ -2,8 +2,6 @@
 // TODO
 //
 
-#pragma once
-
 #include "pointscatter.h"
 
 #include <cstdint>
@@ -256,9 +254,8 @@ namespace propagation::pointscatter
 		return timesteps;
 	};
 
-	std::vector<PropagationPath>
-	PointScatterModel::findRxFromTxPaths(radar::Receiver* receiver,
-										 const std::vector<core::ActiveStreamingSource> sources, RealType rx_time) const
+	std::vector<PropagationPath> PointScatterModel::findRxFromTxPaths(
+		radar::Receiver* receiver, const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const
 	{
 		std::vector<PropagationPath> paths;
 

@@ -2,8 +2,6 @@
 // TODO
 //
 
-#pragma once
-
 #include "raytracing.h"
 
 #include <vector>
@@ -44,7 +42,7 @@ namespace propagation::raytracing
 
 	std::vector<PropagationPath>
 	RayTracingModel::findRxFromTxPaths(radar::Receiver* receiver,
-									   const std::vector<core::ActiveStreamingSource> sources, RealType rx_time) const
+									   const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const
 	{
 		std::vector<PropagationPath> paths;
 

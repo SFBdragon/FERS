@@ -27,14 +27,15 @@ namespace serial
 	std::vector<ComplexType> Response::render(const RealType fracWinDelay) const
 	{
 		auto amplitude = std::sqrt(_signal->getPower());
-		return _wave->render(_points, fracWinDelay, amplitude);
+		return _wave->render(taperedPoints(), _points.front().rx_time, fracWinDelay, amplitude);
 	}
 
 	std::vector<ComplexType> Response::renderSlice(const RealType outputRate, const RealType outputStartTime,
 												   const std::size_t sampleCount, const RealType fracWinDelay) const
 	{
 		auto amplitude = std::sqrt(_signal->getPower());
-		return _wave->renderSlice(_points, outputStartTime, outputRate, sampleCount, fracWinDelay, amplitude);
+		return _wave->renderSlice(taperedPoints(), _points.front().rx_time, outputStartTime, outputRate, sampleCount,
+								  fracWinDelay, amplitude);
 	}
 
 	RealType Response::sampleRate() const noexcept { return _wave->getRate(); }

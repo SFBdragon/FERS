@@ -19,7 +19,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <limits>
 #include <memory>
 #include <string_view>
 #include <unordered_map>
@@ -221,17 +220,6 @@ namespace
 			}
 		}
 		return false;
-	}
-
-	/// Builds a compatibility streaming-source cache for classic CW paths.
-	core::ActiveStreamingSource makeClassicStreamingSource(const Transmitter* trans)
-	{
-		auto source = core::makeActiveSource(trans, params::startTime(), std::numeric_limits<RealType>::max());
-		if (source.kind == core::StreamingWaveformKind::Cw)
-		{
-			source.segment_start = std::numeric_limits<RealType>::lowest();
-		}
-		return source;
 	}
 
 	bool computeLinearFmcwPhaseWithoutTracker(const core::ActiveStreamingSource& source, const RealType t_ret,
@@ -653,7 +641,6 @@ namespace simulation
 												.delay = path.delay,
 												.phase_delay = phase_delay};
 
-
 				auto key = ReceiverKey{path.path_id, path.receiver};
 				if (responses.contains(key))
 				{
@@ -666,15 +653,16 @@ namespace simulation
 				}
 				else
 				{
-					auto response = std::make_unique<serial::Response>(tx.getSignal(), point);
-					responses.insert({key, std::move(response)});
+					responses.insert({
+						key,
+						std::make_unique<serial::Response>(tx.getSignal(), point),
+					});
 				}
 			}
 		}
 
 		for (auto& [k, response] : responses)
 		{
-			response->finishResponse();
 			routeResponse(k.receiver, std::move(response));
 		}
 		responses.clear(); // To be explicit: the items are invalidated by the above.

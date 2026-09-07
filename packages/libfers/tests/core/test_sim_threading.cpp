@@ -4,6 +4,7 @@
 #include <complex>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -23,6 +24,8 @@
 #include "math/geometry_ops.h"
 #include "math/path.h"
 #include "math/rotation_path.h"
+#include "propagation/pointscatter/pointscatter.h"
+#include "propagation/propagation_model.h"
 #include "radar/platform.h"
 #include "radar/receiver.h"
 #include "radar/target.h"
@@ -148,35 +151,36 @@ namespace
 		return timeline;
 	}
 
-	struct FixedSignal final : public fers_signal::Signal
-	{
-		std::vector<ComplexType> data;
-
-		std::vector<ComplexType> render(const std::vector<interp::InterpPoint>&, unsigned& size,
-										RealType) const override
-		{
-			size = static_cast<unsigned>(data.size());
-			return data;
-		}
-	};
-
+	// TODO_SHAUN remove?
+	// Builds a Response whose rendered content is verifiable by hand: one real control
+	// point per native sample (gain 1, zero delay/phase), starting exactly at start_time
+	// -- matching how the point-scatter model covers a whole pulse. Response pads a
+	// synthetic zero-gain taper sample one controlPointEdgePeriod() before start_time and
+	// one after the last real sample, so the rendered response is
+	// [0, samples[0], samples[1], ..., samples[n-1]] (length n + 1), starting at
+	// response->startTime() == start_time - controlPointEdgePeriod(). Callers must set
+	// params::setSimSamplingRate(sample_rate) so real points land on exact native sample
+	// boundaries.
 	std::unique_ptr<serial::Response>
-	makeFixedResponse(const radar::Transmitter* transmitter,
-					  std::vector<std::unique_ptr<fers_signal::RadarSignal>>& wave_store,
+	makeFixedResponse(std::vector<std::unique_ptr<fers_signal::RadarSignal>>& wave_store,
 					  const std::vector<ComplexType>& samples, const RealType sample_rate, const RealType start_time)
 	{
-		auto signal = std::make_unique<FixedSignal>();
-		signal->data = samples;
-		signal->load(samples, static_cast<unsigned>(samples.size()), sample_rate);
+		fers_signal::SampledSignal sampled;
+		sampled.load(samples, static_cast<unsigned>(samples.size()), sample_rate);
 
-		auto wave = std::make_unique<fers_signal::RadarSignal>(
-			"fixed_wave", 1.0, 1.0e9, static_cast<RealType>(samples.size()) / sample_rate, std::move(signal));
+		auto wave = std::make_unique<fers_signal::RadarSignal>("fixed_wave", 1.0, 1.0e9, std::move(sampled));
 		const auto* wave_ptr = wave.get();
 		wave_store.push_back(std::move(wave));
 
-		auto response = std::make_unique<serial::Response>(wave_ptr, transmitter);
-		response->addInterpPoint({1.0, start_time, 0.0, 0.0});
-		response->addInterpPoint({1.0, start_time + static_cast<RealType>(samples.size() - 1) / sample_rate, 0.0, 0.0});
+		const interp::InterpPoint first{.gain = 1.0, .rx_time = start_time, .delay = 0.0, .phase_delay = 0.0};
+		auto response = std::make_unique<serial::Response>(wave_ptr, first);
+		for (std::size_t i = 1; i < samples.size(); ++i)
+		{
+			response->addInterpPoint({.gain = 1.0,
+									  .rx_time = start_time + static_cast<RealType>(i) / sample_rate,
+									  .delay = 0.0,
+									  .phase_delay = 0.0});
+		}
 		return response;
 	}
 
@@ -237,8 +241,7 @@ namespace
 		auto timing = std::make_shared<timing::Timing>("ClockInstance", 214);
 		timing->initializeModel(proto_timing.get());
 		auto antenna = std::make_unique<antenna::Isotropic>("IsoAnt", 215);
-		auto signal = std::make_unique<fers_signal::RadarSignal>("CWWave", 1.0, 1.0e6, 1.0,
-																 std::make_unique<fers_signal::CwSignal>(), 216);
+		auto signal = std::make_unique<fers_signal::RadarSignal>("CWWave", 1.0, 1.0e6, fers_signal::CwSignal{}, 216);
 
 		auto tx = std::make_unique<radar::Transmitter>(tx_plat.get(), "Tx", radar::OperationMode::CW_MODE, 217);
 		tx->setTiming(timing);
@@ -333,8 +336,7 @@ namespace
 		auto antenna = std::make_unique<antenna::Isotropic>("IsoAnt", 2);
 
 		// Setup Signal (1 Watt CW)
-		auto signal = std::make_unique<fers_signal::RadarSignal>("CWWave", 1.0, 1e9, 1.0,
-																 std::make_unique<fers_signal::CwSignal>(), 3);
+		auto signal = std::make_unique<fers_signal::RadarSignal>("CWWave", 1.0, 1e9, fers_signal::CwSignal{}, 3);
 
 		// Setup Transmitter
 		auto tx = std::make_unique<radar::Transmitter>(tx_plat.get(), "Tx", radar::OperationMode::CW_MODE, 4);
@@ -378,8 +380,8 @@ namespace
 		timing->initializeModel(timing_proto.get());
 		auto antenna = std::make_unique<antenna::Isotropic>("FmcwAntenna", 102);
 		auto* antenna_ptr = antenna.get();
-		auto fmcw = std::make_unique<fers_signal::FmcwChirpSignal>(1.0e6, 0.04, 0.1, 0.0, chirp_count);
-		auto wave = std::make_unique<fers_signal::RadarSignal>("FmcwWave", 10.0, 1.0e9, 0.04, std::move(fmcw), 103);
+		auto wave = std::make_unique<fers_signal::RadarSignal>(
+			"FmcwWave", 10.0, 1.0e9, fers_signal::FmcwChirpSignal(1.0e6, 0.04, 0.1, 0.0, chirp_count), 103);
 		auto* wave_ptr = wave.get();
 		auto transmitter =
 			std::make_unique<radar::Transmitter>(platform_ptr, "FmcwTx", radar::OperationMode::FMCW_MODE, 104);
@@ -450,8 +452,8 @@ TEST_CASE("makeActiveSource caches streaming scalars and clips FMCW chirp count"
 	radar::Transmitter tx(&platform, "FmcwTx", radar::OperationMode::FMCW_MODE, 101);
 	tx.setAntenna(&antenna);
 	tx.setTiming(timing);
-	auto fmcw_signal = std::make_unique<fers_signal::FmcwChirpSignal>(20.0e6, 100.0e-6, 250.0e-6, 1.0e6, 1000);
-	fers_signal::RadarSignal wave("FmcwWave", 16.0, 10.0e9, 100.0e-6, std::move(fmcw_signal), 301);
+	fers_signal::RadarSignal wave("FmcwWave", 16.0, 10.0e9,
+								  fers_signal::FmcwChirpSignal(20.0e6, 100.0e-6, 250.0e-6, 1.0e6, 1000), 301);
 	tx.setSignal(&wave);
 
 	const core::ActiveStreamingSource source = core::makeActiveSource(&tx, 5.0, 65.0);
@@ -484,9 +486,10 @@ TEST_CASE("makeActiveSource caches signed FMCW down-chirp coefficient", "[core][
 	radar::Transmitter tx(&platform, "FmcwTx", radar::OperationMode::FMCW_MODE, 101);
 	tx.setAntenna(&antenna);
 	tx.setTiming(timing);
-	auto fmcw_signal = std::make_unique<fers_signal::FmcwChirpSignal>(20.0e6, 100.0e-6, 250.0e-6, 1.0e6, std::nullopt,
-																	  fers_signal::FmcwChirpDirection::Down);
-	fers_signal::RadarSignal wave("FmcwWave", 16.0, 10.0e9, 100.0e-6, std::move(fmcw_signal), 301);
+	fers_signal::RadarSignal wave("FmcwWave", 16.0, 10.0e9,
+								  fers_signal::FmcwChirpSignal(20.0e6, 100.0e-6, 250.0e-6, 1.0e6, std::nullopt,
+															   fers_signal::FmcwChirpDirection::Down),
+								  301);
 	tx.setSignal(&wave);
 
 	const core::ActiveStreamingSource source = core::makeActiveSource(&tx, 5.0, 65.0);
@@ -616,6 +619,15 @@ TEST_CASE("SimulationEngine handles Tx Pulsed Start and routes responses", "[cor
 	auto* tx = world->getTransmitters().front().get();
 	auto* cw_rx = world->getReceivers().front().get();
 
+	// createPhysicsWorld()'s transmitter carries a CwSignal, which calculateResponses
+	// deliberately refuses (Response requires an isSampled() RadarSignal). Swap in a
+	// SampledSignal for this test, to exercise pulsed response generation/routing.
+	fers_signal::SampledSignal sampled_wave;
+	sampled_wave.load(std::vector<ComplexType>{ComplexType{1.0, 0.0}, ComplexType{1.0, 0.0}}, 2, 1000.0);
+	fers_signal::RadarSignal pulsed_signal("PulsedWave", 1.0, 1e9, std::move(sampled_wave), 7);
+	tx->setSignal(&pulsed_signal);
+	tx->setMode(radar::OperationMode::PULSED_MODE);
+
 	// Add a pulsed receiver to test routing to inbox
 	auto pulsed_rx_plat = std::make_unique<radar::Platform>("PulsedRxPlat", 30);
 	pulsed_rx_plat->getMotionPath()->addCoord(math::Coord{math::Vec3(200.0, 0.0, 0.0), 0.0});
@@ -694,8 +706,15 @@ TEST_CASE("SimulationEngine calculates mathematically correct CW physics", "[cor
 		ComplexType const expected_refl = std::polar(expected_refl_amp, expected_phase);
 		ComplexType const expected_total = expected_direct + expected_refl;
 
-		ComplexType const actual_total = simulation::calculateDirectPathContribution(tx, rx, 0.0) +
-			simulation::calculateReflectedPathContribution(tx, rx, world->getTargets().front().get(), 0.0);
+		const propagation::pointscatter::PointScatterModel prop(world.get());
+		const std::vector<core::ActiveStreamingSource> sources = {
+			core::makeActiveSource(tx, 0.0, std::numeric_limits<RealType>::max())};
+
+		ComplexType actual_total{0.0, 0.0};
+		for (const auto& path : prop.findRxFromTxPaths(rx, sources, 0.0))
+		{
+			actual_total += std::polar(std::sqrt(path.gain), -2.0 * PI * tx->getSignal()->getCarrier() * path.delay);
+		}
 
 		REQUIRE_THAT(actual_total.real(), WithinAbs(expected_total.real(), 1e-12));
 		REQUIRE_THAT(actual_total.imag(), WithinAbs(expected_total.imag(), 1e-12));
@@ -831,6 +850,7 @@ TEST_CASE("SimulationEngine streaming output applies logged pulsed interference 
 	ParamGuard const guard;
 	params::setRate(4.0);
 	params::setOversampleRatio(1);
+	params::setSimSamplingRate(4.0);
 	params::setTime(0.0, 1.0);
 
 	auto world = createPhysicsWorld();
@@ -838,14 +858,13 @@ TEST_CASE("SimulationEngine streaming output applies logged pulsed interference 
 	RecordingOutputSink sink;
 	core::SimulationEngine engine(world.get(), pool, nullptr, ".", nullptr, &sink);
 
-	auto* tx = world->getTransmitters().front().get();
 	auto* rx = world->getReceivers().front().get();
 	rx->setNoiseTemperature(0.0);
 	rx->setActive(true);
 
 	std::vector<std::unique_ptr<fers_signal::RadarSignal>> wave_store;
 	rx->addInterferenceToLog(
-		makeFixedResponse(tx, wave_store, {ComplexType{1.0, 0.0}, ComplexType{1.0, 0.0}}, params::rate(), 0.25));
+		makeFixedResponse(wave_store, {ComplexType{1.0, 0.0}, ComplexType{1.0, 0.0}}, params::rate(), 0.25));
 
 	world->getSimulationState().t_current = 0.0;
 	engine.processStreamingPhysics(1.0);
@@ -853,9 +872,12 @@ TEST_CASE("SimulationEngine streaming output applies logged pulsed interference 
 
 	const auto samples = outputTimeline(sink);
 	REQUIRE(samples.size() == 4u);
+	// The response (see makeFixedResponse) renders as [0, 1.0, 1.0] starting at
+	// response->startTime() == 0.25 - edge == 0.0 (edge == 1/rate == 0.25); its real
+	// content lands at timeline index 1.
 	REQUIRE_THAT(samples[0].real(), WithinAbs(0.0, 1e-12));
 	REQUIRE_THAT(samples[1].real(), WithinAbs(1.0, 1e-12));
-	REQUIRE_THAT(samples[2].real(), WithinAbs(1.0, 1e-12));
+	REQUIRE_THAT(samples[2].real(), WithinAbs(0.0, 1e-12));
 	REQUIRE_THAT(samples[3].real(), WithinAbs(0.0, 1e-12));
 }
 
@@ -1133,8 +1155,7 @@ TEST_CASE("SimulationEngine processStreamingPhysics uses buffered shared timing 
 	const auto lookup = makeLookup(timing);
 
 	auto antenna = std::make_unique<antenna::Isotropic>("IsoAnt", 2);
-	auto signal = std::make_unique<fers_signal::RadarSignal>("CWWave", 1.0, 1.0, 1.0,
-															 std::make_unique<fers_signal::CwSignal>(), 3);
+	auto signal = std::make_unique<fers_signal::RadarSignal>("CWWave", 1.0, 1.0, fers_signal::CwSignal{}, 3);
 
 	auto tx = std::make_unique<radar::Transmitter>(tx_plat.get(), "Tx", radar::OperationMode::CW_MODE, 4);
 	tx->setTiming(timing);
@@ -1166,7 +1187,14 @@ TEST_CASE("SimulationEngine processStreamingPhysics uses buffered shared timing 
 	engine.processStreamingPhysics(0.6);
 	engine.handleRxStreamingEnd(rx_ptr);
 
-	const ComplexType expected = simulation::calculateDirectPathContribution(tx_ptr, rx_ptr, 0.5, &lookup);
+	const propagation::pointscatter::PointScatterModel prop(world.get());
+	const std::vector<core::ActiveStreamingSource> sources = {
+		core::makeActiveSource(tx_ptr, params::startTime(), params::endTime())};
+	ComplexType expected{0.0, 0.0};
+	for (const auto& path : prop.findRxFromTxPaths(rx_ptr, sources, 0.5))
+	{
+		expected += simulation::calculateStreamingPathContribution(*path.source, rx_ptr, path, 0.5, &lookup);
+	}
 	const ComplexType actual = sampleAt(sink, 5);
 
 	REQUIRE_THAT(actual.real(), WithinAbs(expected.real(), 1e-6));
@@ -1196,8 +1224,7 @@ TEST_CASE("SimulationEngine phase-noise lookup covers pre-start retarded streami
 	const auto expected_lookup = simulation::CwPhaseNoiseLookup::build(timings, -0.2, params::endTime());
 
 	auto antenna = std::make_unique<antenna::Isotropic>("IsoAnt", 2);
-	auto signal = std::make_unique<fers_signal::RadarSignal>("CWWave", 1.0, 1.0, 1.0,
-															 std::make_unique<fers_signal::CwSignal>(), 3);
+	auto signal = std::make_unique<fers_signal::RadarSignal>("CWWave", 1.0, 1.0, fers_signal::CwSignal{}, 3);
 	auto tx = std::make_unique<radar::Transmitter>(tx_plat.get(), "Tx", radar::OperationMode::CW_MODE, 4);
 	tx->setTiming(timing);
 	tx->setAntenna(antenna.get());
@@ -1225,7 +1252,13 @@ TEST_CASE("SimulationEngine phase-noise lookup covers pre-start retarded streami
 	engine.processStreamingPhysics(0.2);
 	engine.handleRxStreamingEnd(rx_ptr);
 
-	const ComplexType expected = simulation::calculateDirectPathContribution(tx_ptr, rx_ptr, 0.1, &expected_lookup);
+	const propagation::pointscatter::PointScatterModel prop(world.get());
+	const std::vector<core::ActiveStreamingSource> sources = {core::makeActiveSource(tx_ptr, -0.2, params::endTime())};
+	ComplexType expected{0.0, 0.0};
+	for (const auto& path : prop.findRxFromTxPaths(rx_ptr, sources, 0.1))
+	{
+		expected += simulation::calculateStreamingPathContribution(*path.source, rx_ptr, path, 0.1, &expected_lookup);
+	}
 	const ComplexType actual = sampleAt(sink, 1);
 	REQUIRE_THAT(actual.real(), WithinAbs(expected.real(), 1.0e-6));
 	REQUIRE_THAT(actual.imag(), WithinAbs(expected.imag(), 1.0e-6));
@@ -1257,9 +1290,8 @@ TEST_CASE("SimulationEngine native FMCW dechirp produces positive stationary-tar
 	auto timing = std::make_shared<timing::Timing>("ClockInstance", 42, 1);
 	timing->initializeModel(timing_proto.get());
 	auto antenna = std::make_unique<antenna::Isotropic>("IsoAnt", 2);
-	auto fmcw = std::make_unique<fers_signal::FmcwChirpSignal>(chirp_bandwidth, chirp_duration, chirp_duration);
-	auto signal =
-		std::make_unique<fers_signal::RadarSignal>("FmcwWave", 1.0, 10.0e6, chirp_duration, std::move(fmcw), 3);
+	auto signal = std::make_unique<fers_signal::RadarSignal>(
+		"FmcwWave", 1.0, 10.0e6, fers_signal::FmcwChirpSignal(chirp_bandwidth, chirp_duration, chirp_duration), 3);
 
 	auto tx = std::make_unique<radar::Transmitter>(radar_platform.get(), "Tx", radar::OperationMode::FMCW_MODE, 4);
 	tx->setTiming(timing);
@@ -1349,9 +1381,8 @@ TEST_CASE("SimulationEngine physical FMCW dechirp keeps timing decorrelation abs
 		auto timing = std::make_shared<timing::Timing>("ClockInstance", 42, 1);
 		timing->initializeModel(timing_proto.get());
 		auto antenna = std::make_unique<antenna::Isotropic>("IsoAnt", 2);
-		auto fmcw = std::make_unique<fers_signal::FmcwChirpSignal>(1.0e6, chirp_duration, chirp_duration);
-		auto signal =
-			std::make_unique<fers_signal::RadarSignal>("FmcwWave", 1.0, 10.0e6, chirp_duration, std::move(fmcw), 3);
+		auto signal = std::make_unique<fers_signal::RadarSignal>(
+			"FmcwWave", 1.0, 10.0e6, fers_signal::FmcwChirpSignal(1.0e6, chirp_duration, chirp_duration), 3);
 
 		auto tx = std::make_unique<radar::Transmitter>(radar_platform.get(), "Tx", radar::OperationMode::FMCW_MODE, 4);
 		tx->setTiming(timing);
@@ -1648,8 +1679,7 @@ TEST_CASE("SimulationEngine routeResponse handles null responses safely", "[core
 	timing->initializeModel(proto_timing.get());
 
 	auto antenna = std::make_unique<antenna::Isotropic>("IsoAnt", 202);
-	auto signal = std::make_unique<fers_signal::RadarSignal>("CWWave", 1.0, 1e9, 1.0,
-															 std::make_unique<fers_signal::CwSignal>(), 203);
+	auto signal = std::make_unique<fers_signal::RadarSignal>("CWWave", 1.0, 1e9, fers_signal::CwSignal{}, 203);
 
 	auto tx = std::make_unique<radar::Transmitter>(plat.get(), "Tx", radar::OperationMode::PULSED_MODE, 204);
 	tx->setTiming(timing);

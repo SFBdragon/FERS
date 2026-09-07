@@ -184,9 +184,8 @@ namespace
 		for (size_t i = 0; i < 20; ++i)
 		{
 			SimId const w_id = SimIdGenerator::instance().generateId(ObjectType::Waveform);
-			auto sig = std::make_unique<fers_signal::CwSignal>();
 			auto wave = std::make_unique<fers_signal::RadarSignal>("wave_" + std::to_string(i), dist_real(rng),
-																   1e9 + dist_real(rng), 1.0, std::move(sig), w_id);
+																   1e9 + dist_real(rng), fers_signal::CwSignal{}, w_id);
 			world.add(std::move(wave));
 			wave_ids.push_back(w_id);
 

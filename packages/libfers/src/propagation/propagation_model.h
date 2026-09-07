@@ -103,7 +103,7 @@ namespace propagation
 																	   RealType start_tx_time) const = 0;
 
 		[[nodiscard]] virtual std::vector<PropagationPath>
-		findRxFromTxPaths(radar::Receiver* receiver, const std::vector<core::ActiveStreamingSource> sources,
+		findRxFromTxPaths(radar::Receiver* receiver, const std::vector<core::ActiveStreamingSource>& sources,
 						  RealType rx_time) const = 0;
 	};
 

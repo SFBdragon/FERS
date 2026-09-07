@@ -130,8 +130,7 @@ namespace
 
 	void populateSerializableAssetsWorld(core::World& world)
 	{
-		auto cw = std::make_unique<fers_signal::CwSignal>();
-		world.add(std::make_unique<fers_signal::RadarSignal>("CwWave", 10.0, 1e9, 1.0, std::move(cw), 10));
+		world.add(std::make_unique<fers_signal::RadarSignal>("CwWave", 10.0, 1e9, fers_signal::CwSignal{}, 10));
 		world.add(std::make_unique<antenna::Gaussian>("gauss", 1.5, 2.5, 20));
 
 		auto proto_tim = std::make_unique<timing::PrototypeTiming>("dummy_proto", 104);
@@ -995,8 +994,7 @@ TEST_CASE("JSON: Monostatic Radar Serialization", "[serial][json]")
 	core::World w;
 
 	// Assets
-	auto cw = std::make_unique<fers_signal::CwSignal>();
-	w.add(std::make_unique<fers_signal::RadarSignal>("MonoWave", 1.0, 1e9, 1.0, std::move(cw), 210));
+	w.add(std::make_unique<fers_signal::RadarSignal>("MonoWave", 1.0, 1e9, fers_signal::CwSignal{}, 210));
 	w.add(std::make_unique<antenna::Isotropic>("MonoAnt", 220));
 	auto proto_tim = std::make_unique<timing::PrototypeTiming>("MonoProto", 230);
 	proto_tim->setFrequency(10e6);
@@ -1067,8 +1065,7 @@ TEST_CASE("JSON: Granular updates of Radar Components and Timing", "[serial][jso
 	std::mt19937 seeder(42);
 
 	// Setup basic assets
-	auto wf = std::make_unique<fers_signal::RadarSignal>("wf1", 10.0, 1e9, 1.0,
-														 std::make_unique<fers_signal::CwSignal>(), 10);
+	auto wf = std::make_unique<fers_signal::RadarSignal>("wf1", 10.0, 1e9, fers_signal::CwSignal{}, 10);
 	w.add(std::move(wf));
 
 	auto ant = std::make_unique<antenna::Isotropic>("ant1", 20);
@@ -1287,11 +1284,10 @@ TEST_CASE("JSON: Granular updates of Monostatic Radar", "[serial][json]")
 	auto ant = std::make_unique<antenna::Isotropic>("ant1", 20);
 	w.add(std::move(ant));
 
-	auto wf = std::make_unique<fers_signal::RadarSignal>("wf1", 10.0, 1e9, 1.0,
-														 std::make_unique<fers_signal::CwSignal>(), 10);
+	auto wf = std::make_unique<fers_signal::RadarSignal>("wf1", 10.0, 1e9, fers_signal::CwSignal{}, 10);
 	w.add(std::move(wf));
-	auto fmcw_wf = std::make_unique<fers_signal::RadarSignal>(
-		"wf_fmcw", 10.0, 1e9, 0.1, std::make_unique<fers_signal::FmcwChirpSignal>(100.0, 0.1, 0.2), 11);
+	auto fmcw_wf = std::make_unique<fers_signal::RadarSignal>("wf_fmcw", 10.0, 1e9,
+															  fers_signal::FmcwChirpSignal(100.0, 0.1, 0.2), 11);
 	w.add(std::move(fmcw_wf));
 
 	auto p = std::make_unique<radar::Platform>("p1", 100);

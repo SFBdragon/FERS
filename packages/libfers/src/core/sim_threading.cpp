@@ -35,6 +35,7 @@
 #include "processing/finalizer.h"
 #include "processing/finalizer_pipeline.h"
 #include "processing/signal_processor.h"
+#include "propagation/pointscatter/pointscatter.h"
 #include "propagation/propagation_model.h"
 #include "radar/receiver.h"
 #include "radar/target.h"
@@ -816,11 +817,11 @@ namespace core
 									   std::shared_ptr<OutputMetadataCollector> metadata_collector,
 									   ReceiverOutputSink* output_sink, std::function<bool()> cancel_callback,
 									   const bool eager_context_stream_open) :
-		_world(world), _pool(pool), _reporter(std::move(reporter)), _metadata_collector(std::move(metadata_collector)),
-		_output_sink(output_sink), _cancel_callback(std::move(cancel_callback)),
-		_eager_context_stream_open(eager_context_stream_open), _last_report_time(std::chrono::steady_clock::now()),
-		_next_context_heartbeat_time(params::startTime() + 1.0), _output_dir(std::move(output_dir)),
-		_internal_stop_time(params::endTime())
+		_world(world), _pool(pool), _propagation(std::make_shared<propagation::pointscatter::PointScatterModel>(world)),
+		_reporter(std::move(reporter)), _metadata_collector(std::move(metadata_collector)), _output_sink(output_sink),
+		_cancel_callback(std::move(cancel_callback)), _eager_context_stream_open(eager_context_stream_open),
+		_last_report_time(std::chrono::steady_clock::now()), _next_context_heartbeat_time(params::startTime() + 1.0),
+		_output_dir(std::move(output_dir)), _internal_stop_time(params::endTime())
 	{
 		_streaming_tracker_caches.resize(_world->getReceivers().size());
 		_if_pulse_tracker_caches.resize(_world->getReceivers().size());

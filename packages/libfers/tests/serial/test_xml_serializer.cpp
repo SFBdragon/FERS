@@ -145,8 +145,7 @@ TEST_CASE("serializeWaveform processes CW and Pulsed correctly", "[serial][xml_s
 
 	SECTION("CW Mode")
 	{
-		auto sig = std::make_unique<fers_signal::CwSignal>();
-		fers_signal::RadarSignal const wave("w1", 10.0, 1e9, 1.0, std::move(sig));
+		fers_signal::RadarSignal const wave("w1", 10.0, 1e9, fers_signal::CwSignal{});
 		serial::xml_serializer_utils::serializeWaveform(wave, root);
 		std::string s = dumpElement(root);
 		REQUIRE_THAT(s, ContainsSubstring("name=\"w1\""));
@@ -155,9 +154,9 @@ TEST_CASE("serializeWaveform processes CW and Pulsed correctly", "[serial][xml_s
 
 	SECTION("Pulsed Mode File")
 	{
-		auto sig = std::make_unique<fers_signal::Signal>(); // Implies NOT CwSignal
-		fers_signal::RadarSignal wave("w2", 20.0, 2e9, 1.0, std::move(sig));
-		wave.setFilename("pulse.csv");
+		fers_signal::SampledSignal sampled;
+		sampled.setFilename("pulse.csv");
+		fers_signal::RadarSignal wave("w2", 20.0, 2e9, std::move(sampled));
 		serial::xml_serializer_utils::serializeWaveform(wave, root);
 		std::string s = dumpElement(root);
 		REQUIRE_THAT(s, ContainsSubstring("name=\"w2\""));
@@ -166,8 +165,7 @@ TEST_CASE("serializeWaveform processes CW and Pulsed correctly", "[serial][xml_s
 
 	SECTION("Pulsed Missing Filename safely defaults")
 	{
-		auto sig = std::make_unique<fers_signal::Signal>();
-		fers_signal::RadarSignal const wave("w3", 20.0, 2e9, 1.0, std::move(sig));
+		fers_signal::RadarSignal const wave("w3", 20.0, 2e9, fers_signal::SampledSignal{});
 		serial::xml_serializer_utils::serializeWaveform(wave, root);
 		std::string s = dumpElement(root);
 		REQUIRE_THAT(s, ContainsSubstring("<pulsed_from_file filename=\"\"/>"));
@@ -185,9 +183,9 @@ TEST_CASE("serializeWaveform round trips FMCW linear chirp direction", "[serial]
 	XmlElement const root = XmlElement::create("waveform");
 	doc.setRootElement(root);
 
-	auto sig = std::make_unique<fers_signal::FmcwChirpSignal>(1.0e6, 1.0e-3, 1.0e-3, 0.0, std::nullopt,
-															  fers_signal::FmcwChirpDirection::Down);
-	fers_signal::RadarSignal const wave("down", 20.0, 2e9, 1.0e-3, std::move(sig));
+	fers_signal::RadarSignal const wave(
+		"down", 20.0, 2e9,
+		fers_signal::FmcwChirpSignal(1.0e6, 1.0e-3, 1.0e-3, 0.0, std::nullopt, fers_signal::FmcwChirpDirection::Down));
 
 	serial::xml_serializer_utils::serializeWaveform(wave, root);
 	const std::string serialized = dumpElement(root);

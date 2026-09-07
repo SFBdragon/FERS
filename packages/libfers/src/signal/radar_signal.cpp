@@ -15,7 +15,6 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
-#include <iterator>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -24,7 +23,6 @@
 #include "core/config.h"
 #include "core/parameters.h"
 #include "dsp_filters.h"
-#include "interpolation/interpolation_filter.h"
 #include "interpolation/interpolation_point.h"
 
 namespace fers_signal
@@ -76,80 +74,17 @@ namespace fers_signal
 	}
 
 
-	std::vector<ComplexType> SampledSignal::render(const std::vector<interp::InterpPoint>& points,
-												   const double fracWinDelay, const RealType amplitudeScale) const
-	{
-		return renderSlice(points, points.front().rx_time, _rate, getSampleCount(), fracWinDelay, amplitudeScale);
-	}
-
-	std::vector<ComplexType> SampledSignal::renderSlice(const std::vector<interp::InterpPoint>& points,
-														const RealType outputStartTime, const RealType outputSampleRate,
-														const std::size_t sampleCount, const RealType fracWinDelay,
-														const RealType amplitudeScale) const
-	{
-		auto out = std::vector<ComplexType>(sampleCount);
-		if (getSampleCount() == 0 || _rate <= 0.0 || outputSampleRate <= 0.0 || points.empty())
-		{
-			return out;
-		}
-
-		const RealType timestep = 1.0 / outputSampleRate;
-		const int filt_length = static_cast<int>(params::renderFilterLength());
-		const auto& interp = interp::InterpFilter::getInstance();
-
-		auto iter = points.begin();
-		auto next = points.size() > 1 ? std::next(iter) : iter;
-		const RealType idelay = std::round(_rate * iter->delay);
-		RealType sample_time = outputStartTime;
-
-		for (std::size_t i = 0; i < sampleCount; ++i)
-		{
-			while (sample_time > next->rx_time && next != iter)
-			{
-				iter = next;
-				if (std::next(next) != points.end())
-				{
-					++next;
-				}
-				else
-				{
-					break;
-				}
-			}
-
-			auto [amplitude, phase, fdelay, i_sample_unwrap] =
-				calculateWeightsAndDelays(iter, next, sample_time, idelay, fracWinDelay, amplitudeScale);
-			const RealType native_position = (sample_time - points.front().rx_time) * _rate;
-			const auto source_index = static_cast<long>(std::floor(native_position));
-			RealType source_fraction = native_position - static_cast<RealType>(source_index);
-
-			const RealType combined_delay = fdelay + source_fraction;
-			const auto delay_unwrap = static_cast<int>(std::floor(combined_delay));
-			fdelay = combined_delay - static_cast<RealType>(delay_unwrap);
-			i_sample_unwrap += delay_unwrap;
-
-			const auto& filt = interp.getFilter(fdelay);
-			const ComplexType accum =
-				performConvolution(source_index, filt.data(), filt_length, amplitude, i_sample_unwrap);
-			out[i] = std::exp(ComplexType(0.0, 1.0) * phase) * accum;
-
-			sample_time += timestep;
-		}
-
-		return out;
-	}
-
 	std::tuple<RealType, RealType, RealType, long>
-	SampledSignal::calculateWeightsAndDelays(const std::vector<interp::InterpPoint>::const_iterator iter,
-											 const std::vector<interp::InterpPoint>::const_iterator next,
+	SampledSignal::calculateWeightsAndDelays(const interp::InterpPoint& iter, const interp::InterpPoint& next,
 											 const RealType sampleTime, const RealType idelay,
 											 const RealType fracWinDelay, const RealType amplitudeScale) const noexcept
 	{
-		const RealType bw = iter < next ? (sampleTime - iter->rx_time) / (next->rx_time - iter->rx_time) : 0.0;
+		const RealType bw =
+			iter.rx_time < next.rx_time ? (sampleTime - iter.rx_time) / (next.rx_time - iter.rx_time) : 0.0;
 
-		const RealType amplitude = amplitudeScale * std::lerp(std::sqrt(iter->gain), std::sqrt(next->gain), bw);
-		const RealType phase = std::lerp(iter->phase_delay, next->phase_delay, bw);
-		RealType fdelay = -(std::lerp(iter->delay, next->delay, bw) * _rate - idelay + fracWinDelay);
+		const RealType amplitude = amplitudeScale * std::lerp(std::sqrt(iter.gain), std::sqrt(next.gain), bw);
+		const RealType phase = std::lerp(iter.phase_delay, next.phase_delay, bw);
+		RealType fdelay = -(std::lerp(iter.delay, next.delay, bw) * _rate - idelay + fracWinDelay);
 		const RealType int_part = std::floor(fdelay);
 		fdelay -= int_part;
 
@@ -391,6 +326,8 @@ namespace fers_signal
 	{
 		return std::holds_alternative<SteppedFrequencySignal>(_wave);
 	}
+
+	const SampledSignal* RadarSignal::getSampledSignal() const noexcept { return std::get_if<SampledSignal>(&_wave); }
 
 	const FmcwChirpSignal* RadarSignal::getFmcwChirpSignal() const noexcept
 	{

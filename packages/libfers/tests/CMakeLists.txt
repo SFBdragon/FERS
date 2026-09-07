@@ -61,11 +61,10 @@ add_executable(libfers_tests
 			   serial/test_xml_serializer.cpp
 			   serial/test_kml_generator.cpp
 			   serial/test_kml_generator_utils.cpp
-			   simulation/test_channel_model_helpers.cpp
-			   simulation/test_channel_model_direct.cpp
-			   simulation/test_channel_model_reflected.cpp
 			   simulation/test_channel_model_response.cpp
 			   simulation/test_channel_model_preview.cpp
+			   simulation/test_channel_model_streaming.cpp
+			   propagation/pointscatter/test_pointscatter.cpp
 )
 
 target_include_directories(libfers_tests PRIVATE

@@ -87,8 +87,7 @@ TEST_CASE("World stores and retrieves added objects", "[core][world]")
 	world.add(std::move(tx));
 	world.add(std::move(rx));
 
-	auto signal = std::make_unique<fers_signal::RadarSignal>("Wave-A", 2.0, 1.0e9, 0.2,
-															 std::make_unique<fers_signal::CwSignal>(), 301);
+	auto signal = std::make_unique<fers_signal::RadarSignal>("Wave-A", 2.0, 1.0e9, fers_signal::CwSignal{}, 301);
 	world.add(std::move(signal));
 
 	auto antenna = std::make_unique<antenna::Isotropic>("Ant-A", 401);
@@ -233,8 +232,7 @@ TEST_CASE("World replaces waveform and updates dependent components", "[core][wo
 	core::World world;
 
 	// 1. Setup initial waveform
-	auto old_wf = std::make_unique<fers_signal::RadarSignal>("OldWf", 1.0, 1e9, 1.0,
-															 std::make_unique<fers_signal::CwSignal>(), 200);
+	auto old_wf = std::make_unique<fers_signal::RadarSignal>("OldWf", 1.0, 1e9, fers_signal::CwSignal{}, 200);
 	auto* old_wf_ptr = old_wf.get();
 	world.add(std::move(old_wf));
 
@@ -251,8 +249,8 @@ TEST_CASE("World replaces waveform and updates dependent components", "[core][wo
 	REQUIRE(tx_ptr->getSignal() == old_wf_ptr);
 
 	// 3. Replace the waveform
-	auto new_wf = std::make_unique<fers_signal::RadarSignal>("NewWf", 2.0, 2e9, 1.0,
-															 std::make_unique<fers_signal::CwSignal>(), 200); // Same ID
+	auto new_wf =
+		std::make_unique<fers_signal::RadarSignal>("NewWf", 2.0, 2e9, fers_signal::CwSignal{}, 200); // Same ID
 	auto* new_wf_ptr = new_wf.get();
 	world.replace(std::move(new_wf));
 
@@ -363,11 +361,10 @@ TEST_CASE("World enforces unique ids for assets", "[core][world]")
 
 	SECTION("Waveform ids are unique")
 	{
-		world.add(std::make_unique<fers_signal::RadarSignal>("Wave-1", 1.0, 1.0e9, 0.1,
-															 std::make_unique<fers_signal::CwSignal>(), 77));
-		REQUIRE_THROWS_AS(world.add(std::make_unique<fers_signal::RadarSignal>(
-							  "Wave-2", 2.0, 2.0e9, 0.2, std::make_unique<fers_signal::CwSignal>(), 77)),
-						  std::runtime_error);
+		world.add(std::make_unique<fers_signal::RadarSignal>("Wave-1", 1.0, 1.0e9, fers_signal::CwSignal{}, 77));
+		REQUIRE_THROWS_AS(
+			world.add(std::make_unique<fers_signal::RadarSignal>("Wave-2", 2.0, 2.0e9, fers_signal::CwSignal{}, 77)),
+			std::runtime_error);
 	}
 
 	SECTION("Antenna ids are unique")
@@ -393,8 +390,7 @@ TEST_CASE("World clear resets storage and state", "[core][world]")
 	world.add(std::make_unique<radar::Receiver>(world.getPlatforms().front().get(), "Rx-A", 1,
 												radar::OperationMode::CW_MODE, 202));
 	world.add(std::make_unique<radar::IsoTarget>(world.getPlatforms().front().get(), "Target-A", 1.0, 5, 303));
-	world.add(std::make_unique<fers_signal::RadarSignal>("Wave-A", 1.0, 1.0e9, 0.1,
-														 std::make_unique<fers_signal::CwSignal>(), 404));
+	world.add(std::make_unique<fers_signal::RadarSignal>("Wave-A", 1.0, 1.0e9, fers_signal::CwSignal{}, 404));
 	world.add(std::make_unique<antenna::Isotropic>("Ant-A", 505));
 	world.add(std::make_unique<timing::PrototypeTiming>("Timing-A", 606));
 

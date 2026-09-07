@@ -43,24 +43,6 @@ namespace
 	}
 }
 
-TEST_CASE("CwSignal render returns empty data", "[signal][radar][cw]")
-{
-	fers_signal::CwSignal const signal;
-	unsigned size = 99;
-	const std::vector<interp::InterpPoint> points = {{1.0, 0.0, 0.0, 0.0}};
-
-	auto data = signal.render(points, size, 0.0);
-
-	REQUIRE(data.empty());
-	REQUIRE(size == 0);
-}
-
-TEST_CASE("RadarSignal requires a signal", "[signal][radar]")
-{
-	REQUIRE_THROWS_AS(fers_signal::RadarSignal("test", 1.0, 1.0, 1.0, std::unique_ptr<fers_signal::Signal>{}, 0),
-					  std::runtime_error);
-}
-
 TEST_CASE("FmcwChirpSignal applies sweep direction to phase only", "[signal][radar][fmcw]")
 {
 	const RealType bandwidth = 2.0e6;
@@ -93,8 +75,6 @@ TEST_CASE("FmcwTriangleSignal keeps phase continuous at leg and period boundarie
 
 	fers_signal::FmcwTriangleSignal const triangle(bandwidth, duration, offset, 4);
 
-	REQUIRE(triangle.isFmcwFamily());
-	REQUIRE(triangle.isTriangle());
 	REQUIRE_THAT(triangle.getChirpRate(), WithinAbs(alpha, 1e-6));
 	REQUIRE_THAT(triangle.getTrianglePeriod(), WithinAbs(2.0 * duration, 1e-15));
 	REQUIRE_THAT(triangle.getDeltaPhiUp(),
@@ -153,78 +133,72 @@ TEST_CASE("RadarSignal exposes metadata", "[signal][radar]")
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
 	std::vector<ComplexType> data = {ComplexType{1.0, 0.0}};
-	auto signal = std::make_unique<fers_signal::Signal>();
-	signal->load(data, static_cast<unsigned>(data.size()), 1000.0);
+	fers_signal::SampledSignal signal;
+	signal.load(data, static_cast<unsigned>(data.size()), 1000.0);
+	signal.setFilename("waveform.bin");
 
-	fers_signal::RadarSignal radar("waveform", 9.0, 77.0, 0.01, std::move(signal), 42);
-	radar.setFilename("waveform.bin");
+	fers_signal::RadarSignal radar("waveform", 9.0, 77.0, std::move(signal), 42);
 
 	REQUIRE(radar.getName() == "waveform");
 	REQUIRE(radar.getCarrier() == 77.0);
 	REQUIRE(radar.getPower() == 9.0);
-	REQUIRE(radar.getLength() == 0.01);
-	REQUIRE(radar.getRate() == 1000.0);
 	REQUIRE(radar.getId() == 42);
-	REQUIRE(radar.getFilename().has_value());
-	REQUIRE(radar.getFilename().value_or("") == "waveform.bin");
+
+	const auto* sampled = radar.getSampledSignal();
+	REQUIRE(sampled != nullptr);
+	REQUIRE_THAT(sampled->getDuration(), WithinAbs(0.001, 1e-12));
+	REQUIRE(sampled->getRate() == 1000.0);
+	REQUIRE(sampled->getFilename().has_value());
+	REQUIRE(sampled->getFilename().value_or("") == "waveform.bin");
 }
 
 TEST_CASE("RadarSignal autogenerates waveform ids", "[signal][radar]")
 {
-	auto signal = std::make_unique<fers_signal::Signal>();
-	fers_signal::RadarSignal const radar("waveform", 1.0, 1.0, 1.0, std::move(signal), 0);
+	fers_signal::RadarSignal const radar("waveform", 1.0, 1.0, fers_signal::CwSignal{}, 0);
 
 	REQUIRE(SimIdGenerator::getType(radar.getId()) == ObjectType::Waveform);
 }
 
-TEST_CASE("RadarSignal scales rendered data by power", "[signal][radar]")
+TEST_CASE("SampledSignal render scales output by the amplitude parameter", "[signal][radar]")
 {
-	struct TestSignal final : public fers_signal::Signal
-	{
-		std::vector<ComplexType> stored;
-		std::vector<ComplexType> render(const std::vector<interp::InterpPoint>&, unsigned& size,
-										RealType) const override
-		{
-			size = static_cast<unsigned>(stored.size());
-			return stored;
-		}
-	};
+	ParamGuard const guard;
+	params::setOversampleRatio(1);
 
-	auto signal = std::make_unique<TestSignal>();
-	signal->stored = {ComplexType{1.0, 0.0}, ComplexType{2.0, -1.0}};
+	// At exactly zero fractional delay the render filter is an exact identity (see
+	// test_response.cpp for why), so with delay == 0.0 the rendered output is just
+	// the loaded samples scaled by the amplitude parameter -- no mock needed.
+	const std::vector<ComplexType> input = {ComplexType{1.0, 0.0}, ComplexType{2.0, -1.0}};
+	fers_signal::SampledSignal signal;
+	signal.load(input, static_cast<unsigned>(input.size()), 1.0);
 
-	fers_signal::RadarSignal const radar("scaled", 4.0, 1.0, 1.0, std::move(signal), 7);
-
-	unsigned size = 0;
 	const std::vector<interp::InterpPoint> points = {{1.0, 0.0, 0.0, 0.0}};
-	auto data = radar.render(points, size, 0.0);
+	const auto data = signal.render(points, points.front().rx_time, 0.0, 2.0);
 
-	REQUIRE(size == 2);
-	REQUIRE_THAT(data[0].real(), WithinAbs(2.0, 1e-12));
-	REQUIRE_THAT(data[0].imag(), WithinAbs(0.0, 1e-12));
-	REQUIRE_THAT(data[1].real(), WithinAbs(4.0, 1e-12));
-	REQUIRE_THAT(data[1].imag(), WithinAbs(-2.0, 1e-12));
+	REQUIRE(data.size() == input.size());
+	REQUIRE_THAT(data[0].real(), WithinAbs(2.0, 1e-9));
+	REQUIRE_THAT(data[0].imag(), WithinAbs(0.0, 1e-9));
+	REQUIRE_THAT(data[1].real(), WithinAbs(4.0, 1e-9));
+	REQUIRE_THAT(data[1].imag(), WithinAbs(-2.0, 1e-9));
 }
 
-TEST_CASE("Signal load updates size and rate", "[signal][radar]")
+TEST_CASE("SampledSignal load applies oversampling to rate and sample count", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(2);
 	std::vector<ComplexType> input = {ComplexType{1.0, 0.0}, ComplexType{0.5, -0.5}};
 
-	fers_signal::Signal signal;
+	fers_signal::SampledSignal signal;
 	signal.load(input, static_cast<unsigned>(input.size()), 100.0);
 
 	REQUIRE(signal.getRate() == 200.0);
 
 	const std::vector<interp::InterpPoint> points = {{1.0, 0.0, 0.0, 0.0}};
-	unsigned size = 0;
-	const auto data = signal.render(points, size, 0.0);
-	REQUIRE(size == input.size() * 2);
-	REQUIRE(data.size() == size);
+	const auto data = signal.render(points, points.front().rx_time, 0.0, 1.0);
+	REQUIRE(data.size() == input.size() * 2);
+	REQUIRE(signal.getSampleCount() == input.size() * 2);
 }
 
-TEST_CASE("Signal render matches constant input physics", "[signal][radar]")
+TEST_CASE("SampledSignal render matches constant input physics", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
@@ -233,15 +207,14 @@ TEST_CASE("Signal render matches constant input physics", "[signal][radar]")
 	const unsigned sample_count = filter_length * 4;
 	std::vector<ComplexType> input(sample_count, ComplexType{1.0, 0.0});
 
-	fers_signal::Signal signal;
+	fers_signal::SampledSignal signal;
 	signal.load(input, sample_count, 1.0);
 
 	const RealType power = 4.0;
 	const RealType phase = PI / 4.0;
 	const std::vector<interp::InterpPoint> points = {{power, 0.0, 0.0, phase}};
 
-	unsigned size = 0;
-	const auto data = signal.render(points, size, 0.0);
+	const auto data = signal.render(points, points.front().rx_time, 0.0, 1.0);
 
 	const auto& interp = interp::InterpFilter::getInstance();
 	const auto filter = interp.getFilter(0.0);
@@ -253,7 +226,7 @@ TEST_CASE("Signal render matches constant input physics", "[signal][radar]")
 	REQUIRE_THAT(data[sample_index].imag(), WithinAbs(expected.imag(), 1e-6));
 }
 
-TEST_CASE("Signal render interpolates power and phase", "[signal][radar]")
+TEST_CASE("SampledSignal render interpolates power and phase", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
@@ -262,7 +235,7 @@ TEST_CASE("Signal render interpolates power and phase", "[signal][radar]")
 	const unsigned sample_count = filter_length * 4;
 	std::vector<ComplexType> input(sample_count, ComplexType{1.0, 0.0});
 
-	fers_signal::Signal signal;
+	fers_signal::SampledSignal signal;
 	signal.load(input, sample_count, 1.0);
 
 	const RealType power_a = 1.0;
@@ -272,8 +245,7 @@ TEST_CASE("Signal render interpolates power and phase", "[signal][radar]")
 	const std::vector<interp::InterpPoint> points = {{power_a, 0.0, 0.0, phase_a},
 													 {power_b, 2.0 * filter_length, 0.0, phase_b}};
 
-	unsigned size = 0;
-	const auto data = signal.render(points, size, 0.0);
+	const auto data = signal.render(points, points.front().rx_time, 0.0, 1.0);
 
 	const auto& interp = interp::InterpFilter::getInstance();
 	const auto filter = interp.getFilter(0.0);
@@ -289,7 +261,7 @@ TEST_CASE("Signal render interpolates power and phase", "[signal][radar]")
 	REQUIRE_THAT(data[sample_index].imag(), WithinAbs(expected.imag(), 1e-6));
 }
 
-TEST_CASE("Signal render responds to fractional delay", "[signal][radar]")
+TEST_CASE("SampledSignal render responds to fractional delay", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
@@ -298,13 +270,12 @@ TEST_CASE("Signal render responds to fractional delay", "[signal][radar]")
 	const unsigned sample_count = filter_length * 4;
 	std::vector<ComplexType> input(sample_count, ComplexType{1.0, 0.0});
 
-	fers_signal::Signal signal;
+	fers_signal::SampledSignal signal;
 	signal.load(input, sample_count, 1.0);
 
 	const std::vector<interp::InterpPoint> points = {{1.0, 0.0, 0.0, 0.0}};
 
-	unsigned size = 0;
-	const auto data = signal.render(points, size, 0.25);
+	const auto data = signal.render(points, points.front().rx_time, 0.25, 1.0);
 
 	const auto& interp = interp::InterpFilter::getInstance();
 	const auto filter = interp.getFilter(0.75);
@@ -316,7 +287,7 @@ TEST_CASE("Signal render responds to fractional delay", "[signal][radar]")
 	REQUIRE_THAT(data[sample_index].imag(), WithinAbs(expected.imag(), 1e-6));
 }
 
-TEST_CASE("Signal renderSlice matches cropped full response with padding", "[signal][radar]")
+TEST_CASE("SampledSignal renderSlice matches cropped full response with padding", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
@@ -329,19 +300,19 @@ TEST_CASE("Signal renderSlice matches cropped full response with padding", "[sig
 		input[i] = {std::cos(phase), std::sin(phase)};
 	}
 
-	fers_signal::Signal signal;
+	fers_signal::SampledSignal signal;
 	signal.load(input, sample_count, 100.0);
 	const std::vector<interp::InterpPoint> points = {{1.0, 10.0, 0.0, 0.0}, {0.25, 12.0, 0.0, PI / 3.0}};
 
-	unsigned full_size = 0;
-	const auto full = signal.render(points, full_size, 0.0);
+	const auto full = signal.render(points, points.front().rx_time, 0.0, 1.0);
 	constexpr unsigned crop_start = 31;
 	constexpr unsigned crop_count = 47;
 	constexpr unsigned pad = 20;
-	const RealType slice_start = points.front().time + static_cast<RealType>(crop_start - pad) / 100.0;
-	const auto slice = signal.renderSlice(points, slice_start, 100.0, crop_count + 2 * pad, 0.0);
+	const RealType slice_start = points.front().rx_time + static_cast<RealType>(crop_start - pad) / 100.0;
+	const auto slice =
+		signal.renderSlice(points, points.front().rx_time, slice_start, 100.0, crop_count + 2 * pad, 0.0, 1.0);
 
-	REQUIRE(full_size == sample_count);
+	REQUIRE(full.size() == sample_count);
 	REQUIRE(slice.size() == crop_count + 2 * pad);
 	for (unsigned i = 0; i < crop_count; ++i)
 	{
@@ -350,7 +321,7 @@ TEST_CASE("Signal renderSlice matches cropped full response with padding", "[sig
 	}
 }
 
-TEST_CASE("Signal renderSlice interpolates onto non-native output grids", "[signal][radar]")
+TEST_CASE("SampledSignal renderSlice interpolates onto non-native output grids", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
@@ -370,11 +341,12 @@ TEST_CASE("Signal renderSlice interpolates onto non-native output grids", "[sign
 		input[i] = {std::cos(phase), std::sin(phase)};
 	}
 
-	fers_signal::Signal signal;
+	fers_signal::SampledSignal signal;
 	signal.load(input, sample_count, native_rate_hz);
 	const std::vector<interp::InterpPoint> points = {{1.0, start_time, 0.0, 0.0}};
 
-	const auto slice = signal.renderSlice(points, slice_start_time, output_rate_hz, slice_count, 0.0);
+	const auto slice =
+		signal.renderSlice(points, points.front().rx_time, slice_start_time, output_rate_hz, slice_count, 0.0, 1.0);
 
 	ComplexType correlation{0.0, 0.0};
 	RealType output_energy = 0.0;

@@ -80,7 +80,7 @@ namespace
 		const unsigned sample_count = checked_sample_count(data.size(), filepath.string());
 
 		fers_signal::SampledSignal wave{};
-		wave.setFilename(name);
+		wave.setFilename(filepath.string());
 		wave.load(data, sample_count, params::rate());
 		return std::make_unique<RadarSignal>(name, power, carrierFreq, std::move(wave), id);
 	}
@@ -134,7 +134,7 @@ namespace
 		}
 
 		fers_signal::SampledSignal signal{};
-		signal.setFilename(name);
+		signal.setFilename(filepath.string());
 		signal.load(data, length, rate);
 		return std::make_unique<RadarSignal>(name, power, carrierFreq, std::move(signal), id);
 	}

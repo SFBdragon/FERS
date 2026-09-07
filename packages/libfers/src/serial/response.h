@@ -13,6 +13,7 @@
 #pragma once
 
 #include <cstddef>
+#include <iterator>
 #include <stdexcept>
 #include <vector>
 
@@ -35,7 +36,7 @@ namespace radar
 
 namespace serial
 {
-	RealType controlPointEdgePeriod() noexcept { return 1.0 / params::simSamplingRate(); }
+	inline RealType controlPointEdgePeriod() noexcept { return 1.0 / params::simSamplingRate(); }
 
 	/**
 	 * @class Response
@@ -59,15 +60,6 @@ namespace serial
 			}
 
 			_wave = signal->getSampledSignal();
-
-			interp::InterpPoint lead = first_point;
-			lead.rx_time -= controlPointEdgePeriod();
-			lead.gain = 0.0;
-			// TODO_SHAUN This currently assumes no Doppler at first.
-			// We need another point to linearly project, but there may not even be one.
-			// It's better than assuming a hard cutoff though.
-			// Especially for 1-sample responses.
-			addInterpPoint(lead);
 			addInterpPoint(first_point);
 		}
 
@@ -78,18 +70,18 @@ namespace serial
 		Response& operator=(Response&&) = delete;
 
 		/**
-		 * @brief Retrieves the start time of the response.
+		 * @brief Retrieves the start time of the response, including its leading fade-in taper.
 		 *
 		 * @return Start time as a `RealType`. Returns 0.0 if no points are present.
 		 */
-		[[nodiscard]] RealType startTime() const noexcept { return _points.empty() ? 0.0 : _points.front().rx_time; }
+		[[nodiscard]] RealType startTime() const noexcept { return _points.empty() ? 0.0 : taperEdges().lead.rx_time; }
 
 		/**
-		 * @brief Retrieves the end time of the response.
+		 * @brief Retrieves the end time of the response, including its trailing fade-out taper.
 		 *
 		 * @return End time as a `RealType`. Returns 0.0 if no points are present.
 		 */
-		[[nodiscard]] RealType endTime() const noexcept { return _points.empty() ? 0.0 : _points.back().rx_time; }
+		[[nodiscard]] RealType endTime() const noexcept { return _points.empty() ? 0.0 : taperEdges().tail.rx_time; }
 
 		/**
 		 * @brief Adds an interpolation point to the response.
@@ -98,22 +90,6 @@ namespace serial
 		 * @throws std::logic_error If the new point has a time earlier than the last point.
 		 */
 		void addInterpPoint(const interp::InterpPoint& point);
-
-		/**
-		 * @brief Adds a final zero point for interpolation.
-		 */
-		void finishResponse()
-		{
-			// We know there are at least two samples.
-			// The final point can linearly project most of the last two samples' values.
-			auto prev_prev_point = _points.at(_points.size() - 2);
-			auto prev_point = _points.back();
-			prev_point.rx_time += prev_point.rx_time - prev_prev_point.rx_time;
-			prev_point.delay += prev_point.delay - prev_prev_point.delay;
-			prev_point.phase_delay += prev_prev_point.phase_delay;
-			prev_point.gain = 0.0; // fade out
-			addInterpPoint(prev_point);
-		}
 
 		/**
 		 * @brief Renders the response in binary format.
@@ -142,10 +118,163 @@ namespace serial
 		 */
 		[[nodiscard]] RealType getRxDuration() const noexcept { return endTime() - startTime(); }
 
+		/**
+		 * @brief Forward iterator over a Response's tapered point sequence:
+		 * a synthetic zero-gain lead point, the real points, and a synthetic zero-gain tail point.
+		 */
+		class TaperedPointIterator
+		{
+		public:
+			using iterator_category = std::forward_iterator_tag;
+			using value_type = interp::InterpPoint;
+			using difference_type = std::ptrdiff_t;
+			using pointer = const interp::InterpPoint*;
+			using reference = const interp::InterpPoint&;
+
+			TaperedPointIterator() noexcept = default;
+
+			[[nodiscard]] reference operator*() const noexcept
+			{
+				if (_index == 0)
+				{
+					return _lead;
+				}
+				if (_index == _real_count + 1)
+				{
+					return _tail;
+				}
+				return _real[_index - 1];
+			}
+
+			[[nodiscard]] pointer operator->() const noexcept { return &**this; }
+
+			TaperedPointIterator& operator++() noexcept
+			{
+				++_index;
+				return *this;
+			}
+
+			TaperedPointIterator operator++(int) noexcept
+			{
+				auto copy = *this;
+				++*this;
+				return copy;
+			}
+
+			[[nodiscard]] friend bool operator==(const TaperedPointIterator& lhs,
+												 const TaperedPointIterator& rhs) noexcept
+			{
+				return lhs._index == rhs._index;
+			}
+
+		private:
+			friend class Response;
+
+			TaperedPointIterator(const interp::InterpPoint* real, const std::size_t real_count,
+								 const interp::InterpPoint& lead, const interp::InterpPoint& tail,
+								 const std::size_t index) noexcept :
+				_real(real), _lead(lead), _tail(tail), _real_count(real_count), _index(index)
+			{
+			}
+
+			const interp::InterpPoint* _real = nullptr;
+			interp::InterpPoint _lead{};
+			interp::InterpPoint _tail{};
+			std::size_t _real_count = 0;
+			std::size_t _index = 0;
+		};
+
+		/// A view of a Response's tapered point sequence (see TaperedPointIterator).
+		class TaperedPoints
+		{
+		public:
+			[[nodiscard]] TaperedPointIterator begin() const noexcept { return {_real, _real_count, _lead, _tail, 0}; }
+
+			[[nodiscard]] TaperedPointIterator end() const noexcept
+			{
+				return {_real, _real_count, _lead, _tail, _real_count + 2};
+			}
+
+		private:
+			friend class Response;
+
+			TaperedPoints(const interp::InterpPoint* real, const std::size_t real_count,
+						  const interp::InterpPoint& lead, const interp::InterpPoint& tail) noexcept :
+				_real(real), _lead(lead), _tail(tail), _real_count(real_count)
+			{
+			}
+
+			const interp::InterpPoint* _real;
+			interp::InterpPoint _lead;
+			interp::InterpPoint _tail;
+			std::size_t _real_count;
+		};
+
+		/// Returns a view over this response's real points bracketed by its synthetic
+		/// lead/tail taper points (see taperEdges()).
+		[[nodiscard]] TaperedPoints taperedPoints() const
+		{
+			const auto [lead, tail] = taperEdges();
+			return {_points.data(), _points.size(), lead, tail};
+		}
 
 	private:
+		struct TaperEdges
+		{
+			interp::InterpPoint lead;
+			interp::InterpPoint tail;
+		};
+
+		/**
+		 * @brief Computes this response's synthetic zero-gain lead and tail points.
+		 *
+		 * With at least two real points, rx_time, delay and phase_delay are all linearly
+		 * extrapolated from the nearest two real points, using the same (possibly
+		 * Doppler-compressed or -stretched) time step observed there -- not a fixed
+		 * controlPointEdgePeriod() width.
+		 * This does matter. For example, two Responses covering the same
+		 * continuous physical path but split by a path_id change (as ray tracing can do)
+		 * must have their taper widths track the actual local rx_time spacing, or their
+		 * lead/tail points won't meet where the real data does, causing the two
+		 * responses' rendered energy to either overlap (double-count) or gap (drop out)
+		 * right at the seam.
+		 *
+		 * With only one real point there's no Doppler inference to be made, so lead/tail
+		 * fall back to a fixed controlPointEdgePeriod() width with delay/phase_delay
+		 * copied from that point.
+		 */
+		[[nodiscard]] TaperEdges taperEdges() const
+		{
+			interp::InterpPoint lead = _points.front();
+			interp::InterpPoint tail = _points.back();
+			lead.gain = 0.0;
+			tail.gain = 0.0;
+
+			if (_points.size() > 1)
+			{
+				const auto& second = _points[1];
+				const RealType lead_dt = second.rx_time - _points.front().rx_time;
+				lead.rx_time -= lead_dt;
+				lead.delay -= second.delay - _points.front().delay;
+				lead.phase_delay -= second.phase_delay - _points.front().phase_delay;
+
+				const auto& second_last = _points[_points.size() - 2];
+				const RealType tail_dt = _points.back().rx_time - second_last.rx_time;
+				tail.rx_time += tail_dt;
+				tail.delay += _points.back().delay - second_last.delay;
+				tail.phase_delay += _points.back().phase_delay - second_last.phase_delay;
+			}
+			else
+			{
+				lead.rx_time -= controlPointEdgePeriod();
+				tail.rx_time += controlPointEdgePeriod();
+			}
+
+			return {lead, tail};
+		}
+
 		const fers_signal::RadarSignal* _signal; ///< Pointer to the radar signal object.
 		const fers_signal::SampledSignal* _wave; ///< Pointer to the radar signal object's SampledSignal.
-		std::vector<interp::InterpPoint> _points; ///< Vector of interpolation points.
+		std::vector<interp::InterpPoint> _points; ///< Vector of simulated InterpPoints.
 	};
 }

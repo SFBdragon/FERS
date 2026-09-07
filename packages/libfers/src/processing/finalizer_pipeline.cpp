@@ -112,13 +112,12 @@ namespace processing::pipeline
 		return {rounded_start, fractional_delay};
 	}
 
-	static void applyStreamingInterference(std::span<ComplexType> window, const RealType actual_start,
-										   const RealType dt, const propagation::PropagationModel& prop,
-										   radar::Receiver* receiver,
-										   const std::vector<core::ActiveStreamingSource>& streaming_sources,
-										   const std::vector<std::unique_ptr<radar::Target>>* targets,
-										   core::ReceiverTrackerCache& tracker_cache,
-										   const simulation::CwPhaseNoiseLookup* phase_noise_lookup)
+	void applyStreamingInterference(std::span<ComplexType> window, const RealType actual_start, const RealType dt,
+									const propagation::PropagationModel& prop, radar::Receiver* receiver,
+									const std::vector<core::ActiveStreamingSource>& streaming_sources,
+									const std::vector<std::unique_ptr<radar::Target>>* targets,
+									core::ReceiverTrackerCache& tracker_cache,
+									const simulation::CwPhaseNoiseLookup* phase_noise_lookup)
 	{
 		const simulation::CwPhaseNoiseLookup* lookup = phase_noise_lookup;
 		std::optional<simulation::CwPhaseNoiseLookup> owned_lookup;
@@ -189,7 +188,7 @@ namespace processing::pipeline
 				response->renderSlice(output_sample_rate, response->startTime(), sample_count, 0.0);
 
 			const auto pulse_start_index =
-				static_cast<long long>(std::floor((response->startTime() - params::startTime()) * output_sample_rate));
+				static_cast<long long>(std::round((response->startTime() - params::startTime()) * output_sample_rate));
 			const auto pulse_end_index = pulse_start_index + static_cast<long long>(rendered_pulse.size());
 			const auto buffer_end_index = static_cast<long long>(iq_buffer.size());
 

@@ -133,17 +133,18 @@ namespace simulation
 		StreamingTimingPhaseMode timing_phase_mode = StreamingTimingPhaseMode::ReceiverRelative);
 
 	/**
-	 * @brief Creates a Response object by simulating a signal's interaction over its duration.
+	 * @brief Creates Response objects by simulating possible radar paths/channels from
+	 *        the given transmitter to all receivers.
 	 *
-	 * This function iterates over the duration of a transmitted pulse, calling the
-	 * appropriate channel model function (`solveRe` or `solveReDirect`) at discrete
-	 * time steps to generate a series of `InterpPoint`s. These points capture the
-	 * time-varying properties of the received signal and are collected into a `Response` object.
+	 * This function generates Responses: series of `InterpPoint`s describing the channel
+	 * properties (gain, delay, phase delay) in a time series for each radar path
+	 * across the duration of the pulse signal. This function does not sample the signal itself.
+	 * These points capture the time-varying properties of the radar propagation channel.
+	 * These Responses are places into the Receivers for later rendering.
 	 *
-	 * @param trans The transmitter of the pulse.
+	 * @param tx The transmitter of the pulse.
 	 * @param prop The propagation model to determine pulse signal propagation.
 	 * @param start_tx_time The absolute simulation time when the pulse transmission starts.
-	 * @throws std::runtime_error If the simulation parameters result in zero time steps.
 	 */
 	void calculateResponses(const radar::Transmitter& tx, const propagation::PropagationModel& prop,
 							const RealType start_tx_time);
