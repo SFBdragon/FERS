@@ -49,7 +49,7 @@ namespace
 
 	// calculateResponses requires a Response's underlying RadarSignal to be
 	// isPulsed() (it throws otherwise), so every transmitter here carries a
-	// real PulseWaveform rather than a CwWaveform or a mock.
+	// PulseWaveform rather than a CwWaveform or a mock.
 	fers_signal::RadarSignal makeSampledWave(const std::string& name, const RealType power, const RealType carrier,
 											 std::vector<ComplexType> samples, const RealType rate)
 	{

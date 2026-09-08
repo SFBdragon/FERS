@@ -44,13 +44,6 @@ namespace propagation
 	class PropagationPath
 	{
 	public:
-		/// Total path length, in meters.
-		///
-		/// This is never zero. No path is created if this would be zero.
-		RealType length;
-		// /// d(range)/dt at eval_time, m/s
-		// RealType range_rate;
-
 		/// Total path delay, in seconds.
 		///
 		/// This is never zero. No path is created if this would be zero.

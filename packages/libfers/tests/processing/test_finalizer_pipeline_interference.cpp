@@ -71,15 +71,6 @@ namespace
 		return total;
 	}
 
-	// Builds a Response whose rendered content is verifiable by hand: one real control
-	// point per native sample (gain 1, zero delay/phase), starting exactly at start_time
-	// -- matching how the point-scatter model covers a whole pulse. Response pads a
-	// synthetic zero-gain taper sample one controlPointEdgePeriod() before start_time and
-	// one after the last real sample, so the rendered pulse is
-	// [0, samples[0], samples[1], ..., samples[n-1]] (length n + 1), starting at
-	// response->startTime() == start_time - controlPointEdgePeriod(). Callers must set
-	// params::setSimSamplingRate(sample_rate) so real points land on exact native sample
-	// boundaries.
 	std::unique_ptr<serial::Response>
 	makeFixedResponse(std::vector<std::unique_ptr<fers_signal::RadarSignal>>& wave_store,
 					  const std::vector<ComplexType>& samples, const RealType sample_rate, const RealType start_time)

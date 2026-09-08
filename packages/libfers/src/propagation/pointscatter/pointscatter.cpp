@@ -131,7 +131,6 @@ namespace propagation::pointscatter
 		const auto gain = computeDirectPathPower(tx_gain, rx_gain, carrierWavelength, tx_to_rx_dist, no_loss);
 
 		found_paths.emplace_back(PropagationPath{
-			.length = tx_to_rx_dist,
 			.delay = delay,
 			.gain = gain,
 			// Direct paths are unique for a given receiver and transmitter.
@@ -197,7 +196,6 @@ namespace propagation::pointscatter
 													tgt_to_rx_dist, no_loss);
 
 		found_paths.emplace_back(PropagationPath{
-			.length = tx_to_tgt_dist + tgt_to_rx_dist,
 			.delay = delay,
 			.gain = gain,
 			// Bistatic paths for a given TX and RX are uniquely identified by the target.

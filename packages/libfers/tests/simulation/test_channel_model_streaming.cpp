@@ -87,7 +87,6 @@ namespace
 	propagation::PropagationPath makeDirectPath(radar::Receiver* rx, RealType dist, RealType gain)
 	{
 		return propagation::PropagationPath{
-			.length = dist,
 			.delay = dist / params::c(),
 			.gain = gain,
 			.path_id = 0,
@@ -101,7 +100,6 @@ namespace
 												   RealType gain)
 	{
 		return propagation::PropagationPath{
-			.length = total_dist,
 			.delay = delay,
 			.gain = gain,
 			.path_id = 1,
