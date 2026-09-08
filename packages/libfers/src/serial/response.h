@@ -53,13 +53,13 @@ namespace serial
 		 */
 		Response(const fers_signal::RadarSignal* signal, const interp::InterpPoint first_point) : _signal(signal)
 		{
-			if (!signal->isSampled())
+			if (!signal->isPulsed())
 			{
 				throw std::logic_error(
-					"Attempted to create Reponse with RadarSignal that didn't contain a SampledSignal");
+					"Attempted to create Reponse with RadarSignal that didn't contain a PulseWaveform");
 			}
 
-			_wave = signal->getSampledSignal();
+			_wave = signal->getPulseWaveform();
 			addInterpPoint(first_point);
 		}
 
@@ -274,7 +274,7 @@ namespace serial
 		}
 
 		const fers_signal::RadarSignal* _signal; ///< Pointer to the radar signal object.
-		const fers_signal::SampledSignal* _wave; ///< Pointer to the radar signal object's SampledSignal.
+		const fers_signal::PulseWaveform* _wave; ///< Pointer to the radar signal object's PulseWaveform.
 		std::vector<interp::InterpPoint> _points; ///< Vector of simulated InterpPoints.
 	};
 }

@@ -106,13 +106,28 @@ The VITA sink creates:
 - `PacedSender`: bounded queue and wall-clock pacing thread.
 - `UdpSender`: UDP socket sender using `getaddrinfo`, `SOCK_DGRAM`, and `sendto`.
 
-Pacing maps simulation sample time to `std::chrono::steady_clock` time. The sender starts at `params::startTime()`. A packet due time is:
+Pacing maps simulation sample time to `std::chrono::steady_clock` time. Opening and pre-data heartbeat contexts remain
+pending until the first synchronized data batch has been calculated and packetized. The sender then anchors its steady
+clock at `params::startTime()` immediately before admitting that complete context/data batch. This one-block playout
+prebuffer prevents engine setup and first-block calculation time from making initial data packets late. A packet due time
+is:
 
 ```text
 steady_epoch + (packet.first_sample_time - simulation_start_time)
 ```
 
-If the queue is full, enqueue blocks until the sender frees space. Queue pressure does not create dropped packets. Dropped packet counters are updated when socket send fails.
+When the VITA UTC epoch is automatic, it is selected as this first batch is prepared instead of during sink
+initialization. A configured fixed UTC epoch remains unchanged. If no data arrives, finalization creates the epoch, starts
+pacing, and drains the pending context-only batch.
+
+Packets are ordered by scheduled sample time across streams; packets with equal deadlines retain deterministic insertion
+order. A newly arrived earlier deadline preempts a wait on a later queue head. Synchronized receiver blocks are
+packetized and admitted together so bounded-queue backpressure cannot serialize one receiver ahead of another.
+
+Queue depth is the steady-state backpressure watermark. Single-packet enqueue blocks when that watermark is full.
+Multi-stream batches are admitted atomically, then their producer blocks until the queue drains back to the configured
+depth; batch admission reuses packet memory already allocated by packetization and does not create an unbounded staging
+queue. Queue pressure does not create dropped packets. Dropped packet counters are updated when socket send fails.
 
 `finalize()` flushes queued packets, emits close context packets for streams that are still open, stops the sender, and returns final stream stats. `core::sim_threading.cpp` reports `Waiting for VITA output stream drain...` before finalization in VITA mode.
 
@@ -196,7 +211,8 @@ Timestamp behavior:
 
 - The timestamp is the first sample time in the packet.
 - `--vita49-epoch` or the configured API epoch supplies the Unix-nanosecond base.
-- If no epoch is configured, the sink uses `std::chrono::system_clock::now()` during `initializeRun`.
+- If no epoch is configured, the sink samples `std::chrono::system_clock::now()` when the first synchronized data batch
+  has been prepared and pacing is ready to start. A context-only run selects its epoch during finalization.
 - Fractional seconds are rounded to picoseconds.
 - Integer UTC seconds must fit in a 32-bit unsigned field.
 
@@ -250,6 +266,10 @@ Context packet byte layout:
 | `76` | 8 | ADC full-scale |
 | `84` | 8 | receiver ID |
 | `92` | variable | NUL-terminated, 32-bit-padded ASCII JSON metadata |
+
+The reference frequency is the RF carrier resolved from the receiver mode's bound waveform source; it is distinct from
+the stream sample rate and the receiver timing-clock frequency. When no scalar RF source can be bound, such as an
+ambiguous detached multi-source stream, FERS retains the receiver timing frequency as a compatibility fallback.
 
 The serializer accepts exactly `kFersContextCif0` and rejects any other CIF0 value. Current CIF0 includes:
 
@@ -377,6 +397,11 @@ The serializer follows the receiver mode when stale mode blocks are present. For
 - `carrier_hz`
 - `power_w`
 
+For an attached CW receiver, these fields describe the attached transmitter's waveform. For a detached bistatic CW
+receiver, FERS binds them when the active source inventory contains one logical generated or file-backed CW source;
+repeated schedule segments from that same source are treated as one. If multiple distinct CW sources are active, the
+scalar CW context remains unbound rather than selecting an arbitrary transmitter.
+
 ### FMCW Metadata
 
 `fmcw` contains:
@@ -399,6 +424,10 @@ The serializer follows the receiver mode when stale mode blocks are present. For
 - `dechirp_reference_transmitter_name`
 - `dechirp_reference_waveform_id`
 - `dechirp_reference_waveform_name`
+
+For file-backed FMCW, `waveform_shape` is `file`. Analytic chirp fields are not inferred from the HDF5 samples. The
+current VITA context profile does not include the HDF5 `sampled_duration` and `sampled_count` fields available in normal
+FERS output metadata.
 
 ### SFCW Metadata
 
@@ -449,7 +478,8 @@ Each `streams` entry contains:
 - `packets_dropped`
 - `samples_dropped`
 - `over_range_count`
-- `late_packet_count`
+- `late_data_packet_count`
+- `late_context_packet_count`
 - `context_packet_count`
 - `first_sample_time`
 - `end_sample_time`
@@ -470,7 +500,29 @@ Each `streams` entry contains:
 - Optional stream counter JSON.
 - Optional packet trace batch JSON.
 
-Stream counter JSON uses `context_packets` for live stats. Final output metadata uses `context_packet_count`.
+The stream-counter object contains `mode`, `epoch_unix_nanoseconds`, and `streams`. Each live `streams` entry contains:
+
+- `receiver_id`
+- `receiver_name`
+- `stream_id`
+- `mode`
+- `sample_rate`
+- `reference_frequency`
+- `packets_emitted`
+- `context_packets`
+- `samples_emitted`
+- `packets_dropped`
+- `samples_dropped`
+- `over_range_count`
+- `late_data_packet_count`
+- `late_context_packet_count`
+- `first_sample_time`
+- `end_sample_time`
+- `first_timestamp`
+- `end_timestamp`
+
+Live stats use `context_packets`; final output metadata uses `context_packet_count`. Both interfaces expose
+`late_data_packet_count` and `late_context_packet_count` without an aggregate `late_packet_count` field.
 
 Packet trace fields:
 
@@ -506,4 +558,6 @@ When a send failure occurs:
 - The sink marks sample loss pending for that stream.
 - A later data or context packet carries the sample-loss indicator.
 
-`late_packet_count` increments when a packet is sent more than 1 ms after its scheduled due time.
+`late_data_packet_count` and `late_context_packet_count` independently record packets sent more than 1 ms after their
+scheduled due time. The UI displays their sum as the concise `Late` value and exposes the classified counts and threshold
+in an info tooltip on the summary card and stream table.

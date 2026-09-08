@@ -17,6 +17,7 @@
 #include "radar/target.h"
 #include "radar/transmitter.h"
 #include "serial/libxml_wrapper.h"
+#include "serial/waveform_factory.h"
 #include "serial/xml_parser_utils.h"
 #include "signal/radar_signal.h"
 #include "timing/prototype_timing.h"
@@ -70,9 +71,19 @@ namespace
 	serial::xml_parser_utils::AssetLoaders createMockLoaders()
 	{
 		serial::xml_parser_utils::AssetLoaders loaders;
-		loaders.loadWaveform =
-			[](const std::string& name, const std::filesystem::path&, RealType power, RealType carrierFreq, SimId id)
-		{ return std::make_unique<fers_signal::RadarSignal>(name, power, carrierFreq, fers_signal::CwSignal{}, id); };
+		loaders.loadWaveform = [](const std::string& name, const std::filesystem::path&, RealType power,
+								  RealType carrierFreq, SimId id, const serial::FileWaveformRequestKind kind)
+		{
+			if (kind == serial::FileWaveformRequestKind::Pulsed)
+			{
+				return std::make_unique<fers_signal::RadarSignal>(name, power, carrierFreq,
+																  fers_signal::PulseWaveform{}, id);
+			}
+			fers_signal::FileWaveform wave{};
+			wave.setKind(kind == serial::FileWaveformRequestKind::Cw ? fers_signal::FileWaveformKind::Cw
+																	 : fers_signal::FileWaveformKind::Fmcw);
+			return std::make_unique<fers_signal::RadarSignal>(name, power, carrierFreq, std::move(wave), id);
+		};
 		loaders.loadXmlAntenna = [](const std::string& name, const std::string&, SimId id)
 		{ return std::make_unique<antenna::Isotropic>(name, id); };
 		loaders.loadH5Antenna = [](const std::string& name, const std::string&, SimId id)
@@ -354,6 +365,28 @@ TEST_CASE("parseWaveform handles CW and delegates file loading", "[serial][xml_p
 		REQUIRE(world.getWaveforms().size() == 1);
 		REQUIRE(world.getWaveforms().begin()->second->getName() == "p1");
 	}
+
+	SECTION("CW from file")
+	{
+		auto doc = loadXml("<waveform name=\"cw-file\"><power>5</power><carrier_frequency>2e9</carrier_frequency>"
+						   "<cw_from_file filename=\"dummy.h5\"/></waveform>");
+		serial::xml_parser_utils::parseWaveform(doc.getRootElement(), ctx);
+		const auto* wave = world.getWaveforms().begin()->second.get();
+		REQUIRE(wave->isCw());
+		REQUIRE(wave->getFileWaveform() != nullptr);
+		REQUIRE(wave->getFileWaveform()->getKind() == fers_signal::FileWaveformKind::Cw);
+	}
+
+	SECTION("FMCW from file")
+	{
+		auto doc = loadXml("<waveform name=\"fmcw-file\"><power>5</power><carrier_frequency>2e9</carrier_frequency>"
+						   "<fmcw_from_file filename=\"dummy.h5\"/></waveform>");
+		serial::xml_parser_utils::parseWaveform(doc.getRootElement(), ctx);
+		const auto* wave = world.getWaveforms().begin()->second.get();
+		REQUIRE(wave->isFmcwFamily());
+		REQUIRE(wave->getFileWaveform() != nullptr);
+		REQUIRE(wave->getFileWaveform()->getKind() == fers_signal::FileWaveformKind::Fmcw);
+	}
 }
 
 TEST_CASE("parseWaveform warns for large FMCW streaming allocation", "[serial][xml_parser_utils]")
@@ -423,7 +456,7 @@ TEST_CASE("parseWaveform validates FMCW chirp schema constraints", "[serial][xml
 		serial::xml_parser_utils::parseWaveform(doc.getRootElement(), ctx);
 		REQUIRE(world.getWaveforms().size() == 1);
 		const auto* wave = world.getWaveforms().begin()->second.get();
-		const auto* fmcw = wave->getFmcwChirpSignal();
+		const auto* fmcw = wave->getFmcwChirpWaveform();
 		REQUIRE(fmcw != nullptr);
 		REQUIRE(fmcw->isDownChirp());
 		REQUIRE_THAT(fmcw->getChirpDuration(), WithinAbs(1.0e-3, 1.0e-12));
@@ -445,7 +478,7 @@ TEST_CASE("parseWaveform validates FMCW chirp schema constraints", "[serial][xml
 		serial::xml_parser_utils::parseWaveform(doc.getRootElement(), ctx);
 		REQUIRE(world.getWaveforms().size() == 1);
 		const auto* wave = world.getWaveforms().begin()->second.get();
-		const auto* triangle = wave->getFmcwTriangleSignal();
+		const auto* triangle = wave->getFmcwTriangleWaveform();
 		REQUIRE(triangle != nullptr);
 		REQUIRE(wave->isFmcwFamily());
 		REQUIRE_THAT(triangle->getTrianglePeriod(), WithinAbs(2.0e-3, 1.0e-12));
@@ -471,7 +504,7 @@ TEST_CASE("parseWaveform validates FMCW chirp schema constraints", "[serial][xml
 		serial::xml_parser_utils::parseWaveform(doc.getRootElement(), ctx);
 		REQUIRE(world.getWaveforms().size() == 1);
 		const auto* wave = world.getWaveforms().begin()->second.get();
-		const auto* sfcw = wave->getSteppedFrequencySignal();
+		const auto* sfcw = wave->getSteppedFrequencyWaveform();
 		REQUIRE(sfcw != nullptr);
 		REQUIRE(wave->isSteppedFrequency());
 		REQUIRE_THAT(sfcw->getDwellTime(), WithinAbs(1.0e-4, 1.0e-12));
@@ -851,7 +884,7 @@ TEST_CASE("parseTransmitter resolves references and builds object with schedule"
 	ctx.master_seeder = &seeder;
 
 	// Populate dependencies
-	auto wave = std::make_unique<fers_signal::RadarSignal>("w1", 1.0, 1e9, fers_signal::CwSignal{}, 10);
+	auto wave = std::make_unique<fers_signal::RadarSignal>("w1", 1.0, 1e9, fers_signal::CwWaveform{}, 10);
 	auto ant = std::make_unique<antenna::Isotropic>("a1", 20);
 	auto tim = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	tim->setFrequency(1e6);
@@ -895,7 +928,7 @@ TEST_CASE("parseTransmitter rejects FMCW waveform and mode mismatches", "[serial
 	ctx.master_seeder = &seeder;
 
 	world.add(std::make_unique<fers_signal::RadarSignal>("fmcw_wave", 1.0, 1e9,
-														 fers_signal::FmcwChirpSignal(1.0e6, 1.0e-3, 1.0e-3), 10));
+														 fers_signal::FmcwChirpWaveform(1.0e6, 1.0e-3, 1.0e-3), 10));
 	world.add(std::make_unique<antenna::Isotropic>("a1", 20));
 	auto timing_proto = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	timing_proto->setFrequency(1e6);
@@ -945,7 +978,7 @@ TEST_CASE("parseTransmitter accepts native SFCW mode and rejects invalid SFCW bl
 	ctx.master_seeder = &seeder;
 
 	world.add(std::make_unique<fers_signal::RadarSignal>(
-		"sfcw_wave", 1.0, 1e9, fers_signal::SteppedFrequencySignal(0.0, 1.0e5, 4, 1.0e-4, 2.0e-4), 10));
+		"sfcw_wave", 1.0, 1e9, fers_signal::SteppedFrequencyWaveform(0.0, 1.0e5, 4, 1.0e-4, 2.0e-4), 10));
 	world.add(std::make_unique<antenna::Isotropic>("a1", 20));
 	auto timing_proto = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	timing_proto->setFrequency(1e6);
@@ -993,7 +1026,7 @@ TEST_CASE("parseTransmitter validates FMCW schedule duration against chirp timin
 	ctx.master_seeder = &seeder;
 
 	world.add(std::make_unique<fers_signal::RadarSignal>("fmcw_wave", 1.0, 1e9,
-														 fers_signal::FmcwChirpSignal(1.0e6, 1.0e-3, 2.0e-3), 10));
+														 fers_signal::FmcwChirpWaveform(1.0e6, 1.0e-3, 2.0e-3), 10));
 	world.add(std::make_unique<antenna::Isotropic>("a1", 20));
 	auto timing_proto = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	timing_proto->setFrequency(1e6);
@@ -1209,7 +1242,7 @@ TEST_CASE("parseMonostatic reuses one shared timing instance for a common timing
 	ctx.world = &world;
 	ctx.master_seeder = &seeder;
 
-	world.add(std::make_unique<fers_signal::RadarSignal>("w1", 1.0, 1e9, fers_signal::CwSignal{}, 10));
+	world.add(std::make_unique<fers_signal::RadarSignal>("w1", 1.0, 1e9, fers_signal::CwWaveform{}, 10));
 	world.add(std::make_unique<antenna::Isotropic>("a1", 20));
 	auto timing_proto = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	timing_proto->setFrequency(1e6);
@@ -1248,7 +1281,7 @@ TEST_CASE("parseMonostatic derives FMCW mode from the monostatic block without r
 	ctx.master_seeder = &seeder;
 
 	world.add(std::make_unique<fers_signal::RadarSignal>("w1", 1.0, 1e9,
-														 fers_signal::FmcwChirpSignal(1.0e6, 1.0e-3, 1.0e-3), 10));
+														 fers_signal::FmcwChirpWaveform(1.0e6, 1.0e-3, 1.0e-3), 10));
 	world.add(std::make_unique<antenna::Isotropic>("a1", 20));
 	auto timing_proto = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	timing_proto->setFrequency(1e6);

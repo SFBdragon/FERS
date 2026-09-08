@@ -71,12 +71,12 @@ TEST_CASE("renderWindow accumulates overlapping responses with offsets", "[proce
 	params::setSimSamplingRate(1000.0);
 
 	const std::vector<ComplexType> data_a = {ComplexType{1.0, 0.0}, ComplexType{2.0, 1.0}, ComplexType{3.0, -1.0}};
-	fers_signal::SampledSignal sampled_a;
+	fers_signal::PulseWaveform sampled_a;
 	sampled_a.load(data_a, static_cast<unsigned>(data_a.size()), 1000.0);
 	const fers_signal::RadarSignal wave_a("wave_a", 1.0, 1.0e9, std::move(sampled_a), 101);
 
 	const std::vector<ComplexType> data_b = {ComplexType{1.0, 1.0}, ComplexType{1.0, -1.0}};
-	fers_signal::SampledSignal sampled_b;
+	fers_signal::PulseWaveform sampled_b;
 	sampled_b.load(data_b, static_cast<unsigned>(data_b.size()), 1000.0);
 	const fers_signal::RadarSignal wave_b("wave_b", 1.0, 1.0e9, std::move(sampled_b), 102);
 

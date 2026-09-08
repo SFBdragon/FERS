@@ -350,7 +350,7 @@ TEST_CASE("KML Generation: Antenna Wavelength and Dispatch", "[serial][kml][gene
 	plat.getRotationPath()->finalize();
 
 	// Carrier = 3e8 Hz -> Wavelength = 1.0 m
-	fers_signal::RadarSignal wave("wave", 1.0, 3e8, fers_signal::CwSignal{}, 1);
+	fers_signal::RadarSignal wave("wave", 1.0, 3e8, fers_signal::CwWaveform{}, 1);
 
 	radar::Transmitter tx(&plat, "tx", radar::OperationMode::CW_MODE);
 	tx.setSignal(&wave);

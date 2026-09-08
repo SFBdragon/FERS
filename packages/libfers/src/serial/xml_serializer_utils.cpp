@@ -113,8 +113,8 @@ namespace serial::xml_serializer_utils
 
 		std::visit(
 			overloaded{
-				[&](const fers_signal::CwSignal&) { (void)parent.addChild("cw"); },
-				[&](const fers_signal::FmcwChirpSignal& fmcw)
+				[&](const fers_signal::CwWaveform&) { (void)parent.addChild("cw"); },
+				[&](const fers_signal::FmcwChirpWaveform& fmcw)
 				{
 					const XmlElement fmcw_elem = parent.addChild("fmcw_linear_chirp");
 					fmcw_elem.setAttribute("direction",
@@ -131,7 +131,7 @@ namespace serial::xml_serializer_utils
 						addChildWithNumber(fmcw_elem, "chirp_count", static_cast<RealType>(*fmcw.getChirpCount()));
 					}
 				},
-				[&](const fers_signal::SteppedFrequencySignal& sfcw)
+				[&](const fers_signal::SteppedFrequencyWaveform& sfcw)
 				{
 					const XmlElement sfcw_elem = parent.addChild("stepped_frequency");
 					addChildWithNumber(sfcw_elem, "start_frequency_offset", sfcw.getStartFrequencyOffset());
@@ -144,7 +144,7 @@ namespace serial::xml_serializer_utils
 						addChildWithNumber(sfcw_elem, "sweep_count", static_cast<RealType>(*sfcw.getSweepCount()));
 					}
 				},
-				[&](const fers_signal::FmcwTriangleSignal& triangle)
+				[&](const fers_signal::FmcwTriangleWaveform& triangle)
 				{
 					const XmlElement fmcw_elem = parent.addChild("fmcw_triangle");
 					addChildWithNumber(fmcw_elem, "chirp_bandwidth", triangle.getChirpBandwidth());
@@ -159,11 +159,16 @@ namespace serial::xml_serializer_utils
 										   static_cast<RealType>(*triangle.getTriangleCount()));
 					}
 				},
-				[&](const fers_signal::SampledSignal& sampled)
+				[&](const fers_signal::PulseWaveform& sampled)
 				{
 					const XmlElement pulsed_file = parent.addChild("pulsed_from_file");
 					const auto& filename = sampled.getFilename();
 					pulsed_file.setAttribute("filename", filename.value_or(""));
+				},
+				[&](const fers_signal::FileWaveform& file)
+				{
+					const XmlElement file_element = parent.addChild(file.isCw() ? "cw_from_file" : "fmcw_from_file");
+					file_element.setAttribute("filename", file.getFilename().value_or(""));
 				}},
 			waveform.getWaveform());
 	}

@@ -50,7 +50,7 @@ namespace core
 	/// FMCW waveform metadata captured for a streaming output file.
 	struct FmcwMetadata
 	{
-		std::string waveform_shape = "linear"; ///< FMCW waveform shape token: linear or triangle.
+		std::string waveform_shape = "linear"; ///< FMCW waveform shape token: linear, triangle, or file.
 		RealType chirp_bandwidth = 0.0; ///< Chirp bandwidth in hertz.
 		RealType chirp_duration = 0.0; ///< Active chirp duration in seconds.
 		RealType chirp_period = 0.0; ///< Chirp repetition period in seconds.
@@ -61,6 +61,8 @@ namespace core
 		std::optional<std::uint64_t> chirp_count = std::nullopt; ///< Optional finite chirp count.
 		std::optional<RealType> triangle_period = std::nullopt; ///< Full triangle period in seconds.
 		std::optional<std::uint64_t> triangle_count = std::nullopt; ///< Optional finite triangle count.
+		std::optional<RealType> sampled_duration = std::nullopt; ///< Finite file-backed waveform duration in seconds.
+		std::optional<std::uint64_t> sampled_count = std::nullopt; ///< Native samples in a file-backed waveform.
 	};
 
 	/// Metadata for one active FMCW transmitter schedule segment.
@@ -192,7 +194,8 @@ namespace core
 		std::uint64_t packets_dropped = 0; ///< Data packets lost to socket send failures.
 		std::uint64_t samples_dropped = 0; ///< Complex samples lost to socket send failures.
 		std::uint64_t over_range_count = 0; ///< Samples clipped by fixed full-scale scaling.
-		std::uint64_t late_packet_count = 0; ///< Packets sent after their scheduled time.
+		std::uint64_t late_data_packet_count = 0; ///< Signal data packets sent after their scheduled time.
+		std::uint64_t late_context_packet_count = 0; ///< Context packets sent after their scheduled time.
 		std::uint64_t context_packet_count = 0; ///< Context packets emitted for this stream.
 		std::optional<RealType> first_sample_time = std::nullopt; ///< First signal sample time in seconds.
 		std::optional<RealType> end_sample_time = std::nullopt; ///< Exclusive stream end sample time in seconds.

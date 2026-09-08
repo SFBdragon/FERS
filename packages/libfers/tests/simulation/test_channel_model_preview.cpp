@@ -89,7 +89,7 @@ namespace
 			tx->setAntenna(&antenna);
 			tx->setTiming(timing);
 
-			auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwSignal{}, 300);
+			auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwWaveform{}, 300);
 			tx->setSignal(wave.get());
 
 			auto rx =
@@ -206,7 +206,7 @@ TEST_CASE("calculatePreviewLinks monostatic produces Monostatic and BistaticTxTg
 	tx->setAntenna(&iso_ant);
 	tx->setTiming(timing);
 
-	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwSignal{}, 300);
+	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwWaveform{}, 300);
 	tx->setSignal(wave.get());
 
 	auto rx = std::make_unique<radar::Receiver>(tx_plat_ptr, "rx", 42, radar::OperationMode::PULSED_MODE, 200);
@@ -282,7 +282,7 @@ TEST_CASE("calculatePreviewLinks bistatic produces correct link types", "[simula
 	tx->setAntenna(&iso_ant);
 	tx->setTiming(timing);
 
-	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwSignal{}, 300);
+	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwWaveform{}, 300);
 	tx->setSignal(wave.get());
 
 	auto rx = std::make_unique<radar::Receiver>(rx_plat_ptr, "rx", 42, radar::OperationMode::PULSED_MODE, 200);
@@ -344,7 +344,7 @@ TEST_CASE("calculatePreviewLinks bistatic with NODIRECT flag omits direct link",
 	tx->setAntenna(&iso_ant);
 	tx->setTiming(timing);
 
-	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwSignal{}, 300);
+	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwWaveform{}, 300);
 	tx->setSignal(wave.get());
 
 	auto rx = std::make_unique<radar::Receiver>(rx_plat_ptr, "rx", 42, radar::OperationMode::PULSED_MODE, 200);
@@ -404,7 +404,7 @@ TEST_CASE("calculatePreviewLinks respects transmitter schedule", "[simulation][c
 	// Schedule: active from 1.0 to 5.0 seconds only
 	tx->setSchedule({radar::SchedulePeriod{1.0, 5.0}});
 
-	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwSignal{}, 300);
+	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwWaveform{}, 300);
 	tx->setSignal(wave.get());
 
 	auto rx = std::make_unique<radar::Receiver>(rx_plat_ptr, "rx", 42, radar::OperationMode::PULSED_MODE, 200);
@@ -458,7 +458,7 @@ TEST_CASE("calculatePreviewLinks respects receiver schedule", "[simulation][chan
 	tx->setTiming(timing);
 	// Tx always active (no schedule)
 
-	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwSignal{}, 300);
+	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwWaveform{}, 300);
 	tx->setSignal(wave.get());
 
 	auto rx = std::make_unique<radar::Receiver>(rx_plat_ptr, "rx", 42, radar::OperationMode::PULSED_MODE, 200);
@@ -523,7 +523,7 @@ TEST_CASE("calculatePreviewLinks scales link count with number of targets", "[si
 	tx->setAntenna(&iso_ant);
 	tx->setTiming(timing);
 
-	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwSignal{}, 300);
+	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9, fers_signal::CwWaveform{}, 300);
 	tx->setSignal(wave.get());
 
 	auto rx = std::make_unique<radar::Receiver>(tx_plat_ptr, "rx", 42, radar::OperationMode::PULSED_MODE, 200);
@@ -581,7 +581,7 @@ TEST_CASE("calculatePreviewLinks classifies very weak signals as Weak", "[simula
 	tx->setTiming(timing);
 
 	// Very low transmit power: 1e-6 W (1 uW)
-	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1e-6, 1e9, fers_signal::CwSignal{}, 300);
+	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1e-6, 1e9, fers_signal::CwWaveform{}, 300);
 	tx->setSignal(wave.get());
 
 	auto rx = std::make_unique<radar::Receiver>(tx_plat_ptr, "rx", 42, radar::OperationMode::PULSED_MODE, 200);
@@ -639,7 +639,7 @@ TEST_CASE("calculatePreviewLinks classifies strong signals as Strong", "[simulat
 	tx->setAntenna(&iso_ant);
 	tx->setTiming(timing);
 
-	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1e6, 1e9, fers_signal::CwSignal{}, 300);
+	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1e6, 1e9, fers_signal::CwWaveform{}, 300);
 	tx->setSignal(wave.get());
 
 	auto rx = std::make_unique<radar::Receiver>(tx_plat_ptr, "rx", 42, radar::OperationMode::PULSED_MODE, 200);
@@ -759,7 +759,7 @@ TEST_CASE("calculatePreviewLinks FMCW labels use single-value preview style", "[
 	tx->setTiming(timing);
 
 	auto wave = std::make_unique<fers_signal::RadarSignal>("sig", 1000.0, 1e9,
-														   fers_signal::FmcwChirpSignal(1.0e6, 1.0e-4, 4.0e-4), 300);
+														   fers_signal::FmcwChirpWaveform(1.0e6, 1.0e-4, 4.0e-4), 300);
 	tx->setSignal(wave.get());
 
 	auto rx = std::make_unique<radar::Receiver>(tx_plat_ptr, "rx", 42, radar::OperationMode::FMCW_MODE, 200);

@@ -46,7 +46,7 @@ export type SimulationOutputStreamingSegmentMetadata = {
 };
 
 export type SimulationOutputFmcwMetadata = {
-    waveform_shape?: 'linear' | 'triangle';
+    waveform_shape?: 'linear' | 'triangle' | 'file';
     chirp_bandwidth: number;
     chirp_duration: number;
     chirp_rate: number;
@@ -57,6 +57,8 @@ export type SimulationOutputFmcwMetadata = {
     chirp_count?: number;
     triangle_period?: number;
     triangle_count?: number;
+    sampled_duration?: number;
+    sampled_count?: number;
 };
 
 export type SimulationOutputFmcwSourceSegmentMetadata = {
@@ -127,7 +129,8 @@ export type SimulationOutputVita49StreamMetadata = {
     packets_dropped: number;
     samples_dropped: number;
     over_range_count: number;
-    late_packet_count: number;
+    late_data_packet_count: number;
+    late_context_packet_count: number;
     context_packet_count: number;
     first_sample_time: number | null;
     end_sample_time: number | null;

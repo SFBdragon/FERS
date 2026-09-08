@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2025-present FERS Contributors (see AUTHORS.md).
 
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <highfive/highfive.hpp>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <random>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "antenna/antenna_factory.h"
 #include "core/logging.h"
@@ -88,6 +94,34 @@ namespace
 		params::setTime(0.0, 1.0);
 	}
 
+	class TemporaryWaveformHdf5
+	{
+	public:
+		TemporaryWaveformHdf5()
+		{
+			path = std::filesystem::temp_directory_path() /
+				("fers_json_file_waveform_" +
+				 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".h5");
+			HighFive::File file(path.string(), HighFive::File::Overwrite);
+			const std::vector<RealType> i_values{1.0, 0.0, -1.0, 0.0};
+			const std::vector<RealType> q_values{0.0, 1.0, 0.0, -1.0};
+			file.createGroup("/I")
+				.createDataSet<RealType>("value", HighFive::DataSpace::From(i_values))
+				.write(i_values);
+			file.createGroup("/Q")
+				.createDataSet<RealType>("value", HighFive::DataSpace::From(q_values))
+				.write(q_values);
+		}
+		~TemporaryWaveformHdf5()
+		{
+			std::error_code ec;
+			std::filesystem::remove(path, ec);
+		}
+		TemporaryWaveformHdf5(const TemporaryWaveformHdf5&) = delete;
+		TemporaryWaveformHdf5& operator=(const TemporaryWaveformHdf5&) = delete;
+		std::filesystem::path path;
+	};
+
 	[[nodiscard]] json linearChirpJson(const std::string_view direction)
 	{
 		return {{"id", 457},
@@ -105,8 +139,8 @@ namespace
 	{
 		auto wf = serial::parse_waveform_from_json(linearChirpJson(direction));
 		REQUIRE(wf != nullptr);
-		REQUIRE(wf->getFmcwChirpSignal() != nullptr);
-		REQUIRE(wf->getFmcwChirpSignal()->isDownChirp() == (direction == "down"));
+		REQUIRE(wf->getFmcwChirpWaveform() != nullptr);
+		REQUIRE(wf->getFmcwChirpWaveform()->isDownChirp() == (direction == "down"));
 
 		json serialized;
 		fers_signal::to_json(serialized, *wf);
@@ -117,8 +151,8 @@ namespace
 
 		auto reparsed = serial::parse_waveform_from_json(serialized);
 		REQUIRE(reparsed != nullptr);
-		REQUIRE(reparsed->getFmcwChirpSignal() != nullptr);
-		REQUIRE(reparsed->getFmcwChirpSignal()->isDownChirp() == (direction == "down"));
+		REQUIRE(reparsed->getFmcwChirpWaveform() != nullptr);
+		REQUIRE(reparsed->getFmcwChirpWaveform()->isDownChirp() == (direction == "down"));
 	}
 
 	void configureSerializableWorldParams()
@@ -130,7 +164,7 @@ namespace
 
 	void populateSerializableAssetsWorld(core::World& world)
 	{
-		world.add(std::make_unique<fers_signal::RadarSignal>("CwWave", 10.0, 1e9, fers_signal::CwSignal{}, 10));
+		world.add(std::make_unique<fers_signal::RadarSignal>("CwWave", 10.0, 1e9, fers_signal::CwWaveform{}, 10));
 		world.add(std::make_unique<antenna::Gaussian>("gauss", 1.5, 2.5, 20));
 
 		auto proto_tim = std::make_unique<timing::PrototypeTiming>("dummy_proto", 104);
@@ -375,6 +409,33 @@ TEST_CASE("JSON: FMCW linear chirp direction round trips", "[serial][json][fmcw]
 	}
 }
 
+TEST_CASE("JSON: CW and FMCW file waveforms round trip", "[serial][json][file]")
+{
+	ParamGuard const guard;
+	params::setOversampleRatio(1);
+	params::setRate(8.0);
+	TemporaryWaveformHdf5 const file;
+
+	for (const auto& [key, kind] : std::array<std::pair<std::string, fers_signal::FileWaveformKind>, 2>{
+			 std::pair{"cw_from_file", fers_signal::FileWaveformKind::Cw},
+			 std::pair{"fmcw_from_file", fers_signal::FileWaveformKind::Fmcw}})
+	{
+		const json input = {{"id", 459},
+							{"name", key},
+							{"power", 2.0},
+							{"carrier_frequency", 10.0},
+							{key, {{"filename", file.path.string()}}}};
+		auto waveform = serial::parse_waveform_from_json(input);
+		REQUIRE(waveform->getFileWaveform() != nullptr);
+		REQUIRE(waveform->getFileWaveform()->getKind() == kind);
+
+		json output;
+		fers_signal::to_json(output, *waveform);
+		REQUIRE(output.at(key).at("filename") == file.path.string());
+		REQUIRE_FALSE(output.contains(kind == fers_signal::FileWaveformKind::Cw ? "fmcw_from_file" : "cw_from_file"));
+	}
+}
+
 TEST_CASE("JSON: FMCW triangle round trips", "[serial][json][fmcw]")
 {
 	ParamGuard const guard;
@@ -396,8 +457,8 @@ TEST_CASE("JSON: FMCW triangle round trips", "[serial][json][fmcw]")
 	REQUIRE(wf != nullptr);
 	REQUIRE(wf->isFmcwFamily());
 	REQUIRE(wf->isFmcwTriangle());
-	REQUIRE(wf->getFmcwTriangleSignal() != nullptr);
-	const auto triangle_count = wf->getFmcwTriangleSignal()->getTriangleCount();
+	REQUIRE(wf->getFmcwTriangleWaveform() != nullptr);
+	const auto triangle_count = wf->getFmcwTriangleWaveform()->getTriangleCount();
 	REQUIRE(triangle_count.has_value());
 	REQUIRE(triangle_count.value_or(0u) == 3u);
 
@@ -409,8 +470,8 @@ TEST_CASE("JSON: FMCW triangle round trips", "[serial][json][fmcw]")
 
 	auto reparsed = serial::parse_waveform_from_json(serialized);
 	REQUIRE(reparsed != nullptr);
-	REQUIRE(reparsed->getFmcwTriangleSignal() != nullptr);
-	const auto reparsed_triangle_count = reparsed->getFmcwTriangleSignal()->getTriangleCount();
+	REQUIRE(reparsed->getFmcwTriangleWaveform() != nullptr);
+	const auto reparsed_triangle_count = reparsed->getFmcwTriangleWaveform()->getTriangleCount();
 	REQUIRE(reparsed_triangle_count.has_value());
 	REQUIRE(reparsed_triangle_count.value_or(0u) == 3u);
 }
@@ -438,7 +499,7 @@ TEST_CASE("JSON: SFCW waveform round trips", "[serial][json][sfcw]")
 	REQUIRE(wf != nullptr);
 	REQUIRE(wf->isSteppedFrequency());
 	REQUIRE_FALSE(wf->isFmcwFamily());
-	const auto* sfcw = wf->getSteppedFrequencySignal();
+	const auto* sfcw = wf->getSteppedFrequencyWaveform();
 	REQUIRE(sfcw != nullptr);
 	REQUIRE_THAT(sfcw->getStartFrequencyOffset(), WithinAbs(-1.0e6, 1e-9));
 	REQUIRE_THAT(sfcw->getStepSize(), WithinAbs(2.0e5, 1e-9));
@@ -458,8 +519,8 @@ TEST_CASE("JSON: SFCW waveform round trips", "[serial][json][sfcw]")
 
 	auto reparsed = serial::parse_waveform_from_json(serialized);
 	REQUIRE(reparsed != nullptr);
-	REQUIRE(reparsed->getSteppedFrequencySignal() != nullptr);
-	REQUIRE(reparsed->getSteppedFrequencySignal()->getSweepCount().value_or(0u) == 5u);
+	REQUIRE(reparsed->getSteppedFrequencyWaveform() != nullptr);
+	REQUIRE(reparsed->getSteppedFrequencyWaveform()->getSweepCount().value_or(0u) == 5u);
 }
 
 TEST_CASE("JSON: FMCW triangle rejects fractional triangle count", "[serial][json][fmcw]")
@@ -994,7 +1055,7 @@ TEST_CASE("JSON: Monostatic Radar Serialization", "[serial][json]")
 	core::World w;
 
 	// Assets
-	w.add(std::make_unique<fers_signal::RadarSignal>("MonoWave", 1.0, 1e9, fers_signal::CwSignal{}, 210));
+	w.add(std::make_unique<fers_signal::RadarSignal>("MonoWave", 1.0, 1e9, fers_signal::CwWaveform{}, 210));
 	w.add(std::make_unique<antenna::Isotropic>("MonoAnt", 220));
 	auto proto_tim = std::make_unique<timing::PrototypeTiming>("MonoProto", 230);
 	proto_tim->setFrequency(10e6);
@@ -1065,7 +1126,7 @@ TEST_CASE("JSON: Granular updates of Radar Components and Timing", "[serial][jso
 	std::mt19937 seeder(42);
 
 	// Setup basic assets
-	auto wf = std::make_unique<fers_signal::RadarSignal>("wf1", 10.0, 1e9, fers_signal::CwSignal{}, 10);
+	auto wf = std::make_unique<fers_signal::RadarSignal>("wf1", 10.0, 1e9, fers_signal::CwWaveform{}, 10);
 	w.add(std::move(wf));
 
 	auto ant = std::make_unique<antenna::Isotropic>("ant1", 20);
@@ -1284,10 +1345,10 @@ TEST_CASE("JSON: Granular updates of Monostatic Radar", "[serial][json]")
 	auto ant = std::make_unique<antenna::Isotropic>("ant1", 20);
 	w.add(std::move(ant));
 
-	auto wf = std::make_unique<fers_signal::RadarSignal>("wf1", 10.0, 1e9, fers_signal::CwSignal{}, 10);
+	auto wf = std::make_unique<fers_signal::RadarSignal>("wf1", 10.0, 1e9, fers_signal::CwWaveform{}, 10);
 	w.add(std::move(wf));
 	auto fmcw_wf = std::make_unique<fers_signal::RadarSignal>("wf_fmcw", 10.0, 1e9,
-															  fers_signal::FmcwChirpSignal(100.0, 0.1, 0.2), 11);
+															  fers_signal::FmcwChirpWaveform(100.0, 0.1, 0.2), 11);
 	w.add(std::move(fmcw_wf));
 
 	auto p = std::make_unique<radar::Platform>("p1", 100);

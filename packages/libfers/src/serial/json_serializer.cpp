@@ -625,8 +625,8 @@ namespace fers_signal
 						   {"carrier_frequency", rs.getCarrier()}};
 
 		std::visit(overloaded{// Switch on the waveform type.
-							  [&](const CwSignal&) { j["cw"] = nlohmann::json::object(); },
-							  [&](const FmcwChirpSignal& fmcw)
+							  [&](const CwWaveform&) { j["cw"] = nlohmann::json::object(); },
+							  [&](const FmcwChirpWaveform& fmcw)
 							  {
 								  j["fmcw_linear_chirp"] = {
 									  {"direction", std::string(fmcwChirpDirectionToken(fmcw.getDirection()))},
@@ -642,7 +642,7 @@ namespace fers_signal
 									  j["fmcw_linear_chirp"]["chirp_count"] = *fmcw.getChirpCount();
 								  }
 							  },
-							  [&](const SteppedFrequencySignal& sfcw)
+							  [&](const SteppedFrequencyWaveform& sfcw)
 							  {
 								  j["stepped_frequency"] = {{"start_frequency_offset", sfcw.getStartFrequencyOffset()},
 															{"step_size", sfcw.getStepSize()},
@@ -654,7 +654,7 @@ namespace fers_signal
 									  j["stepped_frequency"]["sweep_count"] = *sfcw.getSweepCount();
 								  }
 							  },
-							  [&](const FmcwTriangleSignal& triangle)
+							  [&](const FmcwTriangleWaveform& triangle)
 							  {
 								  j["fmcw_triangle"] = {{"chirp_bandwidth", triangle.getChirpBandwidth()},
 														{"chirp_duration", triangle.getChirpDuration()}};
@@ -667,11 +667,24 @@ namespace fers_signal
 									  j["fmcw_triangle"]["triangle_count"] = *triangle.getTriangleCount();
 								  }
 							  },
-							  [&](const SampledSignal& sampled)
+							  [&](const PulseWaveform& sampled)
 							  {
 								  if (const auto& filename = sampled.getFilename(); filename.has_value())
 								  {
 									  j["pulsed_from_file"] = {{"filename", *filename}};
+								  }
+								  else
+								  {
+									  throw std::logic_error("Attempted to serialize a file-based waveform named '" +
+															 rs.getName() + "' without a source filename.");
+								  }
+							  },
+							  [&](const FileWaveform& file)
+							  {
+								  const char* key = file.isCw() ? "cw_from_file" : "fmcw_from_file";
+								  if (const auto& filename = file.getFilename(); filename.has_value())
+								  {
+									  j[key] = {{"filename", *filename}};
 								  }
 								  else
 								  {
@@ -691,7 +704,7 @@ namespace fers_signal
 
 		if (j.contains("cw"))
 		{
-			rs = std::make_unique<RadarSignal>(name, power, carrier, CwSignal(), id);
+			rs = std::make_unique<RadarSignal>(name, power, carrier, CwWaveform(), id);
 		}
 		else if (j.contains("stepped_frequency"))
 		{
@@ -711,7 +724,7 @@ namespace fers_signal
 				}
 				sweep_count = static_cast<std::size_t>(parsed_count);
 			}
-			auto sfcw_signal = SteppedFrequencySignal(
+			auto sfcw_signal = SteppedFrequencyWaveform(
 				sfcw_json.at("start_frequency_offset").get<RealType>(), sfcw_json.at("step_size").get<RealType>(),
 				static_cast<std::size_t>(step_count), sfcw_json.at("dwell_time").get<RealType>(),
 				sfcw_json.at("step_period").get<RealType>(), sweep_count);
@@ -733,10 +746,10 @@ namespace fers_signal
 				chirp_count = static_cast<std::size_t>(parsed_count);
 			}
 
-			auto fmcw_signal = FmcwChirpSignal(fmcw_json.at("chirp_bandwidth").get<RealType>(),
-											   fmcw_json.at("chirp_duration").get<RealType>(),
-											   fmcw_json.at("chirp_period").get<RealType>(),
-											   fmcw_json.value("start_frequency_offset", 0.0), chirp_count, direction);
+			auto fmcw_signal = FmcwChirpWaveform(
+				fmcw_json.at("chirp_bandwidth").get<RealType>(), fmcw_json.at("chirp_duration").get<RealType>(),
+				fmcw_json.at("chirp_period").get<RealType>(), fmcw_json.value("start_frequency_offset", 0.0),
+				chirp_count, direction);
 			rs = std::make_unique<RadarSignal>(name, power, carrier, fmcw_signal, id);
 			validate_fmcw_waveform(*rs, "Waveform '" + name + "'");
 		}
@@ -759,9 +772,9 @@ namespace fers_signal
 				triangle_count = static_cast<std::size_t>(parsed_count);
 			}
 
-			auto fmcw_signal = FmcwTriangleSignal(fmcw_json.at("chirp_bandwidth").get<RealType>(),
-												  fmcw_json.at("chirp_duration").get<RealType>(),
-												  fmcw_json.value("start_frequency_offset", 0.0), triangle_count);
+			auto fmcw_signal = FmcwTriangleWaveform(fmcw_json.at("chirp_bandwidth").get<RealType>(),
+													fmcw_json.at("chirp_duration").get<RealType>(),
+													fmcw_json.value("start_frequency_offset", 0.0), triangle_count);
 			rs = std::make_unique<RadarSignal>(name, power, carrier, std::move(fmcw_signal), id);
 			validate_fmcw_waveform(*rs, "Waveform '" + name + "'");
 		}
@@ -775,6 +788,27 @@ namespace fers_signal
 				return; // rs remains nullptr
 			}
 			rs = serial::loadWaveformFromFile(name, filename, power, carrier, id);
+		}
+		else if (j.contains("cw_from_file"))
+		{
+			const auto filename = j.at("cw_from_file").value("filename", "");
+			if (filename.empty())
+			{
+				LOG(logging::Level::WARNING, "Skipping load of file-based waveform '{}': filename is empty.", name);
+				return;
+			}
+			rs = serial::loadWaveformFromFile(name, filename, power, carrier, id, serial::FileWaveformRequestKind::Cw);
+		}
+		else if (j.contains("fmcw_from_file"))
+		{
+			const auto filename = j.at("fmcw_from_file").value("filename", "");
+			if (filename.empty())
+			{
+				LOG(logging::Level::WARNING, "Skipping load of file-based waveform '{}': filename is empty.", name);
+				return;
+			}
+			rs =
+				serial::loadWaveformFromFile(name, filename, power, carrier, id, serial::FileWaveformRequestKind::Fmcw);
 		}
 		else
 		{
