@@ -9,7 +9,6 @@
 #include <optional>
 #include <string>
 #include <thread>
-#include <tuple>
 #include <vector>
 
 #include "antenna/antenna_factory.h"
@@ -114,11 +113,12 @@ namespace
 		FmcwTxFixture(const std::string& name, SimId tx_id, SimId waveform_id, RealType chirp_bandwidth,
 					  RealType chirp_duration, RealType chirp_period, RealType start_frequency_offset,
 					  std::optional<std::size_t> chirp_count) :
-			platform(name + "Platform"), wave(std::make_unique<fers_signal::RadarSignal>(
-											 name + "Wave", 1.0, 10.0e9,
-											 fers_signal::FmcwChirpSignal(chirp_bandwidth, chirp_duration, chirp_period,
-																		  start_frequency_offset, chirp_count),
-											 waveform_id)),
+			platform(name + "Platform"),
+			wave(std::make_unique<fers_signal::RadarSignal>(
+				name + "Wave", 1.0, 10.0e9,
+				fers_signal::FmcwChirpWaveform(chirp_bandwidth, chirp_duration, chirp_period, start_frequency_offset,
+											   chirp_count),
+				waveform_id)),
 			transmitter(&platform, name, radar::OperationMode::FMCW_MODE, tx_id)
 		{
 			transmitter.setSignal(wave.get());
@@ -137,8 +137,8 @@ namespace
 			platform(name + "Platform"),
 			wave(std::make_unique<fers_signal::RadarSignal>(
 				name + "Wave", 1.0, 10.0e9,
-				fers_signal::SteppedFrequencySignal(start_frequency_offset, step_size, step_count, dwell_time,
-													step_period, sweep_count),
+				fers_signal::SteppedFrequencyWaveform(start_frequency_offset, step_size, step_count, dwell_time,
+													  step_period, sweep_count),
 				waveform_id)),
 			transmitter(&platform, name, radar::OperationMode::SFCW_MODE, tx_id)
 		{
@@ -146,20 +146,11 @@ namespace
 		}
 	};
 
-	// Builds a Response whose rendered content is verifiable by hand: one real control
-	// point per native sample (gain 1, zero delay/phase), starting exactly at start_time
-	// -- matching how the point-scatter model covers a whole pulse. Response pads a
-	// synthetic zero-gain taper sample one controlPointEdgePeriod() before start_time and
-	// one after the last real sample, so the rendered pulse is
-	// [0, samples[0], samples[1], ..., samples[n-1]] (length n + 1), starting at
-	// response->startTime() == start_time - controlPointEdgePeriod(). Callers must set
-	// params::setSimSamplingRate(sample_rate) so real points land on exact native sample
-	// boundaries.
 	std::unique_ptr<serial::Response>
 	makeFixedResponse(std::vector<std::unique_ptr<fers_signal::RadarSignal>>& wave_store,
 					  const std::vector<ComplexType>& samples, const RealType sample_rate, const RealType start_time)
 	{
-		fers_signal::SampledSignal sampled;
+		fers_signal::PulseWaveform sampled;
 		sampled.load(samples, static_cast<unsigned>(samples.size()), sample_rate);
 
 		auto wave = std::make_unique<fers_signal::RadarSignal>("wave", 1.0, 1.0e9, std::move(sampled));
@@ -395,7 +386,7 @@ TEST_CASE("buildReceiverSampleBlock captures receiver identity, timing, and samp
 	REQUIRE(block.stream.fmcw.chirp_count.has_value());
 	REQUIRE(block.stream.fmcw.chirp_count.value_or(0u) == 7u);
 	REQUIRE_THAT(block.stream.sample_rate, WithinAbs(2.0e6, 1e-12));
-	REQUIRE_THAT(block.stream.reference_frequency, WithinAbs(10.5e9, 1e-6));
+	REQUIRE_THAT(block.stream.reference_frequency, WithinAbs(10.0e9, 1e-6));
 	REQUIRE_THAT(block.first_sample_time, WithinAbs(1.25, 1e-12));
 	REQUIRE(block.sample_start == 17u);
 	REQUIRE(block.samples.size() == samples.size());
@@ -423,6 +414,144 @@ TEST_CASE("buildReceiverStreamDescriptor keeps CW metadata isolated from active 
 	REQUIRE(descriptor.cw.present);
 	REQUIRE_FALSE(descriptor.fmcw.present);
 	REQUIRE_THAT(descriptor.cw.carrier_frequency, WithinAbs(5.0e9, 1e-6));
+	REQUIRE_THAT(descriptor.reference_frequency, WithinAbs(5.0e9, 1e-6));
+}
+
+TEST_CASE("buildReceiverStreamDescriptor uses detached file-FMCW carrier as the RF reference",
+		  "[processing][finalizer][fmcw][file][vita49]")
+{
+	ParamGuard const guard;
+	params::setTime(0.0, 1.0);
+	params::setRate(204'800.0);
+	params::setOversampleRatio(1);
+
+	radar::Platform rx_platform("DetachedFileFmcwRxPlatform");
+	radar::Receiver receiver(&rx_platform, "DetachedFileFmcwRx", 66, radar::OperationMode::FMCW_MODE);
+	auto timing_owner = makeQuietTiming("detached_file_fmcw_clk", 32, 204'800.0);
+	receiver.setTiming(timing_owner.timing);
+
+	fers_signal::FileWaveform file_wave{};
+	file_wave.setKind(fers_signal::FileWaveformKind::Fmcw);
+	file_wave.load(std::vector<ComplexType>{{1.0, 0.0}, {0.0, 1.0}}, 2, 204'800.0);
+	radar::Platform tx_platform("DetachedFileFmcwTxPlatform");
+	auto waveform =
+		std::make_unique<fers_signal::RadarSignal>("FileFmcwWaveform", 10.0, 77.0e6, std::move(file_wave), 1802);
+	radar::Transmitter transmitter(&tx_platform, "DetachedFileFmcwTx", radar::OperationMode::FMCW_MODE, 1801);
+	transmitter.setSignal(waveform.get());
+	const std::vector sources = {core::makeActiveSource(&transmitter, 0.0, params::endTime())};
+
+	const auto descriptor = processing::buildReceiverStreamDescriptor(&receiver, params::rate(), sources);
+
+	REQUIRE(descriptor.mode == "fmcw");
+	REQUIRE(descriptor.fmcw.present);
+	REQUIRE(descriptor.fmcw.waveform_shape == "file");
+	REQUIRE_THAT(descriptor.reference_frequency, WithinAbs(77.0e6, 1e-6));
+}
+
+TEST_CASE("buildReceiverStreamDescriptor binds a sole detached file-CW source",
+		  "[processing][finalizer][cw][file][vita49]")
+{
+	ParamGuard const guard;
+	params::setTime(0.0, 180.0);
+	params::setRate(204'800.0);
+	params::setOversampleRatio(1);
+
+	radar::Platform rx_platform("DetachedFileCwRxPlatform");
+	radar::Receiver receiver(&rx_platform, "DetachedFileCwRx", 63, radar::OperationMode::CW_MODE);
+	auto timing_owner = makeQuietTiming("detached_file_cw_clk", 29, 204'800.0);
+	receiver.setTiming(timing_owner.timing);
+
+	radar::Platform tx_platform("DetachedFileCwTxPlatform");
+	fers_signal::FileWaveform file_wave{};
+	file_wave.setKind(fers_signal::FileWaveformKind::Cw);
+	auto waveform =
+		std::make_unique<fers_signal::RadarSignal>("TxWaveform", 16'400.0, 89.0e6, std::move(file_wave), 1302);
+	radar::Transmitter transmitter(&tx_platform, "DetachedFileCwTx", radar::OperationMode::CW_MODE, 1301);
+	transmitter.setSignal(waveform.get());
+	const std::vector sources = {core::makeActiveSource(&transmitter, 0.0, 90.0),
+								 core::makeActiveSource(&transmitter, 90.0, params::endTime())};
+
+	const auto descriptor = processing::buildReceiverStreamDescriptor(&receiver, params::rate(), sources);
+
+	REQUIRE(descriptor.mode == "cw");
+	REQUIRE(descriptor.cw.present);
+	REQUIRE(descriptor.cw.waveform_id == 1302);
+	REQUIRE(descriptor.cw.waveform_name == "TxWaveform");
+	REQUIRE_THAT(descriptor.cw.carrier_frequency, WithinAbs(89.0e6, 1e-6));
+	REQUIRE_THAT(descriptor.cw.power, WithinAbs(16'400.0, 1e-12));
+	REQUIRE_THAT(descriptor.reference_frequency, WithinAbs(89.0e6, 1e-6));
+}
+
+TEST_CASE("buildReceiverStreamDescriptor preserves attached CW source precedence",
+		  "[processing][finalizer][cw][vita49]")
+{
+	ParamGuard const guard;
+	params::setTime(0.0, 1.0);
+	params::setRate(1'000.0);
+	params::setOversampleRatio(1);
+
+	radar::Platform rx_platform("AttachedCwRxPlatform");
+	radar::Receiver receiver(&rx_platform, "AttachedCwRx", 64, radar::OperationMode::CW_MODE);
+	auto timing_owner = makeQuietTiming("attached_cw_clk", 30, 1'000.0);
+	receiver.setTiming(timing_owner.timing);
+
+	radar::Platform attached_platform("AttachedCwTxPlatform");
+	auto attached_waveform =
+		std::make_unique<fers_signal::RadarSignal>("AttachedCwWave", 25.0, 5.0e9, fers_signal::CwWaveform{}, 1402);
+	radar::Transmitter attached(&attached_platform, "AttachedCwTx", radar::OperationMode::CW_MODE, 1401);
+	attached.setSignal(attached_waveform.get());
+	receiver.setAttached(&attached);
+
+	radar::Platform detached_platform("OtherCwTxPlatform");
+	auto detached_waveform =
+		std::make_unique<fers_signal::RadarSignal>("OtherCwWave", 100.0, 9.0e9, fers_signal::CwWaveform{}, 1502);
+	radar::Transmitter detached(&detached_platform, "OtherCwTx", radar::OperationMode::CW_MODE, 1501);
+	detached.setSignal(detached_waveform.get());
+	const std::vector sources = {core::makeActiveSource(&detached, 0.0, params::endTime())};
+
+	const auto descriptor = processing::buildReceiverStreamDescriptor(&receiver, params::rate(), sources);
+
+	REQUIRE(descriptor.cw.waveform_id == 1402);
+	REQUIRE(descriptor.cw.waveform_name == "AttachedCwWave");
+	REQUIRE_THAT(descriptor.cw.carrier_frequency, WithinAbs(5.0e9, 1e-6));
+	REQUIRE_THAT(descriptor.cw.power, WithinAbs(25.0, 1e-12));
+	REQUIRE_THAT(descriptor.reference_frequency, WithinAbs(5.0e9, 1e-6));
+}
+
+TEST_CASE("buildReceiverStreamDescriptor leaves ambiguous detached CW sources unbound",
+		  "[processing][finalizer][cw][vita49]")
+{
+	ParamGuard const guard;
+	params::setTime(0.0, 1.0);
+	params::setRate(2'000.0);
+	params::setOversampleRatio(1);
+
+	radar::Platform rx_platform("AmbiguousCwRxPlatform");
+	radar::Receiver receiver(&rx_platform, "AmbiguousCwRx", 65, radar::OperationMode::CW_MODE);
+	auto timing_owner = makeQuietTiming("ambiguous_cw_clk", 31, 2'000.0);
+	receiver.setTiming(timing_owner.timing);
+
+	radar::Platform first_platform("FirstCwTxPlatform");
+	auto first_waveform =
+		std::make_unique<fers_signal::RadarSignal>("FirstCwWave", 1.0, 1.0e9, fers_signal::CwWaveform{}, 1602);
+	radar::Transmitter first(&first_platform, "FirstCwTx", radar::OperationMode::CW_MODE, 1601);
+	first.setSignal(first_waveform.get());
+	radar::Platform second_platform("SecondCwTxPlatform");
+	auto second_waveform =
+		std::make_unique<fers_signal::RadarSignal>("SecondCwWave", 2.0, 2.0e9, fers_signal::CwWaveform{}, 1702);
+	radar::Transmitter second(&second_platform, "SecondCwTx", radar::OperationMode::CW_MODE, 1701);
+	second.setSignal(second_waveform.get());
+	const std::vector sources = {core::makeActiveSource(&first, 0.0, params::endTime()),
+								 core::makeActiveSource(&second, 0.0, params::endTime())};
+
+	const auto descriptor = processing::buildReceiverStreamDescriptor(&receiver, params::rate(), sources);
+
+	REQUIRE(descriptor.cw.present);
+	REQUIRE(descriptor.cw.waveform_id == 0);
+	REQUIRE(descriptor.cw.waveform_name.empty());
+	REQUIRE_THAT(descriptor.cw.carrier_frequency, WithinAbs(2'000.0, 1e-12));
+	REQUIRE_THAT(descriptor.cw.power, WithinAbs(0.0, 1e-12));
+	REQUIRE_THAT(descriptor.reference_frequency, WithinAbs(2'000.0, 1e-12));
 }
 
 TEST_CASE("buildReceiverStreamDescriptor records SFCW waveform metadata", "[processing][finalizer][sfcw][vita49]")
@@ -461,6 +590,7 @@ TEST_CASE("buildReceiverStreamDescriptor records SFCW waveform metadata", "[proc
 	REQUIRE_THAT(descriptor.sfcw.effective_bandwidth, WithinAbs(1.6e6, 1e-6));
 	REQUIRE_THAT(descriptor.sfcw.range_resolution, WithinAbs(params::c() / (2.0 * 1.6e6), 1e-9));
 	REQUIRE_THAT(descriptor.sfcw.unambiguous_range, WithinAbs(params::c() / (2.0 * 2.0e5), 1e-9));
+	REQUIRE_THAT(descriptor.reference_frequency, WithinAbs(10.0e9, 1e-6));
 }
 
 TEST_CASE("buildStreamingOutputMetadata records FMCW source metadata for detached receivers",

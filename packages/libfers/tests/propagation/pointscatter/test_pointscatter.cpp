@@ -110,7 +110,7 @@ TEST_CASE("direct path computes correct Friis power for isotropic antennas", "[p
 	tx.setAntenna(&iso_ant);
 	tx.setTiming(timing);
 
-	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwWaveform{});
 	tx.setSignal(&wave);
 
 	radar::Receiver rx(&rx_plat, "rx", 42, radar::OperationMode::PULSED_MODE);
@@ -141,9 +141,9 @@ TEST_CASE("direct path Friis equation with different distances", "[propagation][
 	antenna::Isotropic iso_ant("iso");
 	auto timing = std::make_shared<timing::Timing>("clk", 42);
 
-	fers_signal::RadarSignal wave1("sig1", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave1("sig1", 1.0, carrier, fers_signal::CwWaveform{});
 
-	fers_signal::RadarSignal wave2("sig2", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave2("sig2", 1.0, carrier, fers_signal::CwWaveform{});
 
 	// Distance 500 m
 	radar::Platform tx_plat1("tx1");
@@ -222,7 +222,7 @@ TEST_CASE("direct path with noproploss flag ignores distance in power", "[propag
 	tx.setAntenna(&iso_ant);
 	tx.setTiming(timing);
 
-	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwWaveform{});
 	tx.setSignal(&wave);
 
 	radar::Receiver rx(&rx_plat, "rx", 42, radar::OperationMode::PULSED_MODE);
@@ -257,10 +257,10 @@ TEST_CASE("direct path phase is proportional to carrier frequency", "[propagatio
 	auto timing = std::make_shared<timing::Timing>("clk", 42);
 
 	// Carrier at 1 GHz
-	fers_signal::RadarSignal wave1("sig1", 1.0, 1.0e9, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave1("sig1", 1.0, 1.0e9, fers_signal::CwWaveform{});
 
 	// Carrier at 2 GHz
-	fers_signal::RadarSignal wave2("sig2", 1.0, 2.0e9, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave2("sig2", 1.0, 2.0e9, fers_signal::CwWaveform{});
 
 	radar::Platform tx_plat1("tx1");
 	setupPlatform(tx_plat1, math::Vec3{0.0, 0.0, 0.0});
@@ -345,7 +345,7 @@ TEST_CASE("direct path at 3D separation produces correct distance and delay", "[
 	tx.setAntenna(&iso_ant);
 	tx.setTiming(timing);
 
-	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwWaveform{});
 	tx.setSignal(&wave);
 
 	radar::Receiver rx(&rx_plat, "rx", 42, radar::OperationMode::PULSED_MODE);
@@ -376,7 +376,7 @@ TEST_CASE("direct path power scales with lambda squared", "[propagation][pointsc
 	auto timing = std::make_shared<timing::Timing>("clk", 42);
 
 	// Test at 1 GHz
-	fers_signal::RadarSignal wave1("sig1", 1.0, 1.0e9, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave1("sig1", 1.0, 1.0e9, fers_signal::CwWaveform{});
 
 	radar::Platform tx_plat1("tx1");
 	setupPlatform(tx_plat1, math::Vec3{0.0, 0.0, 0.0});
@@ -400,7 +400,7 @@ TEST_CASE("direct path power scales with lambda squared", "[propagation][pointsc
 	REQUIRE(path1 != nullptr);
 
 	// Test at 2 GHz
-	fers_signal::RadarSignal wave2("sig2", 1.0, 2.0e9, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave2("sig2", 1.0, 2.0e9, fers_signal::CwWaveform{});
 
 	radar::Platform tx_plat2("tx2");
 	setupPlatform(tx_plat2, math::Vec3{0.0, 0.0, 0.0});
@@ -473,7 +473,7 @@ TEST_CASE("bistatic path handler computes correct bistatic power for isotropic a
 	tx.setAntenna(&iso_ant);
 	tx.setTiming(timing);
 
-	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwWaveform{});
 	tx.setSignal(&wave);
 
 	radar::Receiver rx(&rx_plat, "rx", 42, radar::OperationMode::PULSED_MODE);
@@ -515,7 +515,7 @@ TEST_CASE("bistatic path power scales linearly with RCS", "[propagation][pointsc
 	radar::Transmitter tx1(&tx_plat1, "tx1", radar::OperationMode::PULSED_MODE);
 	tx1.setAntenna(&iso_ant);
 	tx1.setTiming(timing);
-	fers_signal::RadarSignal wave1("sig1", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave1("sig1", 1.0, carrier, fers_signal::CwWaveform{});
 	tx1.setSignal(&wave1);
 
 	radar::Receiver rx1(&rx_plat1, "rx1", 42, radar::OperationMode::PULSED_MODE);
@@ -541,7 +541,7 @@ TEST_CASE("bistatic path power scales linearly with RCS", "[propagation][pointsc
 	radar::Transmitter tx2(&tx_plat2, "tx2", radar::OperationMode::PULSED_MODE);
 	tx2.setAntenna(&iso_ant);
 	tx2.setTiming(timing);
-	fers_signal::RadarSignal wave2("sig2", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave2("sig2", 1.0, carrier, fers_signal::CwWaveform{});
 	tx2.setSignal(&wave2);
 
 	radar::Receiver rx2(&rx_plat2, "rx2", 42, radar::OperationMode::PULSED_MODE);
@@ -589,7 +589,7 @@ TEST_CASE("bistatic path delay is sum of Tx-Tgt and Tgt-Rx distances divided by 
 	tx.setAntenna(&iso_ant);
 	tx.setTiming(timing);
 
-	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwWaveform{});
 	tx.setSignal(&wave);
 
 	radar::Receiver rx(&rx_plat, "rx", 42, radar::OperationMode::PULSED_MODE);
@@ -636,7 +636,7 @@ TEST_CASE("bistatic path with noproploss flag ignores distance in power", "[prop
 	tx.setAntenna(&iso_ant);
 	tx.setTiming(timing);
 
-	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwWaveform{});
 	tx.setSignal(&wave);
 
 	radar::Receiver rx(&rx_plat, "rx", 42, radar::OperationMode::PULSED_MODE);
@@ -679,7 +679,7 @@ TEST_CASE("bistatic path power follows R^-4 for monostatic geometry", "[propagat
 	radar::Transmitter tx1(&tx_plat1, "tx1", radar::OperationMode::PULSED_MODE);
 	tx1.setAntenna(&iso_ant);
 	tx1.setTiming(timing);
-	fers_signal::RadarSignal wave1("sig1", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave1("sig1", 1.0, carrier, fers_signal::CwWaveform{});
 	tx1.setSignal(&wave1);
 
 	radar::Receiver rx1(&rx_plat1, "rx1", 42, radar::OperationMode::PULSED_MODE);
@@ -705,7 +705,7 @@ TEST_CASE("bistatic path power follows R^-4 for monostatic geometry", "[propagat
 	radar::Transmitter tx2(&tx_plat2, "tx2", radar::OperationMode::PULSED_MODE);
 	tx2.setAntenna(&iso_ant);
 	tx2.setTiming(timing);
-	fers_signal::RadarSignal wave2("sig2", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave2("sig2", 1.0, carrier, fers_signal::CwWaveform{});
 	tx2.setSignal(&wave2);
 
 	radar::Receiver rx2(&rx_plat2, "rx2", 42, radar::OperationMode::PULSED_MODE);
@@ -765,7 +765,7 @@ TEST_CASE("bistatic path with 3D geometry computes correct bistatic range", "[pr
 	tx.setAntenna(&iso_ant);
 	tx.setTiming(timing);
 
-	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwSignal{});
+	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwWaveform{});
 	tx.setSignal(&wave);
 
 	radar::Receiver rx(&rx_plat, "rx", 42, radar::OperationMode::PULSED_MODE);

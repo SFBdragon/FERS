@@ -63,6 +63,9 @@ namespace core
 			std::optional<RealType> triangle_period = std::nullopt;
 			std::optional<std::uint64_t> chirp_count = std::nullopt;
 			std::optional<std::uint64_t> triangle_count = std::nullopt;
+			std::optional<RealType> sampled_duration =
+				std::nullopt; ///< Finite file-backed waveform duration in seconds.
+			std::optional<std::uint64_t> sampled_count = std::nullopt; ///< Native samples in a file-backed waveform.
 			std::string dechirp_mode = "none";
 			std::string dechirp_reference_source = "none";
 			SimId dechirp_reference_transmitter_id = 0;
@@ -163,7 +166,8 @@ namespace core
 		std::uint64_t packets_dropped = 0;
 		std::uint64_t samples_dropped = 0;
 		std::uint64_t over_range_count = 0;
-		std::uint64_t late_packet_count = 0;
+		std::uint64_t late_data_packet_count = 0;
+		std::uint64_t late_context_packet_count = 0;
 		std::optional<RealType> first_sample_time = std::nullopt;
 		std::optional<RealType> end_sample_time = std::nullopt;
 		std::optional<Vita49Timestamp> first_timestamp = std::nullopt;
@@ -205,6 +209,13 @@ namespace core
 		virtual std::uint32_t registerStream(const ReceiverStreamDescriptor& stream) = 0;
 		virtual void openStream(std::uint32_t stream_id, RealType first_sample_time) = 0;
 		virtual void submitBlock(const ReceiverSampleBlock& block) = 0;
+		virtual void submitBlocks(const std::span<const ReceiverSampleBlock> blocks)
+		{
+			for (const auto& block : blocks)
+			{
+				submitBlock(block);
+			}
+		}
 		virtual void emitContextHeartbeat(RealType simulation_time) = 0;
 		virtual void closeStream(std::uint32_t stream_id) = 0;
 		virtual OutputStats finalize() = 0;

@@ -43,16 +43,68 @@ namespace
 	}
 }
 
-TEST_CASE("FmcwChirpSignal applies sweep direction to phase only", "[signal][radar][fmcw]")
+TEST_CASE("FileWaveform preserves CW/FMCW classification", "[signal][radar][file]")
+{
+	fers_signal::FileWaveform cw_wave{};
+	cw_wave.setKind(fers_signal::FileWaveformKind::Cw);
+	cw_wave.load(std::vector<ComplexType>{{1.0, 0.0}}, 1, 8.0);
+	fers_signal::RadarSignal const cw("cw-file", 1.0, 10.0, std::move(cw_wave), 1);
+
+	fers_signal::FileWaveform fmcw_wave{};
+	fmcw_wave.setKind(fers_signal::FileWaveformKind::Fmcw);
+	fmcw_wave.load(std::vector<ComplexType>{{1.0, 0.0}}, 1, 8.0);
+	fers_signal::RadarSignal const fmcw("fmcw-file", 1.0, 10.0, std::move(fmcw_wave), 2);
+
+	REQUIRE(cw.isCw());
+	REQUIRE(cw.isFileCw());
+	REQUIRE_FALSE(cw.isFmcwFamily());
+	REQUIRE(cw.getFileWaveform()->getKind() == fers_signal::FileWaveformKind::Cw);
+	REQUIRE_FALSE(fmcw.isCw());
+	REQUIRE(fmcw.isFileFmcw());
+	REQUIRE(fmcw.isFmcwFamily());
+	REQUIRE(fmcw.getFileWaveform()->getKind() == fers_signal::FileWaveformKind::Fmcw);
+}
+
+TEST_CASE("FileWaveform interpolates a finite complex envelope without wrapping", "[signal][radar][file][hdf5]")
+{
+	ParamGuard const guard;
+	params::setOversampleRatio(1);
+	constexpr RealType rate = 32.0;
+	constexpr unsigned sample_count = 64;
+	std::vector<ComplexType> samples(sample_count);
+	for (unsigned i = 0; i < sample_count; ++i)
+	{
+		const RealType phase = 2.0 * PI * 3.0 * static_cast<RealType>(i) / rate;
+		samples[i] = {std::cos(phase), std::sin(phase)};
+	}
+
+	fers_signal::FileWaveform signal{};
+	signal.setKind(fers_signal::FileWaveformKind::Fmcw);
+	signal.load(samples, sample_count, rate);
+	const RealType duration = static_cast<RealType>(sample_count) / rate;
+	const RealType sample_time = 0.3125;
+	const auto first = signal.sampleAt(sample_time);
+	const auto at_end = signal.sampleAt(duration);
+	const auto after_end = signal.sampleAt(sample_time + duration);
+	const auto negative = signal.sampleAt(-sample_time);
+
+	REQUIRE_THAT(std::abs(first), WithinAbs(1.0, 1e-6));
+	REQUIRE_THAT(std::arg(first), WithinAbs(std::remainder(2.0 * PI * 3.0 * sample_time, 2.0 * PI), 1e-6));
+	REQUIRE((at_end == ComplexType{0.0, 0.0}));
+	REQUIRE((after_end == ComplexType{0.0, 0.0}));
+	REQUIRE((negative == ComplexType{0.0, 0.0}));
+}
+
+TEST_CASE("FmcwChirpWaveform applies sweep direction to phase only", "[signal][radar][fmcw]")
 {
 	const RealType bandwidth = 2.0e6;
 	const RealType duration = 1.0e-3;
 	const RealType offset = 1.0e5;
 	const RealType u = 4.0e-4;
 
-	fers_signal::FmcwChirpSignal const up(bandwidth, duration, duration, offset);
-	fers_signal::FmcwChirpSignal const down(bandwidth, duration, duration, offset, std::nullopt,
-											fers_signal::FmcwChirpDirection::Down);
+	fers_signal::FmcwChirpWaveform const up(bandwidth, duration, duration, offset);
+	fers_signal::FmcwChirpWaveform const down(bandwidth, duration, duration, offset, std::nullopt,
+											  fers_signal::FmcwChirpDirection::Down);
 
 	const RealType alpha = bandwidth / duration;
 	REQUIRE_FALSE(up.isDownChirp());
@@ -65,7 +117,7 @@ TEST_CASE("FmcwChirpSignal applies sweep direction to phase only", "[signal][rad
 	REQUIRE_THAT(down.basebandPhaseForChirpTime(u), WithinAbs(2.0 * PI * offset * u - PI * alpha * u * u, 1e-9));
 }
 
-TEST_CASE("FmcwTriangleSignal keeps phase continuous at leg and period boundaries", "[signal][radar][fmcw]")
+TEST_CASE("FmcwTriangleWaveform keeps phase continuous at leg and period boundaries", "[signal][radar][fmcw]")
 {
 	const RealType bandwidth = 2.0e6;
 	const RealType duration = 1.0e-3;
@@ -73,7 +125,7 @@ TEST_CASE("FmcwTriangleSignal keeps phase continuous at leg and period boundarie
 	const RealType alpha = bandwidth / duration;
 	const RealType eps = 1.0e-10;
 
-	fers_signal::FmcwTriangleSignal const triangle(bandwidth, duration, offset, 4);
+	fers_signal::FmcwTriangleWaveform const triangle(bandwidth, duration, offset, 4);
 
 	REQUIRE_THAT(triangle.getChirpRate(), WithinAbs(alpha, 1e-6));
 	REQUIRE_THAT(triangle.getTrianglePeriod(), WithinAbs(2.0 * duration, 1e-15));
@@ -93,9 +145,9 @@ TEST_CASE("FmcwTriangleSignal keeps phase continuous at leg and period boundarie
 	REQUIRE_FALSE(triangle.instantaneousBasebandPhase(4.0 * triangle.getTrianglePeriod()).has_value());
 }
 
-TEST_CASE("SteppedFrequencySignal selects active dwell steps and finite sweeps", "[signal][radar][sfcw]")
+TEST_CASE("SteppedFrequencyWaveform selects active dwell steps and finite sweeps", "[signal][radar][sfcw]")
 {
-	fers_signal::SteppedFrequencySignal const sfcw(10.0, 2.0, 4, 0.25, 0.5, std::size_t{2});
+	fers_signal::SteppedFrequencyWaveform const sfcw(10.0, 2.0, 4, 0.25, 0.5, std::size_t{2});
 
 	REQUIRE_THAT(sfcw.firstFrequency(100.0), WithinAbs(110.0, 1e-12));
 	REQUIRE_THAT(sfcw.lastFrequency(100.0), WithinAbs(116.0, 1e-12));
@@ -122,7 +174,7 @@ TEST_CASE("SteppedFrequencySignal selects active dwell steps and finite sweeps",
 	REQUIRE_THAT(second_sweep->rf_frequency, WithinAbs(112.0, 1e-12));
 	REQUIRE_FALSE(sfcw.activeStepAt(4.0, 100.0).has_value());
 
-	fers_signal::SteppedFrequencySignal const descending(0.0, -5.0, 3, 0.1, 0.2);
+	fers_signal::SteppedFrequencyWaveform const descending(0.0, -5.0, 3, 0.1, 0.2);
 	REQUIRE_THAT(descending.lastFrequency(100.0), WithinAbs(90.0, 1e-12));
 	REQUIRE_THAT(descending.frequencySpan(), WithinAbs(10.0, 1e-12));
 	REQUIRE_FALSE(descending.totalDuration().has_value());
@@ -133,7 +185,7 @@ TEST_CASE("RadarSignal exposes metadata", "[signal][radar]")
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
 	std::vector<ComplexType> data = {ComplexType{1.0, 0.0}};
-	fers_signal::SampledSignal signal;
+	fers_signal::PulseWaveform signal;
 	signal.load(data, static_cast<unsigned>(data.size()), 1000.0);
 	signal.setFilename("waveform.bin");
 
@@ -144,7 +196,7 @@ TEST_CASE("RadarSignal exposes metadata", "[signal][radar]")
 	REQUIRE(radar.getPower() == 9.0);
 	REQUIRE(radar.getId() == 42);
 
-	const auto* sampled = radar.getSampledSignal();
+	const auto* sampled = radar.getPulseWaveform();
 	REQUIRE(sampled != nullptr);
 	REQUIRE_THAT(sampled->getDuration(), WithinAbs(0.001, 1e-12));
 	REQUIRE(sampled->getRate() == 1000.0);
@@ -154,12 +206,12 @@ TEST_CASE("RadarSignal exposes metadata", "[signal][radar]")
 
 TEST_CASE("RadarSignal autogenerates waveform ids", "[signal][radar]")
 {
-	fers_signal::RadarSignal const radar("waveform", 1.0, 1.0, fers_signal::CwSignal{}, 0);
+	fers_signal::RadarSignal const radar("waveform", 1.0, 1.0, fers_signal::CwWaveform{}, 0);
 
 	REQUIRE(SimIdGenerator::getType(radar.getId()) == ObjectType::Waveform);
 }
 
-TEST_CASE("SampledSignal render scales output by the amplitude parameter", "[signal][radar]")
+TEST_CASE("PulseWaveform render scales output by the amplitude parameter", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
@@ -168,7 +220,7 @@ TEST_CASE("SampledSignal render scales output by the amplitude parameter", "[sig
 	// test_response.cpp for why), so with delay == 0.0 the rendered output is just
 	// the loaded samples scaled by the amplitude parameter -- no mock needed.
 	const std::vector<ComplexType> input = {ComplexType{1.0, 0.0}, ComplexType{2.0, -1.0}};
-	fers_signal::SampledSignal signal;
+	fers_signal::PulseWaveform signal;
 	signal.load(input, static_cast<unsigned>(input.size()), 1.0);
 
 	const std::vector<interp::InterpPoint> points = {{1.0, 0.0, 0.0, 0.0}};
@@ -181,13 +233,13 @@ TEST_CASE("SampledSignal render scales output by the amplitude parameter", "[sig
 	REQUIRE_THAT(data[1].imag(), WithinAbs(-2.0, 1e-9));
 }
 
-TEST_CASE("SampledSignal load applies oversampling to rate and sample count", "[signal][radar]")
+TEST_CASE("PulseWaveform load applies oversampling to rate and sample count", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(2);
 	std::vector<ComplexType> input = {ComplexType{1.0, 0.0}, ComplexType{0.5, -0.5}};
 
-	fers_signal::SampledSignal signal;
+	fers_signal::PulseWaveform signal;
 	signal.load(input, static_cast<unsigned>(input.size()), 100.0);
 
 	REQUIRE(signal.getRate() == 200.0);
@@ -198,7 +250,7 @@ TEST_CASE("SampledSignal load applies oversampling to rate and sample count", "[
 	REQUIRE(signal.getSampleCount() == input.size() * 2);
 }
 
-TEST_CASE("SampledSignal render matches constant input physics", "[signal][radar]")
+TEST_CASE("PulseWaveform render matches constant input physics", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
@@ -207,7 +259,7 @@ TEST_CASE("SampledSignal render matches constant input physics", "[signal][radar
 	const unsigned sample_count = filter_length * 4;
 	std::vector<ComplexType> input(sample_count, ComplexType{1.0, 0.0});
 
-	fers_signal::SampledSignal signal;
+	fers_signal::PulseWaveform signal;
 	signal.load(input, sample_count, 1.0);
 
 	const RealType power = 4.0;
@@ -226,7 +278,7 @@ TEST_CASE("SampledSignal render matches constant input physics", "[signal][radar
 	REQUIRE_THAT(data[sample_index].imag(), WithinAbs(expected.imag(), 1e-6));
 }
 
-TEST_CASE("SampledSignal render interpolates power and phase", "[signal][radar]")
+TEST_CASE("PulseWaveform render interpolates power and phase", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
@@ -235,7 +287,7 @@ TEST_CASE("SampledSignal render interpolates power and phase", "[signal][radar]"
 	const unsigned sample_count = filter_length * 4;
 	std::vector<ComplexType> input(sample_count, ComplexType{1.0, 0.0});
 
-	fers_signal::SampledSignal signal;
+	fers_signal::PulseWaveform signal;
 	signal.load(input, sample_count, 1.0);
 
 	const RealType power_a = 1.0;
@@ -261,7 +313,7 @@ TEST_CASE("SampledSignal render interpolates power and phase", "[signal][radar]"
 	REQUIRE_THAT(data[sample_index].imag(), WithinAbs(expected.imag(), 1e-6));
 }
 
-TEST_CASE("SampledSignal render responds to fractional delay", "[signal][radar]")
+TEST_CASE("PulseWaveform render responds to fractional delay", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
@@ -270,7 +322,7 @@ TEST_CASE("SampledSignal render responds to fractional delay", "[signal][radar]"
 	const unsigned sample_count = filter_length * 4;
 	std::vector<ComplexType> input(sample_count, ComplexType{1.0, 0.0});
 
-	fers_signal::SampledSignal signal;
+	fers_signal::PulseWaveform signal;
 	signal.load(input, sample_count, 1.0);
 
 	const std::vector<interp::InterpPoint> points = {{1.0, 0.0, 0.0, 0.0}};
@@ -287,7 +339,7 @@ TEST_CASE("SampledSignal render responds to fractional delay", "[signal][radar]"
 	REQUIRE_THAT(data[sample_index].imag(), WithinAbs(expected.imag(), 1e-6));
 }
 
-TEST_CASE("SampledSignal renderSlice matches cropped full response with padding", "[signal][radar]")
+TEST_CASE("PulseWaveform renderSlice matches cropped full response with padding", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
@@ -300,7 +352,7 @@ TEST_CASE("SampledSignal renderSlice matches cropped full response with padding"
 		input[i] = {std::cos(phase), std::sin(phase)};
 	}
 
-	fers_signal::SampledSignal signal;
+	fers_signal::PulseWaveform signal;
 	signal.load(input, sample_count, 100.0);
 	const std::vector<interp::InterpPoint> points = {{1.0, 10.0, 0.0, 0.0}, {0.25, 12.0, 0.0, PI / 3.0}};
 
@@ -321,7 +373,7 @@ TEST_CASE("SampledSignal renderSlice matches cropped full response with padding"
 	}
 }
 
-TEST_CASE("SampledSignal renderSlice interpolates onto non-native output grids", "[signal][radar]")
+TEST_CASE("PulseWaveform renderSlice interpolates onto non-native output grids", "[signal][radar]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
@@ -341,7 +393,7 @@ TEST_CASE("SampledSignal renderSlice interpolates onto non-native output grids",
 		input[i] = {std::cos(phase), std::sin(phase)};
 	}
 
-	fers_signal::SampledSignal signal;
+	fers_signal::PulseWaveform signal;
 	signal.load(input, sample_count, native_rate_hz);
 	const std::vector<interp::InterpPoint> points = {{1.0, start_time, 0.0, 0.0}};
 

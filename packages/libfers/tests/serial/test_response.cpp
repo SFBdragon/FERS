@@ -26,7 +26,7 @@ namespace
 	fers_signal::RadarSignal makeSampledRadarSignal(const std::string& name, const RealType power,
 													std::vector<ComplexType> samples, const RealType rate)
 	{
-		fers_signal::SampledSignal sampled;
+		fers_signal::PulseWaveform sampled;
 		sampled.load(samples, static_cast<unsigned>(samples.size()), rate);
 		return {name, power, 1.0e9, std::move(sampled)};
 	}

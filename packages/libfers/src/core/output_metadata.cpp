@@ -80,6 +80,17 @@ namespace core
 					result["chirp_count"] = *fmcw.chirp_count;
 				}
 			}
+			else if (fmcw.waveform_shape == "file")
+			{
+				if (fmcw.sampled_duration.has_value())
+				{
+					result["sampled_duration"] = *fmcw.sampled_duration;
+				}
+				if (fmcw.sampled_count.has_value())
+				{
+					result["sampled_count"] = *fmcw.sampled_count;
+				}
+			}
 			else if (fmcw.waveform_shape == "triangle")
 			{
 				if (fmcw.triangle_period.has_value())
@@ -318,7 +329,8 @@ namespace core
 					{"packets_dropped", stream.packets_dropped},
 					{"samples_dropped", stream.samples_dropped},
 					{"over_range_count", stream.over_range_count},
-					{"late_packet_count", stream.late_packet_count},
+					{"late_data_packet_count", stream.late_data_packet_count},
+					{"late_context_packet_count", stream.late_context_packet_count},
 					{"context_packet_count", stream.context_packet_count},
 					{"first_sample_time",
 					 stream.first_sample_time.has_value() ? nlohmann::json(*stream.first_sample_time)

@@ -37,6 +37,15 @@ namespace processing
 		/// Converts a cached streaming source to reusable FMCW waveform metadata.
 		core::FmcwMetadata buildFmcwMetadata(const core::ActiveStreamingSource& source)
 		{
+			if (source.kind == core::StreamingWaveformKind::FileFmcw)
+			{
+				return core::FmcwMetadata{.waveform_shape = "file",
+										  .sampled_duration = source.file_duration,
+										  .sampled_count = source.file != nullptr
+											  ? std::optional<std::uint64_t>(static_cast<std::uint64_t>(
+													std::llround(source.file_duration * params::rate())))
+											  : std::nullopt};
+			}
 			if (source.kind == core::StreamingWaveformKind::FmcwTriangle)
 			{
 				return core::FmcwMetadata{
@@ -99,6 +108,10 @@ namespace processing
 			const RealType active_start = std::max(params::startTime(), source.segment_start);
 			const RealType active_end = std::min(params::endTime(), source.segment_end);
 			core::FmcwSourceSegmentMetadata segment{.start_time = source.segment_start, .end_time = source.segment_end};
+			if (source.kind == core::StreamingWaveformKind::FileFmcw)
+			{
+				return segment;
+			}
 			if (source.kind == core::StreamingWaveformKind::FmcwTriangle)
 			{
 				segment.first_triangle_start_time = core::firstFmcwTriangleStart(source, active_start, active_end);
@@ -670,6 +683,46 @@ namespace processing
 			return receiver == nullptr ? nullptr : dynamic_cast<const radar::Transmitter*>(receiver->getAttached());
 		}
 
+		[[nodiscard]] bool isCwContextSource(const core::ActiveStreamingSource& source) noexcept
+		{
+			return source.transmitter != nullptr &&
+				(source.kind == core::StreamingWaveformKind::Cw || source.kind == core::StreamingWaveformKind::FileCw);
+		}
+
+		/// Returns the sole logical CW source represented by the active segments.
+		/// Repeated schedule segments from the same transmitter/waveform remain one
+		/// source; multiple distinct CW sources are intentionally left unbound because
+		/// the scalar VITA CW context cannot describe their superposition faithfully.
+		[[nodiscard]] const radar::Transmitter*
+		uniqueCwContextTransmitter(const std::span<const core::ActiveStreamingSource> streaming_sources)
+		{
+			const radar::Transmitter* candidate = nullptr;
+			const fers_signal::RadarSignal* candidate_signal = nullptr;
+			for (const auto& source : streaming_sources)
+			{
+				if (!isCwContextSource(source))
+				{
+					continue;
+				}
+				const auto* signal = source.transmitter->getSignal();
+				if (signal == nullptr)
+				{
+					continue;
+				}
+				if (candidate == nullptr)
+				{
+					candidate = source.transmitter;
+					candidate_signal = signal;
+					continue;
+				}
+				if (candidate != source.transmitter || candidate_signal != signal)
+				{
+					return nullptr;
+				}
+			}
+			return candidate;
+		}
+
 		void populateWaveformIdentity(core::ReceiverStreamDescriptor::PulsedContext& context,
 									  const fers_signal::RadarSignal* signal)
 		{
@@ -678,7 +731,7 @@ namespace processing
 				return;
 			}
 
-			const auto* sampled = signal->getSampledSignal();
+			const auto* sampled = signal->getPulseWaveform();
 			if (signal == nullptr)
 			{
 				throw std::logic_error("Passed non-sampled signal to populateWaveformIdentity.");
@@ -717,7 +770,7 @@ namespace processing
 			context.waveform_name = signal->getName();
 			context.carrier_frequency = signal->getCarrier();
 			context.power = signal->getPower();
-			const auto* sfcw = signal->getSteppedFrequencySignal();
+			const auto* sfcw = signal->getSteppedFrequencyWaveform();
 			if (sfcw == nullptr)
 			{
 				return;
@@ -768,7 +821,9 @@ namespace processing
 			return context;
 		}
 
-		[[nodiscard]] core::ReceiverStreamDescriptor::CwContext buildCwContext(const radar::Receiver* receiver)
+		[[nodiscard]] core::ReceiverStreamDescriptor::CwContext
+		buildCwContext(const radar::Receiver* receiver,
+					   const std::span<const core::ActiveStreamingSource> streaming_sources)
 		{
 			core::ReceiverStreamDescriptor::CwContext context;
 			if (receiver == nullptr || receiver->getMode() != radar::OperationMode::CW_MODE)
@@ -777,7 +832,12 @@ namespace processing
 			}
 
 			context.present = true;
-			if (const auto* transmitter = attachedTransmitter(receiver); transmitter != nullptr)
+			const auto* transmitter = attachedTransmitter(receiver);
+			if (transmitter == nullptr || transmitter->getSignal() == nullptr)
+			{
+				transmitter = uniqueCwContextTransmitter(streaming_sources);
+			}
+			if (transmitter != nullptr)
 			{
 				populateWaveformIdentity(context, transmitter->getSignal());
 			}
@@ -856,7 +916,51 @@ namespace processing
 			context.triangle_period = waveform.triangle_period;
 			context.chirp_count = waveform.chirp_count;
 			context.triangle_count = waveform.triangle_count;
+			context.sampled_duration = waveform.sampled_duration;
+			context.sampled_count = waveform.sampled_count;
 			return context;
+		}
+
+		/// Resolves the RF reference represented by the receiver stream. The receiver
+		/// timing source is a clock model, not normally an RF carrier, so it is only a
+		/// compatibility fallback when the mode-specific metadata has no bound source.
+		[[nodiscard]] RealType referenceFrequency(const radar::Receiver* receiver,
+												  const core::ReceiverStreamDescriptor& descriptor,
+												  const std::span<const core::ActiveStreamingSource> streaming_sources)
+		{
+			switch (receiver->getMode())
+			{
+			case radar::OperationMode::PULSED_MODE:
+				if (descriptor.pulsed.waveform_id != 0 || !descriptor.pulsed.waveform_name.empty())
+				{
+					return descriptor.pulsed.carrier_frequency;
+				}
+				break;
+			case radar::OperationMode::CW_MODE:
+				if (descriptor.cw.waveform_id != 0 || !descriptor.cw.waveform_name.empty())
+				{
+					return descriptor.cw.carrier_frequency;
+				}
+				break;
+			case radar::OperationMode::FMCW_MODE:
+				if (const auto* source = findFmcwContextSource(receiver, streaming_sources); source != nullptr)
+				{
+					return source->carrier_freq;
+				}
+				break;
+			case radar::OperationMode::SFCW_MODE:
+				if (descriptor.sfcw.waveform_id != 0 || !descriptor.sfcw.waveform_name.empty())
+				{
+					return descriptor.sfcw.carrier_frequency;
+				}
+				break;
+			}
+
+			if (const auto timing = receiver->getTiming(); timing)
+			{
+				return timing->getFrequency();
+			}
+			return 0.0;
 		}
 	}
 
@@ -885,13 +989,10 @@ namespace processing
 												  .coordinate = buildCoordinateContext(),
 												  .initial_platform_state = buildInitialPlatformState(receiver),
 												  .pulsed = buildPulsedContext(receiver),
-												  .cw = buildCwContext(receiver),
+												  .cw = buildCwContext(receiver, streaming_sources),
 												  .fmcw = buildFmcwContext(receiver, streaming_sources),
 												  .sfcw = buildSfcwContext(receiver, streaming_sources)};
-		if (const auto timing = receiver->getTiming(); timing)
-		{
-			descriptor.reference_frequency = timing->getFrequency();
-		}
+		descriptor.reference_frequency = referenceFrequency(receiver, descriptor, streaming_sources);
 		return descriptor;
 	}
 

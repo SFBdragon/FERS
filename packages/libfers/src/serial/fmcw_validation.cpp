@@ -86,7 +86,7 @@ namespace serial::fmcw_validation
 		}
 
 		void validateSfcwWaveform(const fers_signal::RadarSignal& wave, const std::string& owner,
-								  const fers_signal::SteppedFrequencySignal& sfcw, const Thrower& throw_error)
+								  const fers_signal::SteppedFrequencyWaveform& sfcw, const Thrower& throw_error)
 		{
 			if (sfcw.getStepCount() < 1U)
 			{
@@ -133,7 +133,7 @@ namespace serial::fmcw_validation
 
 	void validateWaveform(const fers_signal::RadarSignal& wave, const std::string& owner, const Thrower& throw_error)
 	{
-		if (const auto* fmcw = wave.getFmcwChirpSignal(); fmcw != nullptr)
+		if (const auto* fmcw = wave.getFmcwChirpWaveform(); fmcw != nullptr)
 		{
 			if (fmcw->getChirpPeriod() < fmcw->getChirpDuration())
 			{
@@ -149,7 +149,7 @@ namespace serial::fmcw_validation
 			return;
 		}
 
-		if (const auto* triangle = wave.getFmcwTriangleSignal(); triangle != nullptr)
+		if (const auto* triangle = wave.getFmcwTriangleWaveform(); triangle != nullptr)
 		{
 			const RealType sweep_start = triangle->getStartFrequencyOffset();
 			const RealType sweep_end = sweep_start + triangle->getChirpBandwidth();
@@ -159,7 +159,7 @@ namespace serial::fmcw_validation
 			return;
 		}
 
-		if (const auto* sfcw = wave.getSteppedFrequencySignal(); sfcw != nullptr)
+		if (const auto* sfcw = wave.getSteppedFrequencyWaveform(); sfcw != nullptr)
 		{
 			validateSfcwWaveform(wave, owner, *sfcw, throw_error);
 		}
@@ -179,8 +179,9 @@ namespace serial::fmcw_validation
 		}
 	}
 
-	void validateSchedule(const std::vector<radar::SchedulePeriod>& schedule, const fers_signal::FmcwChirpSignal& fmcw,
-						  const std::string& owner, const Thrower& throw_error)
+	void validateSchedule(const std::vector<radar::SchedulePeriod>& schedule,
+						  const fers_signal::FmcwChirpWaveform& fmcw, const std::string& owner,
+						  const Thrower& throw_error)
 	{
 		for (const auto& period : effectiveSchedule(schedule))
 		{
@@ -202,13 +203,13 @@ namespace serial::fmcw_validation
 	void validateSchedule(const std::vector<radar::SchedulePeriod>& schedule, const fers_signal::RadarSignal& wave,
 						  const std::string& owner, const Thrower& throw_error)
 	{
-		if (const auto* fmcw = wave.getFmcwChirpSignal(); fmcw != nullptr)
+		if (const auto* fmcw = wave.getFmcwChirpWaveform(); fmcw != nullptr)
 		{
 			validateSchedule(schedule, *fmcw, owner, throw_error);
 			return;
 		}
 
-		if (const auto* sfcw = wave.getSteppedFrequencySignal(); sfcw != nullptr)
+		if (const auto* sfcw = wave.getSteppedFrequencyWaveform(); sfcw != nullptr)
 		{
 			for (const auto& period : effectiveSchedule(schedule))
 			{
@@ -227,7 +228,7 @@ namespace serial::fmcw_validation
 			return;
 		}
 
-		const auto* triangle = wave.getFmcwTriangleSignal();
+		const auto* triangle = wave.getFmcwTriangleWaveform();
 		if (triangle == nullptr)
 		{
 			return;

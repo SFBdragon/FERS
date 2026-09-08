@@ -71,20 +71,11 @@ namespace
 		return total;
 	}
 
-	// Builds a Response whose rendered content is verifiable by hand: one real control
-	// point per native sample (gain 1, zero delay/phase), starting exactly at start_time
-	// -- matching how the point-scatter model covers a whole pulse. Response pads a
-	// synthetic zero-gain taper sample one controlPointEdgePeriod() before start_time and
-	// one after the last real sample, so the rendered pulse is
-	// [0, samples[0], samples[1], ..., samples[n-1]] (length n + 1), starting at
-	// response->startTime() == start_time - controlPointEdgePeriod(). Callers must set
-	// params::setSimSamplingRate(sample_rate) so real points land on exact native sample
-	// boundaries.
 	std::unique_ptr<serial::Response>
 	makeFixedResponse(std::vector<std::unique_ptr<fers_signal::RadarSignal>>& wave_store,
 					  const std::vector<ComplexType>& samples, const RealType sample_rate, const RealType start_time)
 	{
-		fers_signal::SampledSignal sampled;
+		fers_signal::PulseWaveform sampled;
 		sampled.load(samples, static_cast<unsigned>(samples.size()), sample_rate);
 
 		auto wave = std::make_unique<fers_signal::RadarSignal>("wave", 1.0, 1.0e9, std::move(sampled));
@@ -121,7 +112,7 @@ TEST_CASE("applyStreamingInterference adds direct-path streaming energy sample b
 	radar::Transmitter transmitter(&tx_platform, "TxA", radar::OperationMode::CW_MODE, 101);
 	transmitter.setAntenna(&antenna);
 	transmitter.setTiming(timing_model);
-	fers_signal::RadarSignal wave("cw", 25.0, 1.0e9, fers_signal::CwSignal{}, 301);
+	fers_signal::RadarSignal wave("cw", 25.0, 1.0e9, fers_signal::CwWaveform{}, 301);
 	transmitter.setSignal(&wave);
 
 	radar::Receiver receiver(&rx_platform, "RxA", 99, radar::OperationMode::CW_MODE, 202);
@@ -171,7 +162,7 @@ TEST_CASE("applyStreamingInterference respects FLAG_NODIRECT and keeps only phys
 	radar::Transmitter transmitter(&tx_platform, "TxA", radar::OperationMode::CW_MODE, 102);
 	transmitter.setAntenna(&antenna);
 	transmitter.setTiming(timing_model);
-	fers_signal::RadarSignal wave("cw", 9.0, 1.0e9, fers_signal::CwSignal{}, 302);
+	fers_signal::RadarSignal wave("cw", 9.0, 1.0e9, fers_signal::CwWaveform{}, 302);
 	transmitter.setSignal(&wave);
 
 	radar::Receiver receiver(&rx_platform, "RxA", 100, radar::OperationMode::CW_MODE, 203);
@@ -270,7 +261,7 @@ TEST_CASE("applyStreamingInterference adds FMCW energy to pulsed receiver window
 	radar::Transmitter transmitter(&tx_platform, "FmcwTx", radar::OperationMode::FMCW_MODE, 103);
 	transmitter.setAntenna(&antenna);
 	transmitter.setTiming(timing_model);
-	fers_signal::RadarSignal wave("fmcw", 16.0, 1.0e9, fers_signal::FmcwChirpSignal(1.0e6, 50.0e-6, 100.0e-6), 303);
+	fers_signal::RadarSignal wave("fmcw", 16.0, 1.0e9, fers_signal::FmcwChirpWaveform(1.0e6, 50.0e-6, 100.0e-6), 303);
 	transmitter.setSignal(&wave);
 
 	radar::Receiver receiver(&rx_platform, "PulsedRx", 101, radar::OperationMode::PULSED_MODE, 204);
@@ -313,7 +304,7 @@ TEST_CASE("applyStreamingInterference supports FMCW transmitter with CW streamin
 	radar::Transmitter transmitter(&tx_platform, "FmcwTx", radar::OperationMode::FMCW_MODE, 104);
 	transmitter.setAntenna(&antenna);
 	transmitter.setTiming(timing_model);
-	fers_signal::RadarSignal wave("fmcw", 16.0, 1.0e9, fers_signal::FmcwChirpSignal(1.0e6, 50.0e-6, 100.0e-6), 304);
+	fers_signal::RadarSignal wave("fmcw", 16.0, 1.0e9, fers_signal::FmcwChirpWaveform(1.0e6, 50.0e-6, 100.0e-6), 304);
 	transmitter.setSignal(&wave);
 
 	radar::Receiver receiver(&rx_platform, "CwRx", 102, radar::OperationMode::CW_MODE, 205);
@@ -363,7 +354,7 @@ TEST_CASE("applyStreamingInterference superposes up- and down-chirp FMCW transmi
 	radar::Transmitter up_tx(&tx_up_platform, "UpTx", radar::OperationMode::FMCW_MODE, 105);
 	up_tx.setAntenna(&antenna);
 	up_tx.setTiming(timing_model);
-	fers_signal::RadarSignal up_wave("up_fmcw", 16.0, 1.0e9, fers_signal::FmcwChirpSignal(1.0e6, 50.0e-6, 100.0e-6),
+	fers_signal::RadarSignal up_wave("up_fmcw", 16.0, 1.0e9, fers_signal::FmcwChirpWaveform(1.0e6, 50.0e-6, 100.0e-6),
 									 305);
 	up_tx.setSignal(&up_wave);
 
@@ -371,8 +362,8 @@ TEST_CASE("applyStreamingInterference superposes up- and down-chirp FMCW transmi
 	down_tx.setAntenna(&antenna);
 	down_tx.setTiming(timing_model);
 	fers_signal::RadarSignal down_wave("down_fmcw", 16.0, 1.0e9,
-									   fers_signal::FmcwChirpSignal(1.0e6, 50.0e-6, 100.0e-6, 0.0, std::nullopt,
-																	fers_signal::FmcwChirpDirection::Down),
+									   fers_signal::FmcwChirpWaveform(1.0e6, 50.0e-6, 100.0e-6, 0.0, std::nullopt,
+																	  fers_signal::FmcwChirpDirection::Down),
 									   306);
 	down_tx.setSignal(&down_wave);
 
@@ -423,7 +414,7 @@ TEST_CASE("applyStreamingInterference reuses tracker cache without carrying wind
 	radar::Transmitter transmitter(&tx_platform, "FmcwTx", radar::OperationMode::FMCW_MODE, 107);
 	transmitter.setAntenna(&antenna);
 	transmitter.setTiming(timing_model);
-	fers_signal::RadarSignal wave("fmcw", 16.0, 1.0e9, fers_signal::FmcwChirpSignal(1.0e6, 50.0e-6, 100.0e-6), 307);
+	fers_signal::RadarSignal wave("fmcw", 16.0, 1.0e9, fers_signal::FmcwChirpWaveform(1.0e6, 50.0e-6, 100.0e-6), 307);
 	transmitter.setSignal(&wave);
 
 	radar::Receiver receiver(&rx_platform, "PulsedRx", 104, radar::OperationMode::PULSED_MODE, 207);

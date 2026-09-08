@@ -36,10 +36,10 @@ namespace
 
 	std::unique_ptr<serial::Response> makeResponse(std::vector<std::unique_ptr<fers_signal::RadarSignal>>& wave_store)
 	{
-		// Response requires a RadarSignal wrapping a SampledSignal (it throws otherwise) --
+		// Response requires a RadarSignal wrapping a PulseWaveform (it throws otherwise) --
 		// an unloaded one is fine here since these tests only exercise inbox/log bookkeeping,
 		// never rendering.
-		auto wave = std::make_unique<fers_signal::RadarSignal>("Wave", 1.0, 1.0e9, fers_signal::SampledSignal{});
+		auto wave = std::make_unique<fers_signal::RadarSignal>("Wave", 1.0, 1.0e9, fers_signal::PulseWaveform{});
 		const auto* wave_ptr = wave.get();
 		wave_store.push_back(std::move(wave));
 		return std::make_unique<serial::Response>(

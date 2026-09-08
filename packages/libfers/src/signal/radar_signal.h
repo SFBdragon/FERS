@@ -45,37 +45,40 @@ namespace fers_signal
 	/// Parses a schema chirp direction token.
 	[[nodiscard]] FmcwChirpDirection parseFmcwChirpDirection(std::string_view direction);
 
-	/// Digital signal implementation.
-	class SampledSignal
+	/// Owns raw complex sample data loaded from a waveform file, plus basic
+	/// single-time-sample interpolation. Shared by PulseWaveform (which additionally
+	/// renders against interpolation-point delay/gain/phase tracks for pulsed radar)
+	/// and FileWaveform (which only needs a fixed-time envelope query).
+	class WaveformSampleBuffer
 	{
 	public:
-		SampledSignal() = default;
-		~SampledSignal() = default;
+		WaveformSampleBuffer() = default;
+		~WaveformSampleBuffer() = default;
 
-		SampledSignal(const SampledSignal&) noexcept = delete;
-		SampledSignal& operator=(const SampledSignal&) noexcept = delete;
-		SampledSignal(SampledSignal&&) noexcept = default;
-		SampledSignal& operator=(SampledSignal&&) noexcept = default;
+		WaveformSampleBuffer(const WaveformSampleBuffer&) noexcept = delete;
+		WaveformSampleBuffer& operator=(const WaveformSampleBuffer&) noexcept = delete;
+		WaveformSampleBuffer(WaveformSampleBuffer&&) noexcept = default;
+		WaveformSampleBuffer& operator=(WaveformSampleBuffer&&) noexcept = default;
 
 		/**
-		 * @brief Sets the filename associated with this signal.
+		 * @brief Sets the filename associated with this buffer.
 		 * @param filename The source filename.
 		 */
 		void setFilename(const std::string& filename) noexcept { _filename = filename; }
 
 		/**
-		 * @brief Gets the filename associated with this signal.
+		 * @brief Gets the filename associated with this buffer.
 		 * @return The source filename, if one was set.
 		 */
 		[[nodiscard]] const std::optional<std::string>& getFilename() const noexcept { return _filename; }
 
 		/**
-		 * @brief Clears the internal signal data.
+		 * @brief Clears the internal sample data.
 		 */
 		void clear() noexcept;
 
 		/**
-		 * @brief Loads complex radar waveform data.
+		 * @brief Loads complex waveform sample data.
 		 *
 		 * @param inData The input span of complex signal data.
 		 * @param samples The number of samples in the input data.
@@ -84,24 +87,97 @@ namespace fers_signal
 		void load(std::span<const ComplexType> inData, unsigned samples, RealType sampleRate);
 
 		/**
+		 * @brief Gets the sample rate of the buffer.
+		 *
+		 * @return The sample rate of the buffer.
+		 */
+		[[nodiscard]] RealType getRate() const noexcept { return _rate; }
+
+		/// Gets the number of native samples held by this buffer.
+		[[nodiscard]] size_t getSampleCount() const noexcept { return _data.size(); }
+
+		/**
+		 * @brief Gets the duration of the buffer.
+		 *
+		 * @return The duration of the buffer.
+		 */
+		[[nodiscard]] RealType getDuration() const noexcept
+		{
+			return getRate() > 0.0 ? static_cast<RealType>(getSampleCount()) / getRate() : 0.0;
+		}
+
+		/// Samples the finite stored complex envelope using the render interpolation filter.
+		/// Times outside [0, duration) return zero; file-backed buffers never wrap implicitly.
+		[[nodiscard]] ComplexType sampleAt(RealType time_since_start) const noexcept;
+
+		/// Direct access to the native sample buffer, for consumers (PulseWaveform) that
+		/// render against interpolation point tracks rather than a single time query.
+		[[nodiscard]] std::span<const ComplexType> data() const noexcept { return _data; }
+
+	private:
+		std::vector<ComplexType> _data; ///< The complex sample data.
+		RealType _rate{0}; ///< The sample rate of the buffer.
+		std::optional<std::string> _filename; ///< The original filename, if loaded from a file.
+	};
+
+	/// Pulsed radar waveform backed by a finite sample buffer, rendered via
+	/// interpolation-filter convolution against delay/gain/phase tracks.
+	class PulseWaveform
+	{
+	public:
+		PulseWaveform() = default;
+		~PulseWaveform() = default;
+
+		PulseWaveform(const PulseWaveform&) noexcept = delete;
+		PulseWaveform& operator=(const PulseWaveform&) noexcept = delete;
+		PulseWaveform(PulseWaveform&&) noexcept = default;
+		PulseWaveform& operator=(PulseWaveform&&) noexcept = default;
+
+		/**
+		 * @brief Sets the filename associated with this signal.
+		 * @param filename The source filename.
+		 */
+		void setFilename(const std::string& filename) noexcept { _buffer.setFilename(filename); }
+
+		/**
+		 * @brief Gets the filename associated with this signal.
+		 * @return The source filename, if one was set.
+		 */
+		[[nodiscard]] const std::optional<std::string>& getFilename() const noexcept { return _buffer.getFilename(); }
+
+		/**
+		 * @brief Clears the internal signal data.
+		 */
+		void clear() noexcept { _buffer.clear(); }
+
+		/**
+		 * @brief Loads complex radar waveform data.
+		 *
+		 * @param inData The input span of complex signal data.
+		 * @param samples The number of samples in the input data.
+		 * @param sampleRate The sample rate of the input data.
+		 */
+		void load(std::span<const ComplexType> inData, unsigned samples, RealType sampleRate)
+		{
+			_buffer.load(inData, samples, sampleRate);
+		}
+
+		/**
 		 * @brief Gets the sample rate of the signal.
 		 *
 		 * @return The sample rate of the signal.
 		 */
-		[[nodiscard]] RealType getRate() const noexcept { return _rate; }
+		[[nodiscard]] RealType getRate() const noexcept { return _buffer.getRate(); }
 
 		/// Gets the number of native samples held by this signal.
-		[[nodiscard]] size_t getSampleCount() const noexcept { return _data.size(); }
+		[[nodiscard]] size_t getSampleCount() const noexcept { return _buffer.getSampleCount(); }
 
 		/**
 		 * @brief Gets the duration of the radar signal.
 		 *
 		 * @return The duration of the radar signal.
 		 */
-		[[nodiscard]] RealType getDuration() const noexcept
-		{
-			return getRate() > 0.0 ? static_cast<RealType>(getSampleCount()) / getRate() : 0.0;
-		}
+		[[nodiscard]] RealType getDuration() const noexcept { return _buffer.getDuration(); }
 
 		/**
 		 * @brief Renders the signal data based on interpolation points.
@@ -128,9 +204,7 @@ namespace fers_signal
 														   RealType amplitudeScale) const;
 
 	private:
-		std::vector<ComplexType> _data; ///< The complex signal data.
-		RealType _rate{0}; ///< The sample rate of the signal.
-		std::optional<std::string> _filename; ///< The original filename for file-based signals.
+		WaveformSampleBuffer _buffer; ///< The underlying complex sample data.
 
 		/**
 		 * @brief Calculates weights and delays for rendering.
@@ -163,15 +237,15 @@ namespace fers_signal
 	};
 
 	template <typename PointRange>
-	std::vector<ComplexType> SampledSignal::render(const PointRange& points, const RealType nativeAnchorTime,
+	std::vector<ComplexType> PulseWaveform::render(const PointRange& points, const RealType nativeAnchorTime,
 												   const double fracWinDelay, const RealType amplitudeScale) const
 	{
-		return renderSlice(points, nativeAnchorTime, nativeAnchorTime, _rate, getSampleCount(), fracWinDelay,
-						   amplitudeScale);
+		return renderSlice(points, nativeAnchorTime, nativeAnchorTime, _buffer.getRate(), getSampleCount(),
+						   fracWinDelay, amplitudeScale);
 	}
 
 	template <typename PointRange>
-	std::vector<ComplexType> SampledSignal::renderSlice(const PointRange& points, const RealType nativeAnchorTime,
+	std::vector<ComplexType> PulseWaveform::renderSlice(const PointRange& points, const RealType nativeAnchorTime,
 														const RealType outputStartTime, const RealType outputSampleRate,
 														const std::size_t sampleCount, const RealType fracWinDelay,
 														const RealType amplitudeScale) const
@@ -180,7 +254,7 @@ namespace fers_signal
 		const auto points_end = points.end();
 
 		auto out = std::vector<ComplexType>(sampleCount);
-		if (getSampleCount() == 0 || _rate <= 0.0 || outputSampleRate <= 0.0 || iter == points_end)
+		if (getSampleCount() == 0 || _buffer.getRate() <= 0.0 || outputSampleRate <= 0.0 || iter == points_end)
 		{
 			return out;
 		}
@@ -194,7 +268,7 @@ namespace fers_signal
 		{
 			next = iter;
 		}
-		const RealType idelay = std::round(_rate * iter->delay);
+		const RealType idelay = std::round(_buffer.getRate() * iter->delay);
 		RealType sample_time = outputStartTime;
 
 		for (std::size_t i = 0; i < sampleCount; ++i)
@@ -214,7 +288,7 @@ namespace fers_signal
 
 			auto [amplitude, phase, fdelay, i_sample_unwrap] =
 				calculateWeightsAndDelays(*iter, *next, sample_time, idelay, fracWinDelay, amplitudeScale);
-			const RealType native_position = (sample_time - nativeAnchorTime) * _rate;
+			const RealType native_position = (sample_time - nativeAnchorTime) * _buffer.getRate();
 			const auto source_index = static_cast<long>(std::floor(native_position));
 			RealType source_fraction = native_position - static_cast<RealType>(source_index);
 
@@ -234,16 +308,16 @@ namespace fers_signal
 		return out;
 	}
 
-	/// Continuous-wave signal implementation.
-	class CwSignal final
+	/// Continuous-wave waveform implementation.
+	class CwWaveform final
 	{
 	public:
-		CwSignal() = default;
-		~CwSignal() = default;
+		CwWaveform() = default;
+		~CwWaveform() = default;
 	};
 
-	/// Stepped-frequency continuous-wave signal implementation.
-	class SteppedFrequencySignal final
+	/// Stepped-frequency continuous-wave waveform implementation.
+	class SteppedFrequencyWaveform final
 	{
 	public:
 		/// Active SFCW dwell selected for one local waveform time.
@@ -257,12 +331,12 @@ namespace fers_signal
 			RealType rf_frequency = 0.0; ///< RF frequency for the active step in hertz.
 		};
 
-		/// Constructs a uniform stepped-frequency CW signal.
-		SteppedFrequencySignal(RealType start_frequency_offset, RealType step_size, std::size_t step_count,
-							   RealType dwell_time, RealType step_period,
-							   std::optional<std::size_t> sweep_count = std::nullopt);
+		/// Constructs a uniform stepped-frequency CW waveform.
+		SteppedFrequencyWaveform(RealType start_frequency_offset, RealType step_size, std::size_t step_count,
+								 RealType dwell_time, RealType step_period,
+								 std::optional<std::size_t> sweep_count = std::nullopt);
 
-		~SteppedFrequencySignal() = default;
+		~SteppedFrequencyWaveform() = default;
 
 		/// Gets the first-step offset from carrier in hertz.
 		[[nodiscard]] RealType getStartFrequencyOffset() const noexcept { return _start_frequency_offset; }
@@ -316,16 +390,16 @@ namespace fers_signal
 		std::optional<std::size_t> _sweep_count; ///< Optional finite sweep count.
 	};
 
-	/// FMCW linear chirp signal implementation.
-	class FmcwChirpSignal final
+	/// FMCW linear chirp waveform implementation.
+	class FmcwChirpWaveform final
 	{
 	public:
-		/// Constructs an FMCW chirp signal with timing and sweep parameters.
-		FmcwChirpSignal(RealType chirp_bandwidth, RealType chirp_duration, RealType chirp_period,
-						RealType start_frequency_offset = 0.0, std::optional<std::size_t> chirp_count = std::nullopt,
-						FmcwChirpDirection direction = FmcwChirpDirection::Up);
+		/// Constructs an FMCW chirp waveform with timing and sweep parameters.
+		FmcwChirpWaveform(RealType chirp_bandwidth, RealType chirp_duration, RealType chirp_period,
+						  RealType start_frequency_offset = 0.0, std::optional<std::size_t> chirp_count = std::nullopt,
+						  FmcwChirpDirection direction = FmcwChirpDirection::Up);
 
-		~FmcwChirpSignal() = default;
+		~FmcwChirpWaveform() = default;
 
 		/// Gets the chirp bandwidth in hertz.
 		[[nodiscard]] RealType getChirpBandwidth() const noexcept { return _chirp_bandwidth; }
@@ -383,15 +457,15 @@ namespace fers_signal
 		FmcwChirpDirection _direction{FmcwChirpDirection::Up}; ///< Frequency sweep direction.
 	};
 
-	/// FMCW symmetric triangular modulation signal implementation.
-	class FmcwTriangleSignal final
+	/// FMCW symmetric triangular modulation waveform implementation.
+	class FmcwTriangleWaveform final
 	{
 	public:
-		/// Constructs an FMCW triangular modulation signal.
-		FmcwTriangleSignal(RealType chirp_bandwidth, RealType chirp_duration, RealType start_frequency_offset = 0.0,
-						   std::optional<std::size_t> triangle_count = std::nullopt);
+		/// Constructs an FMCW triangular modulation waveform.
+		FmcwTriangleWaveform(RealType chirp_bandwidth, RealType chirp_duration, RealType start_frequency_offset = 0.0,
+							 std::optional<std::size_t> triangle_count = std::nullopt);
 
-		~FmcwTriangleSignal() = default;
+		~FmcwTriangleWaveform() = default;
 
 		/// Gets the chirp bandwidth in hertz.
 		[[nodiscard]] RealType getChirpBandwidth() const noexcept { return _chirp_bandwidth; }
@@ -431,8 +505,93 @@ namespace fers_signal
 		RealType _delta_phi_up{}; ///< Full, unreduced phase accumulated by one leg.
 	};
 
+	/// Classification of a file-backed streaming waveform. File-backed pulsed waveforms
+	/// use PulseWaveform directly (see `waveform_factory`); this only distinguishes CW vs
+	/// FMCW envelope playback, since both are evaluated identically at runtime by the
+	/// streaming channel model - the file's own samples already encode whatever modulation
+	/// shape they have, so the tag exists purely for mode validation and output metadata.
+	enum class FileWaveformKind : std::uint8_t
+	{
+		Cw,
+		Fmcw
+	};
 
-	using Waveform = std::variant<SampledSignal, CwSignal, SteppedFrequencySignal, FmcwChirpSignal, FmcwTriangleSignal>;
+	/// File-backed continuous-wave or FMCW waveform, played back via direct sample lookup
+	/// rather than pulsed convolution. Represents a sampled envelope, not pulsed data: it
+	/// deliberately has no render()/renderSlice(), since it never participates in
+	/// PropagationModel pulse rendering - only the streaming channel model consumes it,
+	/// via sampleAt().
+	class FileWaveform final
+	{
+	public:
+		FileWaveform() = default;
+		~FileWaveform() = default;
+
+		FileWaveform(const FileWaveform&) noexcept = delete;
+		FileWaveform& operator=(const FileWaveform&) noexcept = delete;
+		FileWaveform(FileWaveform&&) noexcept = default;
+		FileWaveform& operator=(FileWaveform&&) noexcept = default;
+
+		/// Sets the CW/FMCW classification of this file-backed waveform.
+		void setKind(FileWaveformKind kind) noexcept { _kind = kind; }
+
+		/// Gets the CW/FMCW classification of this file-backed waveform.
+		[[nodiscard]] FileWaveformKind getKind() const noexcept { return _kind; }
+
+		/// Returns true when this file-backed waveform is classified as CW.
+		[[nodiscard]] bool isCw() const noexcept { return _kind == FileWaveformKind::Cw; }
+
+		/// Returns true when this file-backed waveform is classified as FMCW.
+		[[nodiscard]] bool isFmcw() const noexcept { return _kind == FileWaveformKind::Fmcw; }
+
+		/**
+		 * @brief Sets the filename associated with this waveform.
+		 * @param filename The source filename.
+		 */
+		void setFilename(const std::string& filename) noexcept { _buffer.setFilename(filename); }
+
+		/**
+		 * @brief Gets the filename associated with this waveform.
+		 * @return The source filename, if one was set.
+		 */
+		[[nodiscard]] const std::optional<std::string>& getFilename() const noexcept { return _buffer.getFilename(); }
+
+		/**
+		 * @brief Loads the complex envelope sample data.
+		 *
+		 * @param inData The input span of complex signal data.
+		 * @param samples The number of samples in the input data.
+		 * @param sampleRate The sample rate of the input data.
+		 */
+		void load(std::span<const ComplexType> inData, unsigned samples, RealType sampleRate)
+		{
+			_buffer.load(inData, samples, sampleRate);
+		}
+
+		/// Gets the sample rate of the stored envelope.
+		[[nodiscard]] RealType getRate() const noexcept { return _buffer.getRate(); }
+
+		/// Gets the number of native samples held by this waveform.
+		[[nodiscard]] size_t getSampleCount() const noexcept { return _buffer.getSampleCount(); }
+
+		/// Gets the total duration of the stored envelope.
+		[[nodiscard]] RealType getDuration() const noexcept { return _buffer.getDuration(); }
+
+		/// Samples the finite stored complex envelope. Times outside [0, duration) return
+		/// zero; file-backed waveforms never wrap implicitly.
+		[[nodiscard]] ComplexType sampleAt(RealType time_since_start) const noexcept
+		{
+			return _buffer.sampleAt(time_since_start);
+		}
+
+	private:
+		WaveformSampleBuffer _buffer; ///< The underlying complex envelope sample data.
+		FileWaveformKind _kind{FileWaveformKind::Cw}; ///< CW/FMCW classification.
+	};
+
+
+	using Waveform = std::variant<PulseWaveform, CwWaveform, SteppedFrequencyWaveform, FmcwChirpWaveform,
+								  FmcwTriangleWaveform, FileWaveform>;
 
 	/**
 	 * @class RadarSignal
@@ -447,9 +606,8 @@ namespace fers_signal
 		 * @param name The name of the radar signal.
 		 * @param power The power of the radar signal.
 		 * @param carrierfreq The carrier frequency of the radar signal.
-		 * @param length The length of the radar signal.
-		 * @param signal A unique pointer to the `Signal` object containing the waveform data.
-		 * @throws std::runtime_error if the signal is null.
+		 * @param wave The `Waveform` variant containing the waveform data.
+		 * @param id The unique SimId to assign, or 0 to generate one.
 		 */
 		RadarSignal(std::string name, RealType power, RealType carrierfreq, Waveform wave, const SimId id = 0);
 
@@ -492,35 +650,49 @@ namespace fers_signal
 		[[nodiscard]] SimId getId() const noexcept { return _id; }
 
 
-		/// Returns true when this signal is a sampled signal, used by pulsed radar.
-		[[nodiscard]] bool isSampled() const noexcept;
+		/// Returns true when this signal is a pulsed waveform, used by pulsed radar.
+		[[nodiscard]] bool isPulsed() const noexcept;
 
-		/// Returns true when this signal is a continuous-wave signal.
+		/// Returns true when this signal is a continuous-wave waveform, whether
+		/// generated (CwWaveform) or file-backed (FileWaveform classified as Cw).
 		[[nodiscard]] bool isCw() const noexcept;
 
-		/// Returns true when this signal is an FMCW linear chirp signal.
+		/// Returns true when this signal is an FMCW linear chirp waveform.
 		[[nodiscard]] bool isFmcwChirp() const noexcept;
 
-		/// Returns true when this signal is an FMCW triangular modulation signal.
+		/// Returns true when this signal is an FMCW triangular modulation waveform.
 		[[nodiscard]] bool isFmcwTriangle() const noexcept;
 
-		/// Returns true when this signal belongs to the FMCW waveform family.
+		/// Returns true when this signal belongs to the FMCW waveform family, whether
+		/// generated (chirp/triangle) or file-backed (FileWaveform classified as Fmcw).
 		[[nodiscard]] bool isFmcwFamily() const noexcept;
 
 		/// Returns true when this signal is a stepped-frequency CW waveform.
 		[[nodiscard]] bool isSteppedFrequency() const noexcept;
 
-		/// Gets the sampled waveform, if this signal owns one.
-		[[nodiscard]] const SampledSignal* getSampledSignal() const noexcept;
+		/// Returns true when this signal is a file-backed CW/FMCW waveform.
+		[[nodiscard]] bool isFileWaveform() const noexcept;
+
+		/// Returns true when this signal is a file-backed continuous-wave waveform.
+		[[nodiscard]] bool isFileCw() const noexcept;
+
+		/// Returns true when this signal is a file-backed FMCW waveform.
+		[[nodiscard]] bool isFileFmcw() const noexcept;
+
+		/// Gets the pulsed waveform, if this signal owns one.
+		[[nodiscard]] const PulseWaveform* getPulseWaveform() const noexcept;
 
 		/// Gets the FMCW chirp implementation, if this signal owns one.
-		[[nodiscard]] const FmcwChirpSignal* getFmcwChirpSignal() const noexcept;
+		[[nodiscard]] const FmcwChirpWaveform* getFmcwChirpWaveform() const noexcept;
 
 		/// Gets the FMCW triangle implementation, if this signal owns one.
-		[[nodiscard]] const FmcwTriangleSignal* getFmcwTriangleSignal() const noexcept;
+		[[nodiscard]] const FmcwTriangleWaveform* getFmcwTriangleWaveform() const noexcept;
 
 		/// Gets the stepped-frequency implementation, if this signal owns one.
-		[[nodiscard]] const SteppedFrequencySignal* getSteppedFrequencySignal() const noexcept;
+		[[nodiscard]] const SteppedFrequencyWaveform* getSteppedFrequencyWaveform() const noexcept;
+
+		/// Gets the file-backed waveform implementation, if this signal owns one.
+		[[nodiscard]] const FileWaveform* getFileWaveform() const noexcept;
 
 		[[nodiscard]] const Waveform& getWaveform() const noexcept;
 
@@ -529,6 +701,6 @@ namespace fers_signal
 		SimId _id; ///< Unique ID for this radar signal.
 		RealType _power; ///< The power of the radar signal.
 		RealType _carrierfreq; ///< The carrier frequency of the radar signal.
-		Waveform _wave; ///< The `Signal` object containing the radar signal data.
+		Waveform _wave; ///< The waveform data.
 	};
 }

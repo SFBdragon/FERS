@@ -145,7 +145,7 @@ TEST_CASE("serializeWaveform processes CW and Pulsed correctly", "[serial][xml_s
 
 	SECTION("CW Mode")
 	{
-		fers_signal::RadarSignal const wave("w1", 10.0, 1e9, fers_signal::CwSignal{});
+		fers_signal::RadarSignal const wave("w1", 10.0, 1e9, fers_signal::CwWaveform{});
 		serial::xml_serializer_utils::serializeWaveform(wave, root);
 		std::string s = dumpElement(root);
 		REQUIRE_THAT(s, ContainsSubstring("name=\"w1\""));
@@ -154,7 +154,7 @@ TEST_CASE("serializeWaveform processes CW and Pulsed correctly", "[serial][xml_s
 
 	SECTION("Pulsed Mode File")
 	{
-		fers_signal::SampledSignal sampled;
+		fers_signal::PulseWaveform sampled;
 		sampled.setFilename("pulse.csv");
 		fers_signal::RadarSignal wave("w2", 20.0, 2e9, std::move(sampled));
 		serial::xml_serializer_utils::serializeWaveform(wave, root);
@@ -165,10 +165,30 @@ TEST_CASE("serializeWaveform processes CW and Pulsed correctly", "[serial][xml_s
 
 	SECTION("Pulsed Missing Filename safely defaults")
 	{
-		fers_signal::RadarSignal const wave("w3", 20.0, 2e9, fers_signal::SampledSignal{});
+		fers_signal::RadarSignal const wave("w3", 20.0, 2e9, fers_signal::PulseWaveform{});
 		serial::xml_serializer_utils::serializeWaveform(wave, root);
 		std::string s = dumpElement(root);
 		REQUIRE_THAT(s, ContainsSubstring("<pulsed_from_file filename=\"\"/>"));
+	}
+
+	SECTION("CW file")
+	{
+		fers_signal::FileWaveform file_wave{};
+		file_wave.setKind(fers_signal::FileWaveformKind::Cw);
+		file_wave.setFilename("cw.h5");
+		fers_signal::RadarSignal const wave("cw-file", 20.0, 2e9, std::move(file_wave));
+		serial::xml_serializer_utils::serializeWaveform(wave, root);
+		REQUIRE_THAT(dumpElement(root), ContainsSubstring("<cw_from_file filename=\"cw.h5\"/>"));
+	}
+
+	SECTION("FMCW file")
+	{
+		fers_signal::FileWaveform file_wave{};
+		file_wave.setKind(fers_signal::FileWaveformKind::Fmcw);
+		file_wave.setFilename("fmcw.h5");
+		fers_signal::RadarSignal const wave("fmcw-file", 20.0, 2e9, std::move(file_wave));
+		serial::xml_serializer_utils::serializeWaveform(wave, root);
+		REQUIRE_THAT(dumpElement(root), ContainsSubstring("<fmcw_from_file filename=\"fmcw.h5\"/>"));
 	}
 }
 
@@ -183,9 +203,9 @@ TEST_CASE("serializeWaveform round trips FMCW linear chirp direction", "[serial]
 	XmlElement const root = XmlElement::create("waveform");
 	doc.setRootElement(root);
 
-	fers_signal::RadarSignal const wave(
-		"down", 20.0, 2e9,
-		fers_signal::FmcwChirpSignal(1.0e6, 1.0e-3, 1.0e-3, 0.0, std::nullopt, fers_signal::FmcwChirpDirection::Down));
+	fers_signal::RadarSignal const wave("down", 20.0, 2e9,
+										fers_signal::FmcwChirpWaveform(1.0e6, 1.0e-3, 1.0e-3, 0.0, std::nullopt,
+																	   fers_signal::FmcwChirpDirection::Down));
 
 	serial::xml_serializer_utils::serializeWaveform(wave, root);
 	const std::string serialized = dumpElement(root);
@@ -203,8 +223,8 @@ TEST_CASE("serializeWaveform round trips FMCW linear chirp direction", "[serial]
 
 	REQUIRE(world.getWaveforms().size() == 1);
 	const auto* parsed_wave = world.getWaveforms().begin()->second.get();
-	REQUIRE(parsed_wave->getFmcwChirpSignal() != nullptr);
-	REQUIRE(parsed_wave->getFmcwChirpSignal()->isDownChirp());
+	REQUIRE(parsed_wave->getFmcwChirpWaveform() != nullptr);
+	REQUIRE(parsed_wave->getFmcwChirpWaveform()->isDownChirp());
 }
 
 TEST_CASE("serializeTiming preserves clock phase and jitter characteristics", "[serial][xml_serializer]")
@@ -379,7 +399,7 @@ TEST_CASE("serializeRotation translates internal math to compass correctly", "[s
 
 	SECTION("Default/Unknown")
 	{
-		rot.setInterp(static_cast<math::RotationPath::InterpType>(999));
+		rot.setInterp(static_cast<math::RotationPath::InterpType>(255));
 		serial::xml_serializer_utils::serializeRotation(rot, root);
 		std::string s = dumpElement(root);
 		REQUIRE_THAT(s, ContainsSubstring("<rotationpath/>"));

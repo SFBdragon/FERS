@@ -648,23 +648,35 @@ namespace serial::xml_parser_utils
 		const auto power = get_child_real_type(waveform, "power");
 		const auto carrier = get_child_real_type(waveform, "carrier_frequency");
 
-		if (const XmlElement pulsed_file = waveform.childElement("pulsed_from_file", 0); pulsed_file.isValid())
+		auto load_file_waveform = [&](const XmlElement& file_element, const serial::FileWaveformRequestKind kind)
 		{
-			const std::string filename_str = XmlElement::getSafeAttribute(pulsed_file, "filename");
-			fs::path pulse_path(filename_str);
+			const std::string filename_str = XmlElement::getSafeAttribute(file_element, "filename");
+			fs::path waveform_path(filename_str);
 
-			if (!fs::exists(pulse_path))
+			if (!fs::exists(waveform_path))
 			{
-				pulse_path = ctx.base_dir / filename_str;
+				waveform_path = ctx.base_dir / filename_str;
 			}
 
-			// Defer to dependency-injected file loader
-			auto wave = ctx.loaders.loadWaveform(name, pulse_path, power, carrier, id);
+			auto wave = ctx.loaders.loadWaveform(name, waveform_path, power, carrier, id, kind);
 			ctx.world->add(std::move(wave));
+		};
+
+		if (const XmlElement pulsed_file = waveform.childElement("pulsed_from_file", 0); pulsed_file.isValid())
+		{
+			load_file_waveform(pulsed_file, serial::FileWaveformRequestKind::Pulsed);
+		}
+		else if (const XmlElement cw_file = waveform.childElement("cw_from_file", 0); cw_file.isValid())
+		{
+			load_file_waveform(cw_file, serial::FileWaveformRequestKind::Cw);
+		}
+		else if (const XmlElement fmcw_file = waveform.childElement("fmcw_from_file", 0); fmcw_file.isValid())
+		{
+			load_file_waveform(fmcw_file, serial::FileWaveformRequestKind::Fmcw);
 		}
 		else if (waveform.childElement("cw", 0).isValid())
 		{
-			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, fers_signal::CwSignal(), id);
+			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, fers_signal::CwWaveform(), id);
 			ctx.world->add(std::move(wave));
 		}
 		else if (const XmlElement sfcw_element = waveform.childElement("stepped_frequency", 0); sfcw_element.isValid())
@@ -691,9 +703,9 @@ namespace serial::xml_parser_utils
 				sweep_count = static_cast<std::size_t>(raw_count);
 			}
 
-			auto sfcw_signal = fers_signal::SteppedFrequencySignal(start_frequency_offset, step_size,
-																   static_cast<std::size_t>(raw_step_count), dwell_time,
-																   step_period, sweep_count);
+			auto sfcw_signal = fers_signal::SteppedFrequencyWaveform(start_frequency_offset, step_size,
+																	 static_cast<std::size_t>(raw_step_count),
+																	 dwell_time, step_period, sweep_count);
 			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, std::move(sfcw_signal), id);
 			validate_fmcw_waveform(*wave, "Waveform '" + name + "'");
 			ctx.world->add(std::move(wave));
@@ -725,8 +737,8 @@ namespace serial::xml_parser_utils
 				chirp_count = static_cast<std::size_t>(raw_count);
 			}
 
-			auto fmcw_signal = fers_signal::FmcwChirpSignal(chirp_bandwidth, chirp_duration, chirp_period,
-															start_frequency_offset, chirp_count, direction);
+			auto fmcw_signal = fers_signal::FmcwChirpWaveform(chirp_bandwidth, chirp_duration, chirp_period,
+															  start_frequency_offset, chirp_count, direction);
 			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, std::move(fmcw_signal), id);
 			validate_fmcw_waveform(*wave, "Waveform '" + name + "'");
 			ctx.world->add(std::move(wave));
@@ -756,8 +768,8 @@ namespace serial::xml_parser_utils
 				triangle_count = static_cast<std::size_t>(raw_count);
 			}
 
-			auto fmcw_signal = fers_signal::FmcwTriangleSignal(chirp_bandwidth, chirp_duration, start_frequency_offset,
-															   triangle_count);
+			auto fmcw_signal = fers_signal::FmcwTriangleWaveform(chirp_bandwidth, chirp_duration,
+																 start_frequency_offset, triangle_count);
 			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, std::move(fmcw_signal), id);
 			validate_fmcw_waveform(*wave, "Waveform '" + name + "'");
 			ctx.world->add(std::move(wave));
@@ -1543,9 +1555,9 @@ namespace serial::xml_parser_utils
 
 	AssetLoaders createDefaultAssetLoaders()
 	{
-		return {.loadWaveform = [](const std::string& name, const fs::path& pulse_path, RealType power,
-								   RealType carrierFreq, SimId id)
-				{ return serial::loadWaveformFromFile(name, pulse_path.string(), power, carrierFreq, id); },
+		return {.loadWaveform = [](const std::string& name, const fs::path& waveform_path, RealType power,
+								   RealType carrierFreq, SimId id, const serial::FileWaveformRequestKind kind)
+				{ return serial::loadWaveformFromFile(name, waveform_path.string(), power, carrierFreq, id, kind); },
 				.loadXmlAntenna = [](const std::string& name, const std::string& filename, SimId id)
 				{ return std::make_unique<antenna::XmlAntenna>(name, filename, id); },
 				.loadH5Antenna = [](const std::string& name, const std::string& filename, SimId id)

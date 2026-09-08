@@ -114,6 +114,11 @@ namespace simulation
 														core::FmcwChirpBoundaryTracker* chirp_tracker,
 														RealType& phase_out);
 
+	/// Evaluates the complete complex reference envelope, including file-backed amplitude modulation.
+	[[nodiscard]] bool calculateStreamingReferenceSample(const core::ActiveStreamingSource& source, RealType timeK,
+														 core::FmcwChirpBoundaryTracker* chirp_tracker,
+														 ComplexType& sample_out);
+
 	/**
 	 * @brief Calculates a contribution from a cached streaming source.
 	 *
