@@ -700,7 +700,7 @@ TEST_CASE("runPulsedFinalizer writes jittered chunks and emits completion progre
 												 { progress_calls.push_back({msg, current, total}); });
 
 	auto hdf5_sink = makeTestHdf5Sink(out_dir);
-	std::jthread worker(processing::runPulsedFinalizer, &receiver, &targets, prop, reporter, out_dir.string(), nullptr,
+	std::jthread worker(processing::runPulsedFinalizer, &receiver, prop, reporter, out_dir.string(), nullptr,
 						hdf5_sink.get());
 	receiver.enqueueFinalizerJob(std::move(first_job));
 	receiver.enqueueFinalizerJob(std::move(second_job));
@@ -754,8 +754,7 @@ TEST_CASE("runPulsedFinalizer routes completed acquisition windows to an output 
 	const auto prop = std::make_shared<const propagation::pointscatter::PointScatterModel>(&world);
 	CapturingOutputSink sink;
 
-	std::jthread worker(processing::runPulsedFinalizer, &receiver, &targets, prop, nullptr, out_dir.string(), nullptr,
-						&sink);
+	std::jthread worker(processing::runPulsedFinalizer, &receiver, prop, nullptr, out_dir.string(), nullptr, &sink);
 	receiver.enqueueFinalizerJob(std::move(job));
 	core::RenderingJob shutdown_job{};
 	shutdown_job.duration = -1.0;

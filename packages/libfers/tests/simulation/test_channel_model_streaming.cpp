@@ -71,32 +71,41 @@ namespace
 		return delta;
 	}
 
+	RealType rms(const std::vector<ComplexType>& samples)
+	{
+		RealType sum_sq = 0.0;
+		for (const auto& sample : samples)
+		{
+			sum_sq += std::norm(sample);
+		}
+		return std::sqrt(sum_sq / static_cast<RealType>(samples.size()));
+	}
+
 	// Builds a direct (path_id == 0) path with a hand-computed delay/gain -- the
 	// counterpart of what propagation::pointscatter::PointScatterModel would have
 	// found for this geometry, without needing a World/PointScatterModel here.
-	propagation::PropagationPath makeDirectPath(const core::ActiveStreamingSource& source, radar::Receiver* rx,
-												RealType dist, RealType gain)
+	propagation::PropagationPath makeDirectPath(radar::Receiver* rx, RealType dist, RealType gain)
 	{
 		return propagation::PropagationPath{
 			.length = dist,
 			.delay = dist / params::c(),
 			.gain = gain,
 			.path_id = 0,
-			.source = &source,
+			.source_index = 0,
 			.receiver = rx,
 		};
 	}
 
 	// Builds a reflected (path_id != 0) path with an explicit total delay/gain.
-	propagation::PropagationPath makeReflectedPath(const core::ActiveStreamingSource& source, radar::Receiver* rx,
-												   RealType total_dist, RealType delay, RealType gain)
+	propagation::PropagationPath makeReflectedPath(radar::Receiver* rx, RealType total_dist, RealType delay,
+												   RealType gain)
 	{
 		return propagation::PropagationPath{
 			.length = total_dist,
 			.delay = delay,
 			.gain = gain,
 			.path_id = 1,
-			.source = &source,
+			.source_index = 0,
 			.receiver = rx,
 		};
 	}
@@ -143,7 +152,7 @@ TEST_CASE("calculateDirectPathContribution amplitude matches Friis equation with
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-	const auto path = makeDirectPath(source, &rx, dist, friis);
+	const auto path = makeDirectPath(&rx, dist, friis);
 
 	const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 
@@ -184,7 +193,7 @@ TEST_CASE("calculateDirectPathContribution phase matches propagation delay",
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-	const auto path = makeDirectPath(source, &rx, dist, 1.0);
+	const auto path = makeDirectPath(&rx, dist, 1.0);
 
 	const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 	const RealType result_phase = std::arg(result);
@@ -227,7 +236,7 @@ TEST_CASE("CW streaming direct path gates schedules by retarded transmit time",
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, segment_start, segment_end);
-	const auto path = makeDirectPath(source, &rx, dist, 1.0);
+	const auto path = makeDirectPath(&rx, dist, 1.0);
 
 	REQUIRE(std::abs(simulation::calculateStreamingPathContribution(source, &rx, path, segment_start + tau - eps)) ==
 			0.0);
@@ -278,7 +287,7 @@ TEST_CASE("calculateDirectPathContribution with noproploss gives distance-indepe
 		rx.setFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
 
 		const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-		const auto path = makeDirectPath(source, &rx, dist, friis_noloss);
+		const auto path = makeDirectPath(&rx, dist, friis_noloss);
 
 		const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 
@@ -327,7 +336,7 @@ TEST_CASE("calculateDirectPathContribution applies buffered delayed timing phase
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
-	const auto path = makeDirectPath(source, &rx, dist, 1.0);
+	const auto path = makeDirectPath(&rx, dist, 1.0);
 
 	const ComplexType ideal = simulation::calculateStreamingPathContribution(source, &rx, path, time);
 	const ComplexType delayed = simulation::calculateStreamingPathContribution(source, &rx, path, time, &lookup);
@@ -374,7 +383,7 @@ TEST_CASE("CW streaming reflected path gates schedules by retarded transmit time
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, segment_start, segment_end);
-	const auto path = makeReflectedPath(source, &rx, tx_target_dist + target_rx_dist, tau, 1.0);
+	const auto path = makeReflectedPath(&rx, tx_target_dist + target_rx_dist, tau, 1.0);
 
 	REQUIRE(std::abs(simulation::calculateStreamingPathContribution(source, &rx, path, segment_start + tau - eps)) ==
 			0.0);
@@ -422,7 +431,7 @@ TEST_CASE("FMCW monostatic reflected path dechirps to expected stationary-target
 	rx.setAttached(&tx);
 
 	const auto source = core::makeActiveSource(&tx, 0.0, chirp_duration);
-	const auto path = makeReflectedPath(source, &rx, 2.0 * target_range, tau, 1.0);
+	const auto path = makeReflectedPath(&rx, 2.0 * target_range, tau, 1.0);
 	core::FmcwChirpBoundaryTracker tracker;
 
 	const RealType dt = 1.0 / params::simSamplingRate();
@@ -490,7 +499,7 @@ TEST_CASE("FMCW native dechirp convention produces positive up-chirp beat freque
 	rx.setAttached(&tx);
 
 	const auto source = core::makeActiveSource(&tx, 0.0, chirp_duration);
-	const auto path = makeReflectedPath(source, &rx, 2.0 * target_range, tau, 1.0);
+	const auto path = makeReflectedPath(&rx, 2.0 * target_range, tau, 1.0);
 	core::FmcwChirpBoundaryTracker channel_tracker;
 	core::FmcwChirpBoundaryTracker reference_tracker;
 
@@ -565,7 +574,7 @@ TEST_CASE("FMCW physical dechirp preserves timing decorrelation while ideal mode
 	rx.setAttached(&tx);
 
 	const auto source = core::makeActiveSource(&tx, 0.0, chirp_duration);
-	const auto path = makeReflectedPath(source, &rx, 2.0 * target_range, tau, 1.0);
+	const auto path = makeReflectedPath(&rx, 2.0 * target_range, tau, 1.0);
 	core::FmcwChirpBoundaryTracker physical_tracker;
 	core::FmcwChirpBoundaryTracker ideal_tracker;
 	core::FmcwChirpBoundaryTracker reference_tracker;
@@ -627,7 +636,7 @@ TEST_CASE("FMCW down-chirp monostatic reflected path reverses stationary-target 
 	rx.setAttached(&tx);
 
 	const auto source = core::makeActiveSource(&tx, 0.0, chirp_duration);
-	const auto path = makeReflectedPath(source, &rx, 2.0 * target_range, tau, 1.0);
+	const auto path = makeReflectedPath(&rx, 2.0 * target_range, tau, 1.0);
 	core::FmcwChirpBoundaryTracker tracker;
 
 	const RealType dt = 1.0 / params::simSamplingRate();
@@ -700,7 +709,7 @@ TEST_CASE("calculateReflectedPathContribution amplitude matches bistatic equatio
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-	const auto path = makeReflectedPath(source, &rx, r1 + r2, (r1 + r2) / c, bistatic);
+	const auto path = makeReflectedPath(&rx, r1 + r2, (r1 + r2) / c, bistatic);
 
 	const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 
@@ -747,7 +756,7 @@ TEST_CASE("calculateReflectedPathContribution phase matches bistatic propagation
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-	const auto path = makeReflectedPath(source, &rx, r1 + r2, tau, 1.0);
+	const auto path = makeReflectedPath(&rx, r1 + r2, tau, 1.0);
 
 	const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 	const RealType result_phase = std::arg(result);
@@ -805,8 +814,8 @@ TEST_CASE("calculateReflectedPathContribution preserves stronger phase-noise can
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
-	const auto near_path = makeReflectedPath(source, &rx, near_tau * params::c(), near_tau, 1.0);
-	const auto far_path = makeReflectedPath(source, &rx, far_tau * params::c(), far_tau, 1.0);
+	const auto near_path = makeReflectedPath(&rx, near_tau * params::c(), near_tau, 1.0);
+	const auto far_path = makeReflectedPath(&rx, far_tau * params::c(), far_tau, 1.0);
 
 	const ComplexType near_ideal = simulation::calculateStreamingPathContribution(source, &rx, near_path, sample_time);
 	const ComplexType near_delayed =
@@ -824,13 +833,8 @@ TEST_CASE("calculateReflectedPathContribution preserves stronger phase-noise can
 }
 
 // =============================================================================
-// FMCW chirp-boundary tracker tests. Disabled pending removal decision.
-//
-// TODO_SHAUN: decide whether to bring these back once the FMCW
-// chirp-boundary-tracker removal or retention is finalized.
+// FMCW chirp-boundary tracker tests.
 // =============================================================================
-
-#if 0
 
 TEST_CASE("FMCW streaming direct path preserves in-flight segment-end tail",
 		  "[simulation][channel_model][streaming][direct][fmcw]")
@@ -865,7 +869,8 @@ TEST_CASE("FMCW streaming direct path preserves in-flight segment-end tail",
 	tx.setAntenna(&iso_ant);
 	tx.setTiming(timing);
 
-		fers_signal::RadarSignal wave("fmcw", 1000.0, 10.0e9, fers_signal::FmcwChirpSignal(chirp_bandwidth, chirp_duration, chirp_period, 0.0, 20));
+	fers_signal::RadarSignal wave("fmcw", 1000.0, 10.0e9,
+								  fers_signal::FmcwChirpSignal(chirp_bandwidth, chirp_duration, chirp_period, 0.0, 20));
 	tx.setSignal(&wave);
 	const auto* fmcw = wave.getFmcwChirpSignal();
 
@@ -874,7 +879,7 @@ TEST_CASE("FMCW streaming direct path preserves in-flight segment-end tail",
 	rx.setTiming(timing);
 
 	const core::ActiveStreamingSource source = core::makeActiveSource(&tx, 0.0, segment_end);
-	const auto path = makeDirectPath(source, &rx, dist, 1.0);
+	const auto path = makeDirectPath(&rx, dist, 1.0);
 	core::FmcwChirpBoundaryTracker reference_tracker;
 	core::FmcwChirpBoundaryTracker tail_tracker;
 	std::vector<ComplexType> reference_samples;
@@ -945,13 +950,15 @@ TEST_CASE("FMCW streaming direct path keeps chirp cache per source",
 	radar::Transmitter tx1(&tx1_plat, "tx1", radar::OperationMode::FMCW_MODE);
 	tx1.setAntenna(&iso_ant);
 	tx1.setTiming(timing);
-		fers_signal::RadarSignal wave1("fmcw1", 1.0, 10.0e9, fers_signal::FmcwChirpSignal(1.0e6, chirp_duration, chirp_period));
+	fers_signal::RadarSignal wave1("fmcw1", 1.0, 10.0e9,
+								   fers_signal::FmcwChirpSignal(1.0e6, chirp_duration, chirp_period));
 	tx1.setSignal(&wave1);
 
 	radar::Transmitter tx2(&tx2_plat, "tx2", radar::OperationMode::FMCW_MODE);
 	tx2.setAntenna(&iso_ant);
 	tx2.setTiming(timing);
-		fers_signal::RadarSignal wave2("fmcw2", 1.0, 10.0e9, fers_signal::FmcwChirpSignal(4.0e6, chirp_duration, chirp_period));
+	fers_signal::RadarSignal wave2("fmcw2", 1.0, 10.0e9,
+								   fers_signal::FmcwChirpSignal(4.0e6, chirp_duration, chirp_period));
 	tx2.setSignal(&wave2);
 
 	radar::Receiver rx(&rx_plat, "rx", 42, radar::OperationMode::CW_MODE);
@@ -960,8 +967,8 @@ TEST_CASE("FMCW streaming direct path keeps chirp cache per source",
 
 	const core::ActiveStreamingSource source1 = core::makeActiveSource(&tx1, 0.0, 1.0e-3);
 	const core::ActiveStreamingSource source2 = core::makeActiveSource(&tx2, 0.0, 1.0e-3);
-	const auto path1 = makeDirectPath(source1, &rx, dist, 1.0);
-	const auto path2 = makeDirectPath(source2, &rx, dist, 1.0);
+	const auto path1 = makeDirectPath(&rx, dist, 1.0);
+	const auto path2 = makeDirectPath(&rx, dist, 1.0);
 	const ComplexType sample1 = simulation::calculateStreamingPathContribution(source1, &rx, path1, rx_time);
 	const ComplexType sample2 = simulation::calculateStreamingPathContribution(source2, &rx, path2, rx_time);
 
@@ -994,7 +1001,7 @@ TEST_CASE("FMCW chirp-boundary tracker matches cold-path direct contribution acr
 	radar::Transmitter tx(&tx_platform, "tx", radar::OperationMode::FMCW_MODE, 102);
 	tx.setAntenna(&iso_ant);
 	tx.setTiming(timing);
-		fers_signal::RadarSignal wave("fmcw", 5.0, 20.0e6, fers_signal::FmcwChirpSignal(2.0e6, 2.0e-5, 5.0e-5), 302);
+	fers_signal::RadarSignal wave("fmcw", 5.0, 20.0e6, fers_signal::FmcwChirpSignal(2.0e6, 2.0e-5, 5.0e-5), 302);
 	tx.setSignal(&wave);
 
 	radar::Receiver rx(&rx_platform, "rx", 45, radar::OperationMode::CW_MODE, 202);
@@ -1002,14 +1009,15 @@ TEST_CASE("FMCW chirp-boundary tracker matches cold-path direct contribution acr
 	rx.setTiming(timing);
 
 	const core::ActiveStreamingSource source = core::makeActiveSource(&tx, 0.0, 3.0e-4);
-	const auto path = makeDirectPath(source, &rx, 300.0, 1.0);
+	const auto path = makeDirectPath(&rx, 300.0, 1.0);
 	core::FmcwChirpBoundaryTracker tracker;
 	const RealType dt = 1.0 / params::simSamplingRate();
 
 	for (std::size_t i = 0; i < 260; ++i)
 	{
 		const RealType t = static_cast<RealType>(i) * dt;
-		const ComplexType tracked = simulation::calculateStreamingPathContribution(source, &rx, path, t, nullptr, &tracker);
+		const ComplexType tracked =
+			simulation::calculateStreamingPathContribution(source, &rx, path, t, nullptr, &tracker);
 		const ComplexType cold = simulation::calculateStreamingPathContribution(source, &rx, path, t);
 		REQUIRE_THAT(tracked.real(), WithinAbs(cold.real(), 1.0e-12));
 		REQUIRE_THAT(tracked.imag(), WithinAbs(cold.imag(), 1.0e-12));
@@ -1017,5 +1025,3 @@ TEST_CASE("FMCW chirp-boundary tracker matches cold-path direct contribution acr
 	REQUIRE(tracker.initialized);
 	REQUIRE(tracker.n_current > 3);
 }
-
-#endif

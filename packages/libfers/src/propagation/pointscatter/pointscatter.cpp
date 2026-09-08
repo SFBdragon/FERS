@@ -4,7 +4,6 @@
 
 #include "pointscatter.h"
 
-#include <cstdint>
 #include <vector>
 
 #include "core/config.h"
@@ -91,8 +90,7 @@ namespace propagation::pointscatter
 	 * @param tx_time True if time is a transmission time, otherwise it's considered to be the receiving time.
 	 */
 	static void directPath(const Transmitter& tx, Receiver* rx, const RealType carrierWavelength, const RealType time,
-						   const bool is_tx_time, const core::ActiveStreamingSource* source,
-						   std::vector<PropagationPath>& found_paths)
+						   const bool is_tx_time, size_t source_index, std::vector<PropagationPath>& found_paths)
 	{
 
 		// Calculate the direct path contribution.
@@ -136,20 +134,17 @@ namespace propagation::pointscatter
 			.length = tx_to_rx_dist,
 			.delay = delay,
 			.gain = gain,
-			// This is the hashing strategy used for direct paths;
-			// a sentinel that is unique from all bistatic path IDs,
-			// which are derived from the pointer bits, which are never all zeroes.
-			//
-			// Note that this path ID is also qualified by sender and receiver.
+			// Direct paths are unique for a given receiver and transmitter.
+			// We just need to try avoid colliding with a target SimID (bistatic path). 0 achieves this.
 			.path_id = 0,
-			.source = source,
+			.source_index = source_index,
 			.receiver = rx,
 		});
 	}
 
 	static void bistaticPath(const Transmitter& tx, Receiver* rx, const Target& target,
 							 const RealType carrierWavelength, const RealType time, const bool is_tx_time,
-							 const core::ActiveStreamingSource* source, std::vector<PropagationPath>& found_paths)
+							 size_t source_index, std::vector<PropagationPath>& found_paths)
 	{
 
 		// If calculating reflected path and target is co-located with either Tx or Rx:
@@ -205,11 +200,9 @@ namespace propagation::pointscatter
 			.length = tx_to_tgt_dist + tgt_to_rx_dist,
 			.delay = delay,
 			.gain = gain,
-			// This is the hashing strategy used for bistatic paths; the unique target pointer.
-			// Note that this path ID is also qualified by sender and receiver.
-			// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-			.path_id = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&target)),
-			.source = source,
+			// Bistatic paths for a given TX and RX are uniquely identified by the target.
+			.path_id = target.getId(),
+			.source_index = source_index,
 			.receiver = rx,
 		});
 	}
@@ -237,14 +230,13 @@ namespace propagation::pointscatter
 				if (!receiver->checkFlag(Receiver::RecvFlag::FLAG_NODIRECT))
 				{
 					// Calculate the direct path contribution, if any.
-					directPath(transmitter, receiver.get(), carrierWavelength, current_time, true, nullptr, paths);
+					directPath(transmitter, receiver.get(), carrierWavelength, current_time, true, 0, paths);
 				}
 
 				for (const auto& target : _world->getTargets())
 				{
 					// Calculate bistatic reflection contribution, if any.
-					bistaticPath(transmitter, receiver.get(), *target, carrierWavelength, current_time, true, nullptr,
-								 paths);
+					bistaticPath(transmitter, receiver.get(), *target, carrierWavelength, current_time, true, 0, paths);
 				}
 			}
 
@@ -259,20 +251,21 @@ namespace propagation::pointscatter
 	{
 		std::vector<PropagationPath> paths;
 
-		for (const auto& source : sources)
+		for (size_t s = 0; s < sources.size(); s++)
 		{
+			const auto& source = sources[s];
 			const auto carrierWavelength = params::c() / source.transmitter->getSignal()->getCarrier();
 
 			if (!receiver->checkFlag(Receiver::RecvFlag::FLAG_NODIRECT))
 			{
 				// Calculate the direct path contribution, if any.
-				directPath(*source.transmitter, receiver, carrierWavelength, rx_time, false, &source, paths);
+				directPath(*source.transmitter, receiver, carrierWavelength, rx_time, false, s, paths);
 			}
 
 			for (const auto& target : _world->getTargets())
 			{
 				// Calculate bistatic reflection contribution, if any.
-				bistaticPath(*source.transmitter, receiver, *target, carrierWavelength, rx_time, false, &source, paths);
+				bistaticPath(*source.transmitter, receiver, *target, carrierWavelength, rx_time, false, s, paths);
 			}
 		}
 

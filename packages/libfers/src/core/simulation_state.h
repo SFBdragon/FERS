@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include "config.h"
@@ -145,8 +146,8 @@ namespace core
 	/// Per-receiver FMCW tracker state for direct and reflected streaming paths.
 	struct ReceiverTrackerCache
 	{
-		std::vector<FmcwChirpBoundaryTracker> direct; ///< Trackers for direct paths by source index.
-		std::vector<std::vector<FmcwChirpBoundaryTracker>> reflected; ///< Trackers for reflected paths.
+		/// Trackers for all paths by source index and path_id.
+		std::vector<std::unordered_map<uint64_t, FmcwChirpBoundaryTracker>> path_trackers;
 		std::vector<FmcwChirpBoundaryTracker> dechirp_reference; ///< Trackers for receiver LO source segments.
 		std::size_t active_dechirp_source_index = 0; ///< Monotonic cursor for receiver LO source segments.
 		std::optional<RealType> last_dechirp_time = std::nullopt; ///< Last sample time used by the LO cursor.

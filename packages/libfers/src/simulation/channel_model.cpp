@@ -634,6 +634,9 @@ namespace simulation
 		{
 			for (const auto& path : timesteps.paths)
 			{
+				// TODO_SHAUN is this really the right place to derive this?
+				// Either it's correct as-is and we could re-calculate it later rather than store it?
+				// Or it's prop-model dependent and needs to be calculated in there?
 				auto phase_delay = -path.delay * 2.0 * PI * tx.getSignal()->getCarrier();
 
 				const interp::InterpPoint point{.gain = path.gain,

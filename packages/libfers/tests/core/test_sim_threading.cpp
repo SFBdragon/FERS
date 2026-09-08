@@ -1193,7 +1193,8 @@ TEST_CASE("SimulationEngine processStreamingPhysics uses buffered shared timing 
 	ComplexType expected{0.0, 0.0};
 	for (const auto& path : prop.findRxFromTxPaths(rx_ptr, sources, 0.5))
 	{
-		expected += simulation::calculateStreamingPathContribution(*path.source, rx_ptr, path, 0.5, &lookup);
+		const auto& source = sources[path.source_index];
+		expected += simulation::calculateStreamingPathContribution(source, rx_ptr, path, 0.5, &lookup);
 	}
 	const ComplexType actual = sampleAt(sink, 5);
 
@@ -1257,7 +1258,8 @@ TEST_CASE("SimulationEngine phase-noise lookup covers pre-start retarded streami
 	ComplexType expected{0.0, 0.0};
 	for (const auto& path : prop.findRxFromTxPaths(rx_ptr, sources, 0.1))
 	{
-		expected += simulation::calculateStreamingPathContribution(*path.source, rx_ptr, path, 0.1, &expected_lookup);
+		const auto& source = sources[path.source_index];
+		expected += simulation::calculateStreamingPathContribution(source, rx_ptr, path, 0.1, &expected_lookup);
 	}
 	const ComplexType actual = sampleAt(sink, 1);
 	REQUIRE_THAT(actual.real(), WithinAbs(expected.real(), 1.0e-6));

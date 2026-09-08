@@ -73,8 +73,8 @@ namespace propagation
 		/// A unique, stable ID for a continuously-varying channel over time.
 		uint64_t path_id;
 
-		/// The source of the path, if `findRxFromTxPaths` is used. Otherwise null.
-		const core::ActiveStreamingSource* source;
+		/// The streaaming source index for the path's transmitter, if `findRxFromTxPaths` is used. Otherwise undefined.
+		size_t source_index;
 		/// The receiver of the path.
 		radar::Receiver* receiver;
 		// ^ It's mutable so that calculateResponses can stuff the reponse into the receiver.

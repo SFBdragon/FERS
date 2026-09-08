@@ -3,7 +3,6 @@
 #include <limits>
 #include <memory>
 #include <optional>
-#include <stdexcept>
 #include <vector>
 
 #include "antenna/antenna_factory.h"
@@ -67,7 +66,7 @@ namespace
 		ComplexType total{0.0, 0.0};
 		for (const auto& path : prop.findRxFromTxPaths(receiver, sources, t))
 		{
-			total += simulation::calculateStreamingPathContribution(*path.source, receiver, path, t);
+			total += simulation::calculateStreamingPathContribution(sources[path.source_index], receiver, path, t);
 		}
 		return total;
 	}
@@ -141,7 +140,7 @@ TEST_CASE("applyStreamingInterference adds direct-path streaming energy sample b
 	core::ReceiverTrackerCache tracker_cache;
 
 	processing::pipeline::applyStreamingInterference(window, start, dt, prop, &receiver, streaming_sources,
-													 &world.getTargets(), tracker_cache);
+													 tracker_cache);
 
 	for (size_t i = 0; i < window.size(); ++i)
 	{
@@ -192,7 +191,7 @@ TEST_CASE("applyStreamingInterference respects FLAG_NODIRECT and keeps only phys
 	core::ReceiverTrackerCache tracker_cache;
 
 	processing::pipeline::applyStreamingInterference(window, start, dt, prop, &receiver, streaming_sources,
-													 &world.getTargets(), tracker_cache);
+													 tracker_cache);
 
 	for (size_t i = 0; i < window.size(); ++i)
 	{
@@ -288,7 +287,7 @@ TEST_CASE("applyStreamingInterference adds FMCW energy to pulsed receiver window
 	core::ReceiverTrackerCache tracker_cache;
 
 	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, &receiver, streaming_sources,
-													 &world.getTargets(), tracker_cache);
+													 tracker_cache);
 
 	REQUIRE(std::abs(window[0]) > 0.0);
 	REQUIRE_THAT(std::abs(window[1]), WithinAbs(0.0, 1.0e-18));
@@ -331,7 +330,7 @@ TEST_CASE("applyStreamingInterference supports FMCW transmitter with CW streamin
 	core::ReceiverTrackerCache tracker_cache;
 
 	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, &receiver, streaming_sources,
-													 &world.getTargets(), tracker_cache);
+													 tracker_cache);
 
 	for (std::size_t i = 0; i < window.size(); ++i)
 	{
@@ -391,7 +390,7 @@ TEST_CASE("applyStreamingInterference superposes up- and down-chirp FMCW transmi
 	core::ReceiverTrackerCache tracker_cache;
 
 	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, &receiver, streaming_sources,
-													 &world.getTargets(), tracker_cache);
+													 tracker_cache);
 
 	for (std::size_t i = 0; i < window.size(); ++i)
 	{
@@ -443,21 +442,17 @@ TEST_CASE("applyStreamingInterference reuses tracker cache without carrying wind
 	std::vector<ComplexType> second_window(3, ComplexType{});
 
 	processing::pipeline::applyStreamingInterference(first_window, 10.0e-6, 50.0e-6, prop, &receiver, streaming_sources,
-													 &world.getTargets(), tracker_cache);
+													 tracker_cache);
 
-	REQUIRE(tracker_cache.direct.size() == 1);
-	REQUIRE(tracker_cache.reflected.size() == 1);
-	REQUIRE(tracker_cache.reflected.front().size() == 1);
-	const std::size_t direct_capacity = tracker_cache.direct.capacity();
-	const std::size_t reflected_capacity = tracker_cache.reflected.capacity();
-	const std::size_t reflected_row_capacity = tracker_cache.reflected.front().capacity();
+	REQUIRE(tracker_cache.path_trackers.size() == 1);
+	const std::size_t sources_count = tracker_cache.path_trackers.size();
+	const std::size_t tracker_count = tracker_cache.path_trackers[0].size();
 
 	processing::pipeline::applyStreamingInterference(second_window, 10.0e-6, 50.0e-6, prop, &receiver,
-													 streaming_sources, &world.getTargets(), tracker_cache);
+													 streaming_sources, tracker_cache);
 
-	REQUIRE(tracker_cache.direct.capacity() == direct_capacity);
-	REQUIRE(tracker_cache.reflected.capacity() == reflected_capacity);
-	REQUIRE(tracker_cache.reflected.front().capacity() == reflected_row_capacity);
+	REQUIRE(tracker_cache.path_trackers.size() == sources_count);
+	REQUIRE(tracker_cache.path_trackers[0].size() == tracker_count);
 	REQUIRE(std::abs(first_window.front()) > 0.0);
 	for (std::size_t i = 0; i < first_window.size(); ++i)
 	{

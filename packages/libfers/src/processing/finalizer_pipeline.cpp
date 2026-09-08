@@ -23,7 +23,6 @@
 #include "processing/signal_processor.h"
 #include "propagation/propagation_model.h"
 #include "radar/receiver.h"
-#include "radar/target.h"
 #include "radar/transmitter.h"
 #include "serial/hdf5_handler.h"
 #include "serial/response.h"
@@ -36,31 +35,16 @@ namespace processing::pipeline
 	namespace
 	{
 		/// Prepares caller-owned tracker storage for one independent receive window without shrinking capacity.
-		void prepareWindowTrackerCache(core::ReceiverTrackerCache& tracker_cache, const std::size_t source_count,
-									   const std::size_t target_count)
+		void prepareWindowTrackerCache(core::ReceiverTrackerCache& tracker_cache, const std::size_t source_count)
 		{
-			if (tracker_cache.direct.size() < source_count)
+			if (tracker_cache.path_trackers.size() < source_count)
 			{
-				tracker_cache.direct.resize(source_count);
-			}
-			if (tracker_cache.reflected.size() < source_count)
-			{
-				tracker_cache.reflected.resize(source_count);
+				tracker_cache.path_trackers.resize(source_count);
 			}
 
 			for (std::size_t source_index = 0; source_index < source_count; ++source_index)
 			{
-				tracker_cache.direct[source_index] = {};
-
-				auto& reflected_trackers = tracker_cache.reflected[source_index];
-				if (reflected_trackers.size() < target_count)
-				{
-					reflected_trackers.resize(target_count);
-				}
-				for (std::size_t target_index = 0; target_index < target_count; ++target_index)
-				{
-					reflected_trackers[target_index] = {};
-				}
+				tracker_cache.path_trackers[source_index] = {};
 			}
 		}
 	}
@@ -115,7 +99,6 @@ namespace processing::pipeline
 	void applyStreamingInterference(std::span<ComplexType> window, const RealType actual_start, const RealType dt,
 									const propagation::PropagationModel& prop, radar::Receiver* receiver,
 									const std::vector<core::ActiveStreamingSource>& streaming_sources,
-									const std::vector<std::unique_ptr<radar::Target>>* targets,
 									core::ReceiverTrackerCache& tracker_cache,
 									const simulation::CwPhaseNoiseLookup* phase_noise_lookup)
 	{
@@ -144,7 +127,7 @@ namespace processing::pipeline
 			lookup = &*owned_lookup;
 		}
 
-		prepareWindowTrackerCache(tracker_cache, streaming_sources.size(), targets->size());
+		prepareWindowTrackerCache(tracker_cache, streaming_sources.size());
 
 		RealType t_sample = actual_start;
 		for (auto& window_sample : window)
@@ -153,8 +136,11 @@ namespace processing::pipeline
 			ComplexType streaming_interference_sample{0.0, 0.0};
 			for (const auto& path : paths)
 			{
+				// Default-initializes the tracker with `initialized=false` if it doesn't already exist.
+				auto* cache = &tracker_cache.path_trackers[path.source_index][path.path_id];
+
 				streaming_interference_sample += simulation::calculateStreamingPathContribution(
-					*path.source, receiver, path, t_sample, lookup, nullptr);
+					streaming_sources[path.source_index], receiver, path, t_sample, lookup, cache);
 			}
 			window_sample += streaming_interference_sample;
 			t_sample += dt;

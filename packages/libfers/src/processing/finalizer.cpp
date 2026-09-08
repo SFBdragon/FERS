@@ -924,8 +924,8 @@ namespace processing
 										 .file_metadata = std::move(file_metadata)};
 	}
 
-	// NOLINTNEXTLINE TODO_SHAUN this lint about const reference is kinda wrong...?
-	void runPulsedFinalizer(radar::Receiver* receiver, const std::vector<std::unique_ptr<radar::Target>>* targets,
+	void runPulsedFinalizer(radar::Receiver* receiver,
+							// NOLINTNEXTLINE TODO_SHAUN this lint about const reference is kinda wrong...?
 							std::shared_ptr<const propagation::PropagationModel> prop,
 							const std::shared_ptr<core::ProgressReporter>& reporter, const std::string& output_dir,
 							const std::shared_ptr<core::OutputMetadataCollector>& metadata_collector,
@@ -986,7 +986,7 @@ namespace processing
 			std::vector<ComplexType> window_buffer(window_samples);
 
 			pipeline::applyStreamingInterference(window_buffer, actual_start, dt, *prop, receiver,
-												 job.active_streaming_sources, targets, streaming_tracker_cache);
+												 job.active_streaming_sources, streaming_tracker_cache);
 
 			renderWindow(window_buffer, job.duration, actual_start, frac_delay, job.responses);
 

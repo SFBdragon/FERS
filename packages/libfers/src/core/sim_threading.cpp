@@ -28,6 +28,7 @@
 #include <optional>
 #include <utility>
 
+#include "core/simulation_state.h"
 #include "logging.h"
 #include "math/path_utils.h"
 #include "memory_projection.h"
@@ -939,9 +940,8 @@ namespace core
 		{
 			if (receiver_ptr->getMode() == OperationMode::PULSED_MODE)
 			{
-				_finalizer_threads.emplace_back(processing::runPulsedFinalizer, receiver_ptr.get(),
-												&_world->getTargets(), _propagation, _reporter, _output_dir,
-												_metadata_collector, _output_sink);
+				_finalizer_threads.emplace_back(processing::runPulsedFinalizer, receiver_ptr.get(), _propagation,
+												_reporter, _output_dir, _metadata_collector, _output_sink);
 			}
 		}
 	}
@@ -1626,8 +1626,12 @@ namespace core
 		ComplexType total_sample{0.0, 0.0};
 		for (const auto& path : paths)
 		{
-			total_sample += simulation::calculateStreamingPathContribution(
-				*path.source, rx, path, rx_time, _cw_phase_noise_lookup.get(), nullptr, timing_phase_mode);
+			// Default-initializes the tracker with `initialized=false` if it doesn't already-exist.
+			auto* cache = &tracker_cache.path_trackers[path.source_index][path.path_id];
+
+			total_sample +=
+				simulation::calculateStreamingPathContribution(streaming_sources[path.source_index], rx, path, rx_time,
+															   _cw_phase_noise_lookup.get(), cache, timing_phase_mode);
 		}
 
 		if (!dechirping)
@@ -1647,12 +1651,9 @@ namespace core
 
 	void SimulationEngine::appendStreamingTrackerSource()
 	{
-		const std::size_t target_count = _world->getTargets().size();
-
 		for (auto& cache : _streaming_tracker_caches)
 		{
-			cache.direct.emplace_back();
-			cache.reflected.emplace_back(target_count);
+			cache.path_trackers.emplace_back();
 		}
 	}
 
@@ -1660,13 +1661,9 @@ namespace core
 	{
 		for (auto& cache : _streaming_tracker_caches)
 		{
-			if (source_index < cache.direct.size())
+			if (source_index < cache.path_trackers.size())
 			{
-				cache.direct.erase(cache.direct.begin() + static_cast<std::ptrdiff_t>(source_index));
-			}
-			if (source_index < cache.reflected.size())
-			{
-				cache.reflected.erase(cache.reflected.begin() + static_cast<std::ptrdiff_t>(source_index));
+				cache.path_trackers.erase(cache.path_trackers.begin() + static_cast<std::ptrdiff_t>(source_index));
 			}
 		}
 	}
