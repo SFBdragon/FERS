@@ -213,7 +213,7 @@ namespace propagation::pointscatter
 		const auto* signal = transmitter.getSignal()->getPulseWaveform();
 		const auto end_tx_time = start_tx_time + signal->getDuration();
 
-		for (const auto current_time : timePointGenerator(start_tx_time, end_tx_time, params::simSamplingRate()))
+		for (const auto current_time : TimePointRange(start_tx_time, end_tx_time, params::simSamplingRate()))
 		{
 			std::vector<PropagationPath> paths;
 

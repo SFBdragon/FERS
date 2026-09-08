@@ -5,7 +5,6 @@
 #pragma once
 
 #include <cstdint>
-#include <generator>
 #include <vector>
 
 #include "core/config.h"
@@ -100,23 +99,52 @@ namespace propagation
 						  RealType rx_time) const = 0;
 	};
 
-	std::generator<RealType> timePointGenerator(RealType start_time, RealType end_time, RealType sampling_rate);
-
-	/**
-	 * @class RangeError
-	 * @brief Exception thrown when a range calculation fails, typically due to objects being too close.
-	 */
-	class RangeError final : public std::exception
+	class TimePointRange
 	{
+		RealType start_, end_, step_;
+		int count_;
+
 	public:
-		/**
-		 * @brief Provides the error message for the exception.
-		 * @return A C-style string describing the error.
-		 */
-		[[nodiscard]] const char* what() const noexcept override
+		TimePointRange(RealType start_time, RealType end_time, RealType sampling_rate) :
+			start_(start_time), end_(end_time), step_(RealType(1) / sampling_rate),
+			count_(static_cast<int>(std::ceil((end_time - start_time) / step_)))
 		{
-			return "Range error in radar equation calculations";
 		}
+
+		class iterator
+		{
+			const TimePointRange* r_;
+			int i_;
+
+		public:
+			using iterator_category = std::input_iterator_tag;
+			using value_type = RealType;
+			using difference_type = std::ptrdiff_t;
+			using pointer = const RealType*;
+			using reference = RealType;
+
+			iterator(const TimePointRange* r, int i) : r_(r), i_(i) {}
+
+			RealType operator*() const { return i_ < r_->count_ ? r_->start_ + i_ * r_->step_ : r_->end_; }
+
+			iterator& operator++()
+			{
+				++i_;
+				return *this;
+			}
+			iterator operator++(int)
+			{
+				auto t = *this;
+				++i_;
+				return t;
+			}
+
+			bool operator==(const iterator& o) const { return i_ == o.i_; }
+			bool operator!=(const iterator& o) const { return i_ != o.i_; }
+		};
+
+		[[nodiscard]] iterator begin() const { return {this, 0}; }
+		[[nodiscard]] iterator end() const { return {this, count_ + 1}; }
 	};
 
 }
