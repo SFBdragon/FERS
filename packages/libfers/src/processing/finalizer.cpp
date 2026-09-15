@@ -1026,7 +1026,6 @@ namespace processing
 	}
 
 	void runPulsedFinalizer(radar::Receiver* receiver,
-							// NOLINTNEXTLINE TODO_SHAUN this lint about const reference is kinda wrong...?
 							std::shared_ptr<const propagation::PropagationModel> prop,
 							const std::shared_ptr<core::ProgressReporter>& reporter, const std::string& output_dir,
 							const std::shared_ptr<core::OutputMetadataCollector>& metadata_collector,

@@ -1483,7 +1483,6 @@ namespace core
 												true);
 	}
 
-	// NOLINTNEXTLINE TODO_SHAUN remove
 	void SimulationEngine::addPulsedInterferenceSamples(std::span<ComplexType> block,
 														std::span<const ComplexType> rendered_pulse,
 														const long long dest_begin, const long long dest_end,

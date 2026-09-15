@@ -1,6 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 //
-// TODO
+// Copyright (c) 2026-present FERS Contributors (see AUTHORS.md).
 //
+// See the GNU GPLv2 LICENSE file in the FERS project root for more information.
 
 #include "pointscatter.h"
 
@@ -17,9 +19,6 @@
 #include "radar/receiver.h"
 #include "radar/transmitter.h"
 
-using namespace math;
-using namespace radar;
-
 namespace propagation::pointscatter
 {
 	/**
@@ -30,9 +29,10 @@ namespace propagation::pointscatter
 	 * @param lambda The signal wavelength.
 	 * @return The linear gain value.
 	 */
-	static RealType computeAntennaGain(const Radar* radar, const Vec3& direction_vec, RealType time, RealType lambda)
+	static RealType computeAntennaGain(const radar::Radar* radar, const math::Vec3& direction_vec, RealType time,
+									   RealType lambda)
 	{
-		return radar->getGain(SVec3(direction_vec), radar->getRotation(time), lambda);
+		return radar->getGain(math::SVec3(direction_vec), radar->getRotation(time), lambda);
 	}
 
 	/**
@@ -44,8 +44,8 @@ namespace propagation::pointscatter
 	 * @param no_prop_loss If true, distance-based attenuation is ignored.
 	 * @return The power scaling factor (Pr / Pt).
 	 */
-	static RealType computeDirectPathPower(RealType tx_gain, RealType rx_gain, RealType lambda, RealType dist,
-										   bool no_prop_loss)
+	RealType computeDirectPathPower(RealType tx_gain, RealType rx_gain, RealType lambda, RealType dist,
+									bool no_prop_loss)
 	{
 		const RealType numerator = tx_gain * rx_gain * lambda * lambda;
 		RealType denominator = 16.0 * PI * PI; // (4 * PI)^2
@@ -69,8 +69,8 @@ namespace propagation::pointscatter
 	 * @param no_prop_loss If true, distance-based attenuation is ignored.
 	 * @return The power scaling factor (Pr / Pt).
 	 */
-	static RealType computeReflectedPathPower(RealType tx_gain, RealType rx_gain, RealType rcs, RealType lambda,
-											  RealType r_tx, RealType r_rx, bool no_prop_loss)
+	RealType computeReflectedPathPower(RealType tx_gain, RealType rx_gain, RealType rcs, RealType lambda, RealType r_tx,
+									   RealType r_rx, bool no_prop_loss)
 	{
 		const RealType numerator = tx_gain * rx_gain * rcs * lambda * lambda;
 		RealType denominator = 64.0 * PI * PI * PI; // (4 * PI)^3
@@ -89,8 +89,9 @@ namespace propagation::pointscatter
 	 * @param time The time at which to find propagation paths. May be at reception or transmission time.
 	 * @param tx_time True if time is a transmission time, otherwise it's considered to be the receiving time.
 	 */
-	static void directPath(const Transmitter& tx, Receiver* rx, const RealType time, const bool is_tx_time,
-						   const RealType segment_start, size_t source_index, std::vector<PropagationPath>& found_paths)
+	static void directPath(const radar::Transmitter& tx, radar::Receiver* rx, const RealType time,
+						   const bool is_tx_time, const RealType segment_start, size_t source_index,
+						   std::vector<PropagationPath>& found_paths)
 	{
 
 		// Calculate the direct path contribution.
@@ -123,7 +124,7 @@ namespace propagation::pointscatter
 		const RealType rx_time = is_tx_time ? time + delay : time;
 
 		const auto carrier_opt = tx.getSignal()->getModulatedCarrier(tx_time - segment_start);
-		if (carrier_opt.has_value())
+		if (!carrier_opt.has_value())
 		{
 			return;
 		}
@@ -149,9 +150,9 @@ namespace propagation::pointscatter
 		});
 	}
 
-	static void bistaticPath(const Transmitter& tx, Receiver* rx, const Target& target, const RealType time,
-							 const bool is_tx_time, const RealType segment_start, size_t source_index,
-							 std::vector<PropagationPath>& found_paths)
+	static void bistaticPath(const radar::Transmitter& tx, radar::Receiver* rx, const radar::Target& target,
+							 const RealType time, const bool is_tx_time, const RealType segment_start,
+							 size_t source_index, std::vector<PropagationPath>& found_paths)
 	{
 
 		// If calculating reflected path and target is co-located with either Tx or Rx:
@@ -195,8 +196,8 @@ namespace propagation::pointscatter
 		// Calculate RCS
 		// InAngle: Tx -> Tgt (link_tx_tgt.u_vec)
 		// OutAngle: Rx -> Tgt (Opposite of Tgt->Rx, so -link_tgt_rx.u_vec)
-		SVec3 in_angle(tx_to_tgt);
-		SVec3 out_angle(-tgt_to_rx);
+		math::SVec3 in_angle(tx_to_tgt);
+		math::SVec3 out_angle(-tgt_to_rx);
 		const auto rcs = target.getRcs(in_angle, out_angle, tgt_time);
 
 		// Tx Gain: Direction Tx -> Tgt
@@ -218,7 +219,7 @@ namespace propagation::pointscatter
 		});
 	}
 
-	std::vector<PathsAtTime> PointScatterModel::findTxToRxPaths(const Transmitter& transmitter,
+	std::vector<PathsAtTime> PointScatterModel::findTxToRxPaths(const radar::Transmitter& transmitter,
 																const RealType start_tx_time) const
 	{
 		std::vector<PathsAtTime> timesteps;
@@ -236,7 +237,7 @@ namespace propagation::pointscatter
 				// only gives us a Transmitter, not a ActiveStreamingSource.
 				// findTxToRxPaths is used for pulsed radar instead of continuous, so this is fine.
 
-				if (!receiver->checkFlag(Receiver::RecvFlag::FLAG_NODIRECT))
+				if (!receiver->checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
 				{
 					// Calculate the direct path contribution, if any.
 					directPath(transmitter, receiver.get(), current_time, true, start_tx_time, 0, paths);
@@ -264,7 +265,7 @@ namespace propagation::pointscatter
 		{
 			const auto& source = sources[s];
 
-			if (!receiver->checkFlag(Receiver::RecvFlag::FLAG_NODIRECT))
+			if (!receiver->checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
 			{
 				// Calculate the direct path contribution, if any.
 				directPath(*source.transmitter, receiver, rx_time, false, source.segment_start, s, paths);
