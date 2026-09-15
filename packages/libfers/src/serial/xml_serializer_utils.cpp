@@ -112,7 +112,7 @@ namespace serial::xml_serializer_utils
 		addChildWithNumber(parent, "carrier_frequency", waveform.getCarrier());
 
 		std::visit(
-			overloaded{
+			fers_signal::util::Overloaded{
 				[&](const fers_signal::CwWaveform&) { (void)parent.addChild("cw"); },
 				[&](const fers_signal::FmcwChirpWaveform& fmcw)
 				{
@@ -131,7 +131,7 @@ namespace serial::xml_serializer_utils
 						addChildWithNumber(fmcw_elem, "chirp_count", static_cast<RealType>(*fmcw.getChirpCount()));
 					}
 				},
-				[&](const fers_signal::SteppedFrequencyWaveform& sfcw)
+				[&](const fers_signal::SfcwWaveform& sfcw)
 				{
 					const XmlElement sfcw_elem = parent.addChild("stepped_frequency");
 					addChildWithNumber(sfcw_elem, "start_frequency_offset", sfcw.getStartFrequencyOffset());
@@ -169,7 +169,8 @@ namespace serial::xml_serializer_utils
 				{
 					const XmlElement file_element = parent.addChild(file.isCw() ? "cw_from_file" : "fmcw_from_file");
 					file_element.setAttribute("filename", file.getFilename().value_or(""));
-				}},
+				},
+			},
 			waveform.getWaveform());
 	}
 

@@ -26,7 +26,7 @@ namespace fers_signal
 	class FmcwTriangleWaveform;
 	class FileWaveform;
 	class RadarSignal;
-	class SteppedFrequencyWaveform;
+	class SfcwWaveform;
 }
 
 namespace core
@@ -59,8 +59,7 @@ namespace core
 		const fers_signal::FmcwTriangleWaveform* triangle =
 			nullptr; ///< Stable pointer to the triangle waveform, if any.
 		const fers_signal::FileWaveform* file = nullptr; ///< Stable pointer to the finite sampled waveform, if any.
-		const fers_signal::SteppedFrequencyWaveform* sfcw =
-			nullptr; ///< Stable pointer to the stepped-frequency waveform, if any.
+		const fers_signal::SfcwWaveform* sfcw = nullptr; ///< Stable pointer to the stepped-frequency waveform, if any.
 		RealType chirp_duration = 0.0; ///< Cached FMCW chirp duration in seconds.
 		RealType chirp_period = 0.0; ///< Cached FMCW chirp period in seconds.
 		RealType chirp_rate = 0.0; ///< Cached FMCW chirp rate in hertz per second.

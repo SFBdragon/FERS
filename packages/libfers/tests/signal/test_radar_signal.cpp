@@ -147,7 +147,7 @@ TEST_CASE("FmcwTriangleWaveform keeps phase continuous at leg and period boundar
 
 TEST_CASE("SteppedFrequencyWaveform selects active dwell steps and finite sweeps", "[signal][radar][sfcw]")
 {
-	fers_signal::SteppedFrequencyWaveform const sfcw(10.0, 2.0, 4, 0.25, 0.5, std::size_t{2});
+	fers_signal::SfcwWaveform const sfcw(10.0, 2.0, 4, 0.25, 0.5, std::size_t{2});
 
 	REQUIRE_THAT(sfcw.firstFrequency(100.0), WithinAbs(110.0, 1e-12));
 	REQUIRE_THAT(sfcw.lastFrequency(100.0), WithinAbs(116.0, 1e-12));
@@ -174,7 +174,7 @@ TEST_CASE("SteppedFrequencyWaveform selects active dwell steps and finite sweeps
 	REQUIRE_THAT(second_sweep->rf_frequency, WithinAbs(112.0, 1e-12));
 	REQUIRE_FALSE(sfcw.activeStepAt(4.0, 100.0).has_value());
 
-	fers_signal::SteppedFrequencyWaveform const descending(0.0, -5.0, 3, 0.1, 0.2);
+	fers_signal::SfcwWaveform const descending(0.0, -5.0, 3, 0.1, 0.2);
 	REQUIRE_THAT(descending.lastFrequency(100.0), WithinAbs(90.0, 1e-12));
 	REQUIRE_THAT(descending.frequencySpan(), WithinAbs(10.0, 1e-12));
 	REQUIRE_FALSE(descending.totalDuration().has_value());

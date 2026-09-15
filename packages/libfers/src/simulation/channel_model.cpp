@@ -103,7 +103,6 @@ namespace
 	struct StreamingWaveformEvaluation
 	{
 		RealType phase = 0.0;
-		RealType rf_frequency = 0.0;
 		ComplexType envelope{1.0, 0.0};
 	};
 
@@ -347,7 +346,7 @@ namespace
 		return true;
 	}
 
-	/// Computes streaming waveform phase and active RF at a receiver time.
+	/// Computes streaming waveform phase at a receiver time.
 	bool computeStreamingEvaluation(const core::ActiveStreamingSource& source, const RealType rx_time,
 									const RealType tau, core::FmcwChirpBoundaryTracker* const chirp_tracker,
 									StreamingWaveformEvaluation& eval)
@@ -365,7 +364,6 @@ namespace
 
 		if (source.kind == core::StreamingWaveformKind::FmcwLinear)
 		{
-			eval.rf_frequency = source.carrier_freq;
 			if (chirp_tracker == nullptr)
 			{
 				return computeLinearFmcwPhaseWithoutTracker(source, t_ret, tau, eval.phase);
@@ -375,7 +373,6 @@ namespace
 
 		if (source.kind == core::StreamingWaveformKind::FmcwTriangle)
 		{
-			eval.rf_frequency = source.carrier_freq;
 			if (chirp_tracker == nullptr)
 			{
 				return computeTriangleFmcwPhaseWithoutTracker(source, t_ret, tau, eval.phase);
@@ -394,7 +391,6 @@ namespace
 			{
 				return false;
 			}
-			eval.rf_frequency = step->rf_frequency;
 			eval.phase = -2.0 * PI * step->rf_frequency * tau;
 			return true;
 		}
@@ -405,13 +401,11 @@ namespace
 			{
 				return false;
 			}
-			eval.rf_frequency = source.carrier_freq;
 			eval.phase = -2.0 * PI * source.carrier_freq * tau;
 			eval.envelope = source.file->sampleAt(t_ret - source.segment_start);
 			return true;
 		}
 
-		eval.rf_frequency = source.carrier_freq;
 		eval.phase = -2.0 * PI * source.carrier_freq * tau;
 		return true;
 	}

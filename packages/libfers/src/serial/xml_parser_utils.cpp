@@ -703,7 +703,7 @@ namespace serial::xml_parser_utils
 				sweep_count = static_cast<std::size_t>(raw_count);
 			}
 
-			auto sfcw_signal = fers_signal::SteppedFrequencyWaveform(start_frequency_offset, step_size,
+			auto sfcw_signal = fers_signal::SfcwWaveform(start_frequency_offset, step_size,
 																	 static_cast<std::size_t>(raw_step_count),
 																	 dwell_time, step_period, sweep_count);
 			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, std::move(sfcw_signal), id);
@@ -1111,7 +1111,7 @@ namespace serial::xml_parser_utils
 
 		RealType const pri = is_pulsed ? (1.0 / transmitter_obj->getPrf()) : 0.0;
 		auto schedule = parseSchedule(transmitter, name, is_pulsed, pri);
-		if (wave->isFmcwFamily() || wave->isSteppedFrequency())
+		if (wave->isFmcwFamily() || wave->isSfcw())
 		{
 			validate_fmcw_schedule(schedule, *wave, "Transmitter '" + name + "'");
 		}

@@ -16,6 +16,7 @@
 #include <cmath>
 #include <complex>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 #include <variant>
@@ -142,21 +143,20 @@ namespace fers_signal
 		return accum;
 	}
 
-	SteppedFrequencyWaveform::SteppedFrequencyWaveform(const RealType start_frequency_offset, const RealType step_size,
-													   const std::size_t step_count, const RealType dwell_time,
-													   const RealType step_period,
-													   std::optional<std::size_t> sweep_count) :
+	SfcwWaveform::SfcwWaveform(const RealType start_frequency_offset, const RealType step_size,
+							   const std::size_t step_count, const RealType dwell_time, const RealType step_period,
+							   std::optional<std::size_t> sweep_count) :
 		_start_frequency_offset(start_frequency_offset), _step_size(step_size), _step_count(step_count),
 		_dwell_time(dwell_time), _step_period(step_period), _sweep_count(sweep_count)
 	{
 	}
 
-	RealType SteppedFrequencyWaveform::firstFrequency(const RealType carrier_frequency) const noexcept
+	RealType SfcwWaveform::firstFrequency(const RealType carrier_frequency) const noexcept
 	{
 		return carrier_frequency + _start_frequency_offset;
 	}
 
-	RealType SteppedFrequencyWaveform::lastFrequency(const RealType carrier_frequency) const noexcept
+	RealType SfcwWaveform::lastFrequency(const RealType carrier_frequency) const noexcept
 	{
 		if (_step_count == 0)
 		{
@@ -165,7 +165,7 @@ namespace fers_signal
 		return firstFrequency(carrier_frequency) + static_cast<RealType>(_step_count - 1U) * _step_size;
 	}
 
-	RealType SteppedFrequencyWaveform::frequencySpan() const noexcept
+	RealType SfcwWaveform::frequencySpan() const noexcept
 	{
 		if (_step_count == 0)
 		{
@@ -174,12 +174,12 @@ namespace fers_signal
 		return std::abs(static_cast<RealType>(_step_count - 1U) * _step_size);
 	}
 
-	RealType SteppedFrequencyWaveform::effectiveBandwidth() const noexcept
+	RealType SfcwWaveform::effectiveBandwidth() const noexcept
 	{
 		return static_cast<RealType>(_step_count) * std::abs(_step_size);
 	}
 
-	std::optional<RealType> SteppedFrequencyWaveform::totalDuration() const noexcept
+	std::optional<RealType> SfcwWaveform::totalDuration() const noexcept
 	{
 		if (!_sweep_count.has_value())
 		{
@@ -188,9 +188,8 @@ namespace fers_signal
 		return static_cast<RealType>(*_sweep_count) * getSweepPeriod();
 	}
 
-	std::optional<SteppedFrequencyWaveform::StepState>
-	SteppedFrequencyWaveform::activeStepAt(const RealType time_since_segment_start,
-										   const RealType carrier_frequency) const noexcept
+	std::optional<SfcwWaveform::StepState> SfcwWaveform::activeStepAt(const RealType time_since_segment_start,
+																	  const RealType carrier_frequency) const noexcept
 	{
 		if (time_since_segment_start < 0.0 || _step_count == 0 || _step_period <= 0.0 || _dwell_time <= 0.0)
 		{
@@ -340,6 +339,30 @@ namespace fers_signal
 	{
 	}
 
+	std::optional<RealType> RadarSignal::getModulatedCarrier(RealType time_since_segment_start) const noexcept
+	{
+		// TODO
+		// This was ported directly from computeStreamingtEvaluation with no change in logic.
+		// It would be ideal to either remove the approximations or document them better.
+
+		return std::visit(
+			util::Overloaded{
+				[&](const PulseWaveform&) -> std::optional<RealType> { return _carrierfreq; },
+				[&](const CwWaveform&) -> std::optional<RealType> { return _carrierfreq; },
+				[&](const FmcwChirpWaveform&) -> std::optional<RealType> { return _carrierfreq; },
+				[&](const FmcwTriangleWaveform&) -> std::optional<RealType> { return _carrierfreq; },
+				[&](const FileWaveform&) -> std::optional<RealType> { return _carrierfreq; },
+				[&](const SfcwWaveform& sfcw) -> std::optional<RealType>
+				{
+					const auto step = sfcw.activeStepAt(time_since_segment_start, _carrierfreq);
+					if (!step.has_value() || step->rf_frequency <= 0.0)
+						return std::nullopt;
+					return step->rf_frequency;
+				},
+			},
+			_wave);
+	}
+
 	bool RadarSignal::isPulsed() const noexcept { return std::holds_alternative<PulseWaveform>(_wave); }
 
 	bool RadarSignal::isFileWaveform() const noexcept { return std::holds_alternative<FileWaveform>(_wave); }
@@ -364,10 +387,7 @@ namespace fers_signal
 
 	bool RadarSignal::isFmcwFamily() const noexcept { return isFmcwChirp() || isFmcwTriangle() || isFileFmcw(); }
 
-	bool RadarSignal::isSteppedFrequency() const noexcept
-	{
-		return std::holds_alternative<SteppedFrequencyWaveform>(_wave);
-	}
+	bool RadarSignal::isSfcw() const noexcept { return std::holds_alternative<SfcwWaveform>(_wave); }
 
 	const PulseWaveform* RadarSignal::getPulseWaveform() const noexcept { return std::get_if<PulseWaveform>(&_wave); }
 
@@ -381,10 +401,7 @@ namespace fers_signal
 		return std::get_if<FmcwTriangleWaveform>(&_wave);
 	}
 
-	const SteppedFrequencyWaveform* RadarSignal::getSteppedFrequencyWaveform() const noexcept
-	{
-		return std::get_if<SteppedFrequencyWaveform>(&_wave);
-	}
+	const SfcwWaveform* RadarSignal::getSfcwWaveform() const noexcept  {  return std::get_if<SfcwWaveform>(&_wave);  }
 
 	const FileWaveform* RadarSignal::getFileWaveform() const noexcept { return std::get_if<FileWaveform>(&_wave); }
 

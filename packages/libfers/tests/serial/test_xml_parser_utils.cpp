@@ -504,9 +504,9 @@ TEST_CASE("parseWaveform validates FMCW chirp schema constraints", "[serial][xml
 		serial::xml_parser_utils::parseWaveform(doc.getRootElement(), ctx);
 		REQUIRE(world.getWaveforms().size() == 1);
 		const auto* wave = world.getWaveforms().begin()->second.get();
-		const auto* sfcw = wave->getSteppedFrequencyWaveform();
+		const auto* sfcw = wave->getSfcwWaveform();
 		REQUIRE(sfcw != nullptr);
-		REQUIRE(wave->isSteppedFrequency());
+		REQUIRE(wave->isSfcw());
 		REQUIRE_THAT(sfcw->getDwellTime(), WithinAbs(1.0e-4, 1.0e-12));
 		REQUIRE_THAT(sfcw->getStartFrequencyOffset(), WithinAbs(-1.0e6, 1e-6));
 		REQUIRE_THAT(sfcw->getStepSize(), WithinAbs(2.0e5, 1e-9));
@@ -978,7 +978,7 @@ TEST_CASE("parseTransmitter accepts native SFCW mode and rejects invalid SFCW bl
 	ctx.master_seeder = &seeder;
 
 	world.add(std::make_unique<fers_signal::RadarSignal>(
-		"sfcw_wave", 1.0, 1e9, fers_signal::SteppedFrequencyWaveform(0.0, 1.0e5, 4, 1.0e-4, 2.0e-4), 10));
+		"sfcw_wave", 1.0, 1e9, fers_signal::SfcwWaveform(0.0, 1.0e5, 4, 1.0e-4, 2.0e-4), 10));
 	world.add(std::make_unique<antenna::Isotropic>("a1", 20));
 	auto timing_proto = std::make_unique<timing::PrototypeTiming>("t1", 30);
 	timing_proto->setFrequency(1e6);

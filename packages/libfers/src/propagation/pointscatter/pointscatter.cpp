@@ -89,8 +89,8 @@ namespace propagation::pointscatter
 	 * @param time The time at which to find propagation paths. May be at reception or transmission time.
 	 * @param tx_time True if time is a transmission time, otherwise it's considered to be the receiving time.
 	 */
-	static void directPath(const Transmitter& tx, Receiver* rx, const RealType carrierWavelength, const RealType time,
-						   const bool is_tx_time, size_t source_index, std::vector<PropagationPath>& found_paths)
+	static void directPath(const Transmitter& tx, Receiver* rx, const RealType time, const bool is_tx_time,
+						   const RealType segment_start, size_t source_index, std::vector<PropagationPath>& found_paths)
 	{
 
 		// Calculate the direct path contribution.
@@ -119,16 +119,24 @@ namespace propagation::pointscatter
 		}
 
 		const auto delay = tx_to_rx_dist / params::c();
-		RealType txTime = is_tx_time ? time : time - delay;
-		RealType rxTime = is_tx_time ? time + delay : time;
+		const RealType tx_time = is_tx_time ? time : time - delay;
+		const RealType rx_time = is_tx_time ? time + delay : time;
+
+		const auto carrier_opt = tx.getSignal()->getModulatedCarrier(tx_time - segment_start);
+		if (carrier_opt.has_value())
+		{
+			return;
+		}
+		const RealType carrier = carrier_opt.value();
 
 		// Tx Gain: Direction Tx -> Rx
-		const auto tx_gain = computeAntennaGain(&tx, tx_to_rx, txTime, carrierWavelength);
+
+		const auto tx_gain = computeAntennaGain(&tx, tx_to_rx, tx_time, carrier);
 		// Rx Gain: Direction Rx -> Tx
-		const auto rx_gain = computeAntennaGain(rx, -tx_to_rx, rxTime, carrierWavelength);
+		const auto rx_gain = computeAntennaGain(rx, -tx_to_rx, rx_time, carrier);
 
 		const bool no_loss = rx->checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
-		const auto gain = computeDirectPathPower(tx_gain, rx_gain, carrierWavelength, tx_to_rx_dist, no_loss);
+		const auto gain = computeDirectPathPower(tx_gain, rx_gain, carrier, tx_to_rx_dist, no_loss);
 
 		found_paths.emplace_back(PropagationPath{
 			.delay = delay,
@@ -141,9 +149,9 @@ namespace propagation::pointscatter
 		});
 	}
 
-	static void bistaticPath(const Transmitter& tx, Receiver* rx, const Target& target,
-							 const RealType carrierWavelength, const RealType time, const bool is_tx_time,
-							 size_t source_index, std::vector<PropagationPath>& found_paths)
+	static void bistaticPath(const Transmitter& tx, Receiver* rx, const Target& target, const RealType time,
+							 const bool is_tx_time, const RealType segment_start, size_t source_index,
+							 std::vector<PropagationPath>& found_paths)
 	{
 
 		// If calculating reflected path and target is co-located with either Tx or Rx:
@@ -179,6 +187,11 @@ namespace propagation::pointscatter
 		const auto target_delay = tx_to_tgt_dist / params::c();
 		RealType tgt_time = tx_time + target_delay;
 
+		const auto carrier_opt = tx.getSignal()->getModulatedCarrier(tx_time - segment_start);
+		if (!carrier_opt.has_value())
+			return;
+		const RealType carrier = carrier_opt.value();
+
 		// Calculate RCS
 		// InAngle: Tx -> Tgt (link_tx_tgt.u_vec)
 		// OutAngle: Rx -> Tgt (Opposite of Tgt->Rx, so -link_tgt_rx.u_vec)
@@ -187,13 +200,13 @@ namespace propagation::pointscatter
 		const auto rcs = target.getRcs(in_angle, out_angle, tgt_time);
 
 		// Tx Gain: Direction Tx -> Tgt
-		const auto tx_gain = computeAntennaGain(&tx, tx_to_tgt, tx_time, carrierWavelength);
+		const auto tx_gain = computeAntennaGain(&tx, tx_to_tgt, tx_time, carrier);
 		// Rx Gain: Direction Rx -> Tgt
-		const auto rx_gain = computeAntennaGain(rx, -tgt_to_rx, rx_time, carrierWavelength);
+		const auto rx_gain = computeAntennaGain(rx, -tgt_to_rx, rx_time, carrier);
 
 		const bool no_loss = rx->checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
-		const auto gain = computeReflectedPathPower(tx_gain, rx_gain, rcs, carrierWavelength, tx_to_tgt_dist,
-													tgt_to_rx_dist, no_loss);
+		const auto gain =
+			computeReflectedPathPower(tx_gain, rx_gain, rcs, carrier, tx_to_tgt_dist, tgt_to_rx_dist, no_loss);
 
 		found_paths.emplace_back(PropagationPath{
 			.delay = delay,
@@ -217,8 +230,6 @@ namespace propagation::pointscatter
 		{
 			std::vector<PropagationPath> paths;
 
-			const auto carrierWavelength = params::c() / transmitter.getSignal()->getCarrier();
-
 			for (const auto& receiver : _world->getReceivers())
 			{
 				// Note, we're passing null as the source as the caller of findTxToRxPaths
@@ -228,13 +239,13 @@ namespace propagation::pointscatter
 				if (!receiver->checkFlag(Receiver::RecvFlag::FLAG_NODIRECT))
 				{
 					// Calculate the direct path contribution, if any.
-					directPath(transmitter, receiver.get(), carrierWavelength, current_time, true, 0, paths);
+					directPath(transmitter, receiver.get(), current_time, true, start_tx_time, 0, paths);
 				}
 
 				for (const auto& target : _world->getTargets())
 				{
 					// Calculate bistatic reflection contribution, if any.
-					bistaticPath(transmitter, receiver.get(), *target, carrierWavelength, current_time, true, 0, paths);
+					bistaticPath(transmitter, receiver.get(), *target, current_time, true, start_tx_time, 0, paths);
 				}
 			}
 
@@ -252,18 +263,17 @@ namespace propagation::pointscatter
 		for (size_t s = 0; s < sources.size(); s++)
 		{
 			const auto& source = sources[s];
-			const auto carrierWavelength = params::c() / source.transmitter->getSignal()->getCarrier();
 
 			if (!receiver->checkFlag(Receiver::RecvFlag::FLAG_NODIRECT))
 			{
 				// Calculate the direct path contribution, if any.
-				directPath(*source.transmitter, receiver, carrierWavelength, rx_time, false, s, paths);
+				directPath(*source.transmitter, receiver, rx_time, false, source.segment_start, s, paths);
 			}
 
 			for (const auto& target : _world->getTargets())
 			{
 				// Calculate bistatic reflection contribution, if any.
-				bistaticPath(*source.transmitter, receiver, *target, carrierWavelength, rx_time, false, s, paths);
+				bistaticPath(*source.transmitter, receiver, *target, rx_time, false, source.segment_start, s, paths);
 			}
 		}
 

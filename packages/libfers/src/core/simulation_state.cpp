@@ -184,7 +184,7 @@ namespace core
 				return;
 			}
 
-			if (const auto* const sfcw = signal->getSteppedFrequencyWaveform(); sfcw != nullptr)
+			if (const auto* const sfcw = signal->getSfcwWaveform(); sfcw != nullptr)
 			{
 				source.kind = StreamingWaveformKind::Sfcw;
 				source.is_sfcw = true;

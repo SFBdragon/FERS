@@ -606,17 +606,6 @@ namespace timing
 
 namespace fers_signal
 {
-	namespace
-	{
-		template <class... Ts>
-		struct overloaded : Ts...
-		{
-			using Ts::operator()...;
-		};
-		template <class... Ts>
-		overloaded(Ts...) -> overloaded<Ts...>;
-	}
-
 	void to_json(nlohmann::json& j, const RadarSignal& rs) // NOLINT(*-use-internal-linkage)
 	{
 		j = nlohmann::json{{"id", sim_id_to_json(rs.getId())},
@@ -624,75 +613,76 @@ namespace fers_signal
 						   {"power", rs.getPower()},
 						   {"carrier_frequency", rs.getCarrier()}};
 
-		std::visit(overloaded{// Switch on the waveform type.
-							  [&](const CwWaveform&) { j["cw"] = nlohmann::json::object(); },
-							  [&](const FmcwChirpWaveform& fmcw)
-							  {
-								  j["fmcw_linear_chirp"] = {
-									  {"direction", std::string(fmcwChirpDirectionToken(fmcw.getDirection()))},
-									  {"chirp_bandwidth", fmcw.getChirpBandwidth()},
-									  {"chirp_duration", fmcw.getChirpDuration()},
-									  {"chirp_period", fmcw.getChirpPeriod()}};
-								  if (std::abs(fmcw.getStartFrequencyOffset()) > EPSILON)
-								  {
-									  j["fmcw_linear_chirp"]["start_frequency_offset"] = fmcw.getStartFrequencyOffset();
-								  }
-								  if (fmcw.getChirpCount().has_value())
-								  {
-									  j["fmcw_linear_chirp"]["chirp_count"] = *fmcw.getChirpCount();
-								  }
-							  },
-							  [&](const SteppedFrequencyWaveform& sfcw)
-							  {
-								  j["stepped_frequency"] = {{"start_frequency_offset", sfcw.getStartFrequencyOffset()},
-															{"step_size", sfcw.getStepSize()},
-															{"step_count", sfcw.getStepCount()},
-															{"dwell_time", sfcw.getDwellTime()},
-															{"step_period", sfcw.getStepPeriod()}};
-								  if (sfcw.getSweepCount().has_value())
-								  {
-									  j["stepped_frequency"]["sweep_count"] = *sfcw.getSweepCount();
-								  }
-							  },
-							  [&](const FmcwTriangleWaveform& triangle)
-							  {
-								  j["fmcw_triangle"] = {{"chirp_bandwidth", triangle.getChirpBandwidth()},
-														{"chirp_duration", triangle.getChirpDuration()}};
-								  if (std::abs(triangle.getStartFrequencyOffset()) > EPSILON)
-								  {
-									  j["fmcw_triangle"]["start_frequency_offset"] = triangle.getStartFrequencyOffset();
-								  }
-								  if (triangle.getTriangleCount().has_value())
-								  {
-									  j["fmcw_triangle"]["triangle_count"] = *triangle.getTriangleCount();
-								  }
-							  },
-							  [&](const PulseWaveform& sampled)
-							  {
-								  if (const auto& filename = sampled.getFilename(); filename.has_value())
-								  {
-									  j["pulsed_from_file"] = {{"filename", *filename}};
-								  }
-								  else
-								  {
-									  throw std::logic_error("Attempted to serialize a file-based waveform named '" +
-															 rs.getName() + "' without a source filename.");
-								  }
-							  },
-							  [&](const FileWaveform& file)
-							  {
-								  const char* key = file.isCw() ? "cw_from_file" : "fmcw_from_file";
-								  if (const auto& filename = file.getFilename(); filename.has_value())
-								  {
-									  j[key] = {{"filename", *filename}};
-								  }
-								  else
-								  {
-									  throw std::logic_error("Attempted to serialize a file-based waveform named '" +
-															 rs.getName() + "' without a source filename.");
-								  }
-							  }},
-				   rs.getWaveform());
+		std::visit(
+			util::Overloaded{
+				[&](const CwWaveform&) { j["cw"] = nlohmann::json::object(); },
+				[&](const FmcwChirpWaveform& fmcw)
+				{
+					j["fmcw_linear_chirp"] = {{"direction", std::string(fmcwChirpDirectionToken(fmcw.getDirection()))},
+											  {"chirp_bandwidth", fmcw.getChirpBandwidth()},
+											  {"chirp_duration", fmcw.getChirpDuration()},
+											  {"chirp_period", fmcw.getChirpPeriod()}};
+					if (std::abs(fmcw.getStartFrequencyOffset()) > EPSILON)
+					{
+						j["fmcw_linear_chirp"]["start_frequency_offset"] = fmcw.getStartFrequencyOffset();
+					}
+					if (fmcw.getChirpCount().has_value())
+					{
+						j["fmcw_linear_chirp"]["chirp_count"] = *fmcw.getChirpCount();
+					}
+				},
+				[&](const SfcwWaveform& sfcw)
+				{
+					j["stepped_frequency"] = {{"start_frequency_offset", sfcw.getStartFrequencyOffset()},
+											  {"step_size", sfcw.getStepSize()},
+											  {"step_count", sfcw.getStepCount()},
+											  {"dwell_time", sfcw.getDwellTime()},
+											  {"step_period", sfcw.getStepPeriod()}};
+					if (sfcw.getSweepCount().has_value())
+					{
+						j["stepped_frequency"]["sweep_count"] = *sfcw.getSweepCount();
+					}
+				},
+				[&](const FmcwTriangleWaveform& triangle)
+				{
+					j["fmcw_triangle"] = {{"chirp_bandwidth", triangle.getChirpBandwidth()},
+										  {"chirp_duration", triangle.getChirpDuration()}};
+					if (std::abs(triangle.getStartFrequencyOffset()) > EPSILON)
+					{
+						j["fmcw_triangle"]["start_frequency_offset"] = triangle.getStartFrequencyOffset();
+					}
+					if (triangle.getTriangleCount().has_value())
+					{
+						j["fmcw_triangle"]["triangle_count"] = *triangle.getTriangleCount();
+					}
+				},
+				[&](const PulseWaveform& sampled)
+				{
+					if (const auto& filename = sampled.getFilename(); filename.has_value())
+					{
+						j["pulsed_from_file"] = {{"filename", *filename}};
+					}
+					else
+					{
+						throw std::logic_error("Attempted to serialize a file-based waveform named '" + rs.getName() +
+											   "' without a source filename.");
+					}
+				},
+				[&](const FileWaveform& file)
+				{
+					const char* key = file.isCw() ? "cw_from_file" : "fmcw_from_file";
+					if (const auto& filename = file.getFilename(); filename.has_value())
+					{
+						j[key] = {{"filename", *filename}};
+					}
+					else
+					{
+						throw std::logic_error("Attempted to serialize a file-based waveform named '" + rs.getName() +
+											   "' without a source filename.");
+					}
+				},
+			},
+			rs.getWaveform());
 	}
 
 	void from_json(const nlohmann::json& j, std::unique_ptr<RadarSignal>& rs) // NOLINT(*-use-internal-linkage)
@@ -724,7 +714,7 @@ namespace fers_signal
 				}
 				sweep_count = static_cast<std::size_t>(parsed_count);
 			}
-			auto sfcw_signal = SteppedFrequencyWaveform(
+			auto sfcw_signal = SfcwWaveform(
 				sfcw_json.at("start_frequency_offset").get<RealType>(), sfcw_json.at("step_size").get<RealType>(),
 				static_cast<std::size_t>(step_count), sfcw_json.at("dwell_time").get<RealType>(),
 				sfcw_json.at("step_period").get<RealType>(), sweep_count);
@@ -1473,13 +1463,13 @@ namespace
 			}
 			auto schedule =
 				radar::processRawSchedule(raw, trans->getName(), mode == radar::OperationMode::PULSED_MODE, pri);
-			if (waveform->isFmcwFamily() || waveform->isSteppedFrequency())
+			if (waveform->isFmcwFamily() || waveform->isSfcw())
 			{
 				validate_fmcw_schedule(schedule, *waveform, "Transmitter component '" + trans->getName() + "'");
 			}
 			trans->setSchedule(std::move(schedule));
 		}
-		else if (waveform->isFmcwFamily() || waveform->isSteppedFrequency())
+		else if (waveform->isFmcwFamily() || waveform->isSfcw())
 		{
 			validate_fmcw_schedule(trans->getSchedule(), *waveform, "Transmitter component '" + trans->getName() + "'");
 		}
@@ -1709,7 +1699,7 @@ namespace
 			// Process once, apply to both
 			auto processed_schedule =
 				radar::processRawSchedule(raw, trans->getName(), mode == radar::OperationMode::PULSED_MODE, pri);
-			if (waveform->isFmcwFamily() || waveform->isSteppedFrequency())
+			if (waveform->isFmcwFamily() || waveform->isSfcw())
 			{
 				validate_fmcw_schedule(processed_schedule, *waveform,
 									   "Monostatic component '" + comp_json.value("name", "Unnamed") + "'");
@@ -1718,7 +1708,7 @@ namespace
 			trans->setSchedule(processed_schedule);
 			recv->setSchedule(processed_schedule);
 		}
-		else if (waveform->isFmcwFamily() || waveform->isSteppedFrequency())
+		else if (waveform->isFmcwFamily() || waveform->isSfcw())
 		{
 			validate_fmcw_schedule(trans->getSchedule(), *waveform,
 								   "Monostatic component '" + comp_json.value("name", "Unnamed") + "'");
@@ -2078,7 +2068,7 @@ namespace serial
 		}
 		validate_fmcw_waveform(*tx.getSignal(), "Waveform '" + tx.getSignal()->getName() + "'");
 		validate_waveform_mode_match(*tx.getSignal(), tx.getMode(), owner);
-		if (tx.getSignal()->isFmcwFamily() || tx.getSignal()->isSteppedFrequency())
+		if (tx.getSignal()->isFmcwFamily() || tx.getSignal()->isSfcw())
 		{
 			validate_fmcw_schedule(tx.getSchedule(), *tx.getSignal(), owner);
 		}
@@ -2095,7 +2085,7 @@ namespace serial
 		const bool pulsed = tx.getMode() == radar::OperationMode::PULSED_MODE;
 		const RealType pri = pulsed ? 1.0 / tx.getPrf() : 0.0;
 		auto schedule = radar::processRawSchedule(raw, tx.getName(), pulsed, pri);
-		if (tx.getSignal() != nullptr && (tx.getSignal()->isFmcwFamily() || tx.getSignal()->isSteppedFrequency()))
+		if (tx.getSignal() != nullptr && (tx.getSignal()->isFmcwFamily() || tx.getSignal()->isSfcw()))
 		{
 			validate_fmcw_schedule(schedule, *tx.getSignal(), owner);
 		}
@@ -2289,7 +2279,7 @@ namespace serial
 		const bool pulsed = tx.getMode() == radar::OperationMode::PULSED_MODE;
 		const RealType pri = pulsed ? 1.0 / tx.getPrf() : 0.0;
 		auto processed_schedule = radar::processRawSchedule(raw, tx.getName(), pulsed, pri);
-		if (tx.getSignal() != nullptr && (tx.getSignal()->isFmcwFamily() || tx.getSignal()->isSteppedFrequency()))
+		if (tx.getSignal() != nullptr && (tx.getSignal()->isFmcwFamily() || tx.getSignal()->isSfcw()))
 		{
 			validate_fmcw_schedule(processed_schedule, *tx.getSignal(), "Monostatic '" + tx.getName() + "'");
 		}

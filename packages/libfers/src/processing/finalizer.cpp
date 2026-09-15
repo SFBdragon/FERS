@@ -770,7 +770,7 @@ namespace processing
 			context.waveform_name = signal->getName();
 			context.carrier_frequency = signal->getCarrier();
 			context.power = signal->getPower();
-			const auto* sfcw = signal->getSteppedFrequencyWaveform();
+			const auto* sfcw = signal->getSfcwWaveform();
 			if (sfcw == nullptr)
 			{
 				return;
