@@ -22,6 +22,7 @@
 #include <memory>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "core/config.h"
@@ -31,6 +32,7 @@
 #include "core/world.h"
 #include "interpolation/interpolation_point.h"
 #include "math/geometry_ops.h"
+#include "propagation/pointscatter/pointscatter.h"
 #include "propagation/propagation_model.h"
 #include "radar/radar_obj.h"
 #include "radar/receiver.h"
@@ -105,7 +107,6 @@ namespace
 	struct StreamingWaveformEvaluation
 	{
 		RealType phase = 0.0;
-		RealType rf_frequency = 0.0;
 		ComplexType envelope{1.0, 0.0};
 	};
 
@@ -349,7 +350,7 @@ namespace
 		return true;
 	}
 
-	/// Computes streaming waveform phase and active RF at a receiver time.
+	/// Computes streaming waveform phase at a receiver time.
 	bool computeStreamingEvaluation(const core::ActiveStreamingSource& source, const RealType rx_time,
 									const RealType tau, core::FmcwChirpBoundaryTracker* const chirp_tracker,
 									StreamingWaveformEvaluation& eval)
@@ -367,7 +368,6 @@ namespace
 
 		if (source.kind == core::StreamingWaveformKind::FmcwLinear)
 		{
-			eval.rf_frequency = source.carrier_freq;
 			if (chirp_tracker == nullptr)
 			{
 				return computeLinearFmcwPhaseWithoutTracker(source, t_ret, tau, eval.phase);
@@ -377,7 +377,6 @@ namespace
 
 		if (source.kind == core::StreamingWaveformKind::FmcwTriangle)
 		{
-			eval.rf_frequency = source.carrier_freq;
 			if (chirp_tracker == nullptr)
 			{
 				return computeTriangleFmcwPhaseWithoutTracker(source, t_ret, tau, eval.phase);
@@ -396,7 +395,6 @@ namespace
 			{
 				return false;
 			}
-			eval.rf_frequency = step->rf_frequency;
 			eval.phase = -2.0 * PI * step->rf_frequency * tau;
 			return true;
 		}
@@ -407,13 +405,11 @@ namespace
 			{
 				return false;
 			}
-			eval.rf_frequency = source.carrier_freq;
 			eval.phase = -2.0 * PI * source.carrier_freq * tau;
 			eval.envelope = source.file->sampleAt(t_ret - source.segment_start);
 			return true;
 		}
 
-		eval.rf_frequency = source.carrier_freq;
 		eval.phase = -2.0 * PI * source.carrier_freq * tau;
 		return true;
 	}
@@ -635,23 +631,7 @@ namespace simulation
 			return;
 		}
 
-		// TODO_SHAUN move this somewhere appropriate
-		struct ReceiverKey
-		{
-			uint64_t id;
-			Receiver* receiver;
-
-			bool operator==(const ReceiverKey& other) const { return id == other.id && receiver == other.receiver; }
-		};
-		struct ReceiverKeyHash
-		{
-			size_t operator()(const ReceiverKey& k) const
-			{
-				return std::hash<uint64_t>()(k.id) ^ (std::hash<SimId>()(k.receiver->getId()) << 1);
-			}
-		};
-
-		std::unordered_map<ReceiverKey, std::unique_ptr<serial::Response>, ReceiverKeyHash> responses;
+		std::unordered_map<std::pair<uint64_t, Receiver*>, std::unique_ptr<serial::Response>, PairHash> responses;
 
 
 		const auto tx_duration = tx.getSignal()->getPulseWaveform()->getDuration();
@@ -674,9 +654,6 @@ namespace simulation
 		{
 			for (const auto& path : timesteps.paths)
 			{
-				// TODO_SHAUN is this really the right place to derive this?
-				// Either it's correct as-is and we could re-calculate it later rather than store it?
-				// Or it's prop-model dependent and needs to be calculated in there?
 				auto phase_delay = -path.delay * 2.0 * PI * tx.getSignal()->getCarrier();
 
 				const interp::InterpPoint point{.gain = path.gain,
@@ -684,7 +661,7 @@ namespace simulation
 												.delay = path.delay,
 												.phase_delay = phase_delay};
 
-				auto key = ReceiverKey{path.path_id, path.receiver};
+				auto key = std::pair{path.path_id, path.receiver};
 				if (responses.contains(key))
 				{
 					// TODO_SHAUN Consider adding a maximum number of points after which we
@@ -706,12 +683,11 @@ namespace simulation
 
 		for (auto& [k, response] : responses)
 		{
-			routeResponse(k.receiver, std::move(response));
+			routeResponse(k.second, std::move(response));
 		}
 		responses.clear(); // To be explicit: the items are invalidated by the above.
 	}
 
-	// UI stuff
 	namespace
 	{
 
@@ -727,54 +703,6 @@ namespace simulation
 									RealType lambda)
 		{
 			return radar->getGain(SVec3(direction_vec), radar->getRotation(time), lambda);
-		}
-
-		/**
-		 * @brief Computes the power scaling factor for a direct path (Friis Transmission Equation).
-		 * @param tx_gain Transmitter gain (linear).
-		 * @param rx_gain Receiver gain (linear).
-		 * @param lambda Wavelength (meters).
-		 * @param dist Distance (meters).
-		 * @param no_prop_loss If true, distance-based attenuation is ignored.
-		 * @return The power scaling factor (Pr / Pt).
-		 */
-		RealType computeDirectPathPower(RealType tx_gain, RealType rx_gain, RealType lambda, RealType dist,
-										bool no_prop_loss)
-		{
-			const RealType numerator = tx_gain * rx_gain * lambda * lambda;
-			RealType denominator = 16.0 * PI * PI; // (4 * PI)^2
-
-			if (!no_prop_loss)
-			{
-				denominator *= dist * dist;
-			}
-
-			return numerator / denominator;
-		}
-
-		/**
-		 * @brief Computes the power scaling factor for a reflected path (Bistatic Radar Range Equation).
-		 * @param tx_gain Transmitter gain (linear).
-		 * @param rx_gain Receiver gain (linear).
-		 * @param rcs Target Radar Cross Section (m^2).
-		 * @param lambda Wavelength (meters).
-		 * @param r_tx Distance from Transmitter to Target.
-		 * @param r_rx Distance from Target to Receiver.
-		 * @param no_prop_loss If true, distance-based attenuation is ignored.
-		 * @return The power scaling factor (Pr / Pt).
-		 */
-		RealType computeReflectedPathPower(RealType tx_gain, RealType rx_gain, RealType rcs, RealType lambda,
-										   RealType r_tx, RealType r_rx, bool no_prop_loss)
-		{
-			const RealType numerator = tx_gain * rx_gain * rcs * lambda * lambda;
-			RealType denominator = 64.0 * PI * PI * PI; // (4 * PI)^3
-
-			if (!no_prop_loss)
-			{
-				denominator *= r_tx * r_tx * r_rx * r_rx;
-			}
-
-			return numerator / denominator;
 		}
 
 		struct PreviewTransmitterContext
@@ -854,11 +782,12 @@ namespace simulation
 				SVec3 in_angle(u_tx_tgt);
 				SVec3 out_angle(-u_tx_tgt);
 				const RealType rcs = target->getRcs(in_angle, out_angle, time);
-				const RealType power_ratio =
-					computeReflectedPathPower(gt, gr, rcs, tx_ctx.lambda, range, range, rx_ctx.no_loss);
+				const RealType power_ratio = propagation::pointscatter::computeReflectedPathPower(
+					gt, gr, rcs, tx_ctx.lambda, range, range, rx_ctx.no_loss);
 				const RealType pr_watts = tx_ctx.radiated_power * power_ratio;
 				const RealType pr_unit_watts = tx_ctx.radiated_power *
-					computeReflectedPathPower(gt, gr, 1.0, tx_ctx.lambda, range, range, rx_ctx.no_loss);
+					propagation::pointscatter::computeReflectedPathPower(gt, gr, 1.0, tx_ctx.lambda, range, range,
+																		 rx_ctx.no_loss);
 
 				links.push_back({.type = LinkType::Monostatic,
 								 .quality = isSignalStrong(pr_unit_watts, rx_ctx.receiver.getNoiseTemperature())
@@ -892,7 +821,8 @@ namespace simulation
 			const Vec3 u_tx_rx = vec_direct / range;
 			const RealType gt = computeAntennaGain(&tx_ctx.transmitter, u_tx_rx, time, tx_ctx.lambda);
 			const RealType gr = computeAntennaGain(&rx_ctx.receiver, -u_tx_rx, time, tx_ctx.lambda);
-			const RealType power_ratio = computeDirectPathPower(gt, gr, tx_ctx.lambda, range, rx_ctx.no_loss);
+			const RealType power_ratio =
+				propagation::pointscatter::computeDirectPathPower(gt, gr, tx_ctx.lambda, range, rx_ctx.no_loss);
 			const RealType pr_watts = tx_ctx.radiated_power * power_ratio;
 
 			links.push_back({.type = LinkType::DirectTxRx,
@@ -927,11 +857,12 @@ namespace simulation
 				SVec3 in_angle(u_tx_tgt);
 				SVec3 out_angle(-u_tgt_rx);
 				const RealType rcs = target->getRcs(in_angle, out_angle, time);
-				const RealType power_ratio =
-					computeReflectedPathPower(gt, gr, rcs, tx_ctx.lambda, r1, r2, rx_ctx.no_loss);
+				const RealType power_ratio = propagation::pointscatter::computeReflectedPathPower(
+					gt, gr, rcs, tx_ctx.lambda, r1, r2, rx_ctx.no_loss);
 				const RealType pr_watts = tx_ctx.radiated_power * power_ratio;
 				const RealType pr_unit_watts = tx_ctx.radiated_power *
-					computeReflectedPathPower(gt, gr, 1.0, tx_ctx.lambda, r1, r2, rx_ctx.no_loss);
+					propagation::pointscatter::computeReflectedPathPower(gt, gr, 1.0, tx_ctx.lambda, r1, r2,
+																		 rx_ctx.no_loss);
 
 				links.push_back({.type = LinkType::BistaticTgtRx,
 								 .quality = isSignalStrong(pr_unit_watts, rx_ctx.receiver.getNoiseTemperature())

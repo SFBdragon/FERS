@@ -96,8 +96,7 @@ namespace
 	}
 
 	// Builds a reflected (path_id != 0) path with an explicit total delay/gain.
-	propagation::PropagationPath makeReflectedPath(radar::Receiver* rx, RealType total_dist, RealType delay,
-												   RealType gain)
+	propagation::PropagationPath makeReflectedPath(radar::Receiver* rx, RealType delay, RealType gain)
 	{
 		return propagation::PropagationPath{
 			.delay = delay,
@@ -381,7 +380,7 @@ TEST_CASE("CW streaming reflected path gates schedules by retarded transmit time
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, segment_start, segment_end);
-	const auto path = makeReflectedPath(&rx, tx_target_dist + target_rx_dist, tau, 1.0);
+	const auto path = makeReflectedPath(&rx, tau, 1.0);
 
 	REQUIRE(std::abs(simulation::calculateStreamingPathContribution(source, &rx, path, segment_start + tau - eps)) ==
 			0.0);
@@ -429,7 +428,7 @@ TEST_CASE("FMCW monostatic reflected path dechirps to expected stationary-target
 	rx.setAttached(&tx);
 
 	const auto source = core::makeActiveSource(&tx, 0.0, chirp_duration);
-	const auto path = makeReflectedPath(&rx, 2.0 * target_range, tau, 1.0);
+	const auto path = makeReflectedPath(&rx, tau, 1.0);
 	core::FmcwChirpBoundaryTracker tracker;
 
 	const RealType dt = 1.0 / params::simSamplingRate();
@@ -497,7 +496,7 @@ TEST_CASE("FMCW native dechirp convention produces positive up-chirp beat freque
 	rx.setAttached(&tx);
 
 	const auto source = core::makeActiveSource(&tx, 0.0, chirp_duration);
-	const auto path = makeReflectedPath(&rx, 2.0 * target_range, tau, 1.0);
+	const auto path = makeReflectedPath(&rx, tau, 1.0);
 	core::FmcwChirpBoundaryTracker channel_tracker;
 	core::FmcwChirpBoundaryTracker reference_tracker;
 
@@ -572,7 +571,7 @@ TEST_CASE("FMCW physical dechirp preserves timing decorrelation while ideal mode
 	rx.setAttached(&tx);
 
 	const auto source = core::makeActiveSource(&tx, 0.0, chirp_duration);
-	const auto path = makeReflectedPath(&rx, 2.0 * target_range, tau, 1.0);
+	const auto path = makeReflectedPath(&rx, tau, 1.0);
 	core::FmcwChirpBoundaryTracker physical_tracker;
 	core::FmcwChirpBoundaryTracker ideal_tracker;
 	core::FmcwChirpBoundaryTracker reference_tracker;
@@ -634,7 +633,7 @@ TEST_CASE("FMCW down-chirp monostatic reflected path reverses stationary-target 
 	rx.setAttached(&tx);
 
 	const auto source = core::makeActiveSource(&tx, 0.0, chirp_duration);
-	const auto path = makeReflectedPath(&rx, 2.0 * target_range, tau, 1.0);
+	const auto path = makeReflectedPath(&rx, tau, 1.0);
 	core::FmcwChirpBoundaryTracker tracker;
 
 	const RealType dt = 1.0 / params::simSamplingRate();
@@ -707,7 +706,7 @@ TEST_CASE("calculateReflectedPathContribution amplitude matches bistatic equatio
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-	const auto path = makeReflectedPath(&rx, r1 + r2, (r1 + r2) / c, bistatic);
+	const auto path = makeReflectedPath(&rx, (r1 + r2) / c, bistatic);
 
 	const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 
@@ -754,7 +753,7 @@ TEST_CASE("calculateReflectedPathContribution phase matches bistatic propagation
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-	const auto path = makeReflectedPath(&rx, r1 + r2, tau, 1.0);
+	const auto path = makeReflectedPath(&rx, tau, 1.0);
 
 	const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 	const RealType result_phase = std::arg(result);
@@ -812,8 +811,8 @@ TEST_CASE("calculateReflectedPathContribution preserves stronger phase-noise can
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
-	const auto near_path = makeReflectedPath(&rx, near_tau * params::c(), near_tau, 1.0);
-	const auto far_path = makeReflectedPath(&rx, far_tau * params::c(), far_tau, 1.0);
+	const auto near_path = makeReflectedPath(&rx, near_tau, 1.0);
+	const auto far_path = makeReflectedPath(&rx, far_tau, 1.0);
 
 	const ComplexType near_ideal = simulation::calculateStreamingPathContribution(source, &rx, near_path, sample_time);
 	const ComplexType near_delayed =

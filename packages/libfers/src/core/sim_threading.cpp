@@ -215,9 +215,8 @@ namespace core
 		}
 
 		void logUnscheduledSfcwSummary(const Transmitter& transmitter, const fers_signal::RadarSignal& waveform,
-									   const fers_signal::SteppedFrequencyWaveform& sfcw,
-									   const std::string& configured_count, const RealType duty_cycle,
-									   const RealType average_power)
+									   const fers_signal::SfcwWaveform& sfcw, const std::string& configured_count,
+									   const RealType duty_cycle, const RealType average_power)
 		{
 			const RealType active_start = params::startTime();
 			const auto source = makeActiveSource(&transmitter, active_start, params::endTime());
@@ -234,9 +233,8 @@ namespace core
 		}
 
 		void logScheduledSfcwSummary(const Transmitter& transmitter, const fers_signal::RadarSignal& waveform,
-									 const fers_signal::SteppedFrequencyWaveform& sfcw,
-									 const std::string& configured_count, const RealType duty_cycle,
-									 const RealType average_power)
+									 const fers_signal::SfcwWaveform& sfcw, const std::string& configured_count,
+									 const RealType duty_cycle, const RealType average_power)
 		{
 			std::uint64_t total_step_count = 0;
 			for (const auto& period : transmitter.getSchedule())
@@ -261,7 +259,7 @@ namespace core
 		}
 
 		void logSfcwSummary(const Transmitter& transmitter, const fers_signal::RadarSignal& waveform,
-							const fers_signal::SteppedFrequencyWaveform& sfcw)
+							const fers_signal::SfcwWaveform& sfcw)
 		{
 			const RealType duty_cycle = sfcw.getDwellTime() / sfcw.getStepPeriod();
 			const RealType average_power = waveform.getPower() * duty_cycle;
@@ -940,7 +938,7 @@ namespace core
 			{
 				logFmcwTriangleSummary(*transmitter_ptr, *waveform, *triangle);
 			}
-			else if (const auto* sfcw = waveform->getSteppedFrequencyWaveform(); sfcw != nullptr)
+			else if (const auto* sfcw = waveform->getSfcwWaveform(); sfcw != nullptr)
 			{
 				logSfcwSummary(*transmitter_ptr, *waveform, *sfcw);
 			}

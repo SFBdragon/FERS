@@ -497,9 +497,9 @@ TEST_CASE("JSON: SFCW waveform round trips", "[serial][json][sfcw]")
 
 	auto wf = serial::parse_waveform_from_json(wf_json);
 	REQUIRE(wf != nullptr);
-	REQUIRE(wf->isSteppedFrequency());
+	REQUIRE(wf->isSfcw());
 	REQUIRE_FALSE(wf->isFmcwFamily());
-	const auto* sfcw = wf->getSteppedFrequencyWaveform();
+	const auto* sfcw = wf->getSfcwWaveform();
 	REQUIRE(sfcw != nullptr);
 	REQUIRE_THAT(sfcw->getStartFrequencyOffset(), WithinAbs(-1.0e6, 1e-9));
 	REQUIRE_THAT(sfcw->getStepSize(), WithinAbs(2.0e5, 1e-9));
@@ -519,8 +519,8 @@ TEST_CASE("JSON: SFCW waveform round trips", "[serial][json][sfcw]")
 
 	auto reparsed = serial::parse_waveform_from_json(serialized);
 	REQUIRE(reparsed != nullptr);
-	REQUIRE(reparsed->getSteppedFrequencyWaveform() != nullptr);
-	REQUIRE(reparsed->getSteppedFrequencyWaveform()->getSweepCount().value_or(0u) == 5u);
+	REQUIRE(reparsed->getSfcwWaveform() != nullptr);
+	REQUIRE(reparsed->getSfcwWaveform()->getSweepCount().value_or(0u) == 5u);
 }
 
 TEST_CASE("JSON: FMCW triangle rejects fractional triangle count", "[serial][json][fmcw]")

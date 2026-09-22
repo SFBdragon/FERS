@@ -17,7 +17,7 @@
 namespace fers_signal
 {
 	class FmcwChirpWaveform;
-	class SteppedFrequencyWaveform;
+	class SfcwWaveform;
 	class FmcwTriangleWaveform;
 	class RadarSignal;
 }

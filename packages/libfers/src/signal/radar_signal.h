@@ -317,7 +317,7 @@ namespace fers_signal
 	};
 
 	/// Stepped-frequency continuous-wave waveform implementation.
-	class SteppedFrequencyWaveform final
+	class SfcwWaveform final
 	{
 	public:
 		/// Active SFCW dwell selected for one local waveform time.
@@ -332,11 +332,10 @@ namespace fers_signal
 		};
 
 		/// Constructs a uniform stepped-frequency CW waveform.
-		SteppedFrequencyWaveform(RealType start_frequency_offset, RealType step_size, std::size_t step_count,
-								 RealType dwell_time, RealType step_period,
-								 std::optional<std::size_t> sweep_count = std::nullopt);
+		SfcwWaveform(RealType start_frequency_offset, RealType step_size, std::size_t step_count, RealType dwell_time,
+					 RealType step_period, std::optional<std::size_t> sweep_count = std::nullopt);
 
-		~SteppedFrequencyWaveform() = default;
+		~SfcwWaveform() = default;
 
 		/// Gets the first-step offset from carrier in hertz.
 		[[nodiscard]] RealType getStartFrequencyOffset() const noexcept { return _start_frequency_offset; }
@@ -590,8 +589,8 @@ namespace fers_signal
 	};
 
 
-	using Waveform = std::variant<PulseWaveform, CwWaveform, SteppedFrequencyWaveform, FmcwChirpWaveform,
-								  FmcwTriangleWaveform, FileWaveform>;
+	using Waveform =
+		std::variant<PulseWaveform, CwWaveform, SfcwWaveform, FmcwChirpWaveform, FmcwTriangleWaveform, FileWaveform>;
 
 	/**
 	 * @class RadarSignal
@@ -636,6 +635,13 @@ namespace fers_signal
 		[[nodiscard]] RealType getCarrier() const noexcept { return _carrierfreq; }
 
 		/**
+		 * @brief Gets the carrier frequency of the radar signal.
+		 *
+		 * @return The carrier frequency of the radar signal.
+		 */
+		[[nodiscard]] std::optional<RealType> getModulatedCarrier(RealType time_since_segment_start) const noexcept;
+
+		/**
 		 * @brief Gets the name of the radar signal.
 		 *
 		 * @return The name of the radar signal.
@@ -668,7 +674,7 @@ namespace fers_signal
 		[[nodiscard]] bool isFmcwFamily() const noexcept;
 
 		/// Returns true when this signal is a stepped-frequency CW waveform.
-		[[nodiscard]] bool isSteppedFrequency() const noexcept;
+		[[nodiscard]] bool isSfcw() const noexcept;
 
 		/// Returns true when this signal is a file-backed CW/FMCW waveform.
 		[[nodiscard]] bool isFileWaveform() const noexcept;
@@ -689,7 +695,7 @@ namespace fers_signal
 		[[nodiscard]] const FmcwTriangleWaveform* getFmcwTriangleWaveform() const noexcept;
 
 		/// Gets the stepped-frequency implementation, if this signal owns one.
-		[[nodiscard]] const SteppedFrequencyWaveform* getSteppedFrequencyWaveform() const noexcept;
+		[[nodiscard]] const SfcwWaveform* getSfcwWaveform() const noexcept;
 
 		/// Gets the file-backed waveform implementation, if this signal owns one.
 		[[nodiscard]] const FileWaveform* getFileWaveform() const noexcept;
@@ -703,4 +709,15 @@ namespace fers_signal
 		RealType _carrierfreq; ///< The carrier frequency of the radar signal.
 		Waveform _wave; ///< The waveform data.
 	};
+
+	namespace util
+	{
+		template <class... Ts>
+		struct Overloaded : Ts...
+		{
+			using Ts::operator()...;
+		};
+		template <class... Ts>
+		Overloaded(Ts...) -> Overloaded<Ts...>;
+	}
 }

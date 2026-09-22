@@ -137,7 +137,7 @@ namespace
 			platform(name + "Platform"),
 			wave(std::make_unique<fers_signal::RadarSignal>(
 				name + "Wave", 1.0, 10.0e9,
-				fers_signal::SteppedFrequencyWaveform(start_frequency_offset, step_size, step_count, dwell_time,
+				fers_signal::SfcwWaveform(start_frequency_offset, step_size, step_count, dwell_time,
 													  step_period, sweep_count),
 				waveform_id)),
 			transmitter(&platform, name, radar::OperationMode::SFCW_MODE, tx_id)

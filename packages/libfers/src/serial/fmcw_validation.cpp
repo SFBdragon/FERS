@@ -86,7 +86,7 @@ namespace serial::fmcw_validation
 		}
 
 		void validateSfcwWaveform(const fers_signal::RadarSignal& wave, const std::string& owner,
-								  const fers_signal::SteppedFrequencyWaveform& sfcw, const Thrower& throw_error)
+								  const fers_signal::SfcwWaveform& sfcw, const Thrower& throw_error)
 		{
 			if (sfcw.getStepCount() < 1U)
 			{
@@ -159,7 +159,7 @@ namespace serial::fmcw_validation
 			return;
 		}
 
-		if (const auto* sfcw = wave.getSteppedFrequencyWaveform(); sfcw != nullptr)
+		if (const auto* sfcw = wave.getSfcwWaveform(); sfcw != nullptr)
 		{
 			validateSfcwWaveform(wave, owner, *sfcw, throw_error);
 		}
@@ -168,11 +168,11 @@ namespace serial::fmcw_validation
 	void validateWaveformModeMatch(const fers_signal::RadarSignal& wave, const radar::OperationMode mode,
 								   const std::string& owner, const Thrower& throw_error)
 	{
-		const bool is_pulsed = !wave.isCw() && !wave.isFmcwFamily() && !wave.isSteppedFrequency();
+		const bool is_pulsed = !wave.isCw() && !wave.isFmcwFamily() && !wave.isSfcw();
 		const bool matches = (mode == radar::OperationMode::PULSED_MODE && is_pulsed) ||
 			(mode == radar::OperationMode::CW_MODE && wave.isCw()) ||
 			(mode == radar::OperationMode::FMCW_MODE && wave.isFmcwFamily()) ||
-			(mode == radar::OperationMode::SFCW_MODE && wave.isSteppedFrequency());
+			(mode == radar::OperationMode::SFCW_MODE && wave.isSfcw());
 		if (!matches)
 		{
 			throw_error(owner + " mode does not match waveform '" + wave.getName() + "'.");
@@ -209,7 +209,7 @@ namespace serial::fmcw_validation
 			return;
 		}
 
-		if (const auto* sfcw = wave.getSteppedFrequencyWaveform(); sfcw != nullptr)
+		if (const auto* sfcw = wave.getSfcwWaveform(); sfcw != nullptr)
 		{
 			for (const auto& period : effectiveSchedule(schedule))
 			{
