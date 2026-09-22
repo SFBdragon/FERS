@@ -45,6 +45,20 @@ namespace params
 	};
 
 	/**
+	 * @enum PropagationModelKind
+	 * @brief Selects which propagation model the simulation uses.
+	 *
+	 * Mirrors `propagation::PropagationModelType` (`propagation/propagation_model.h`) by name and
+	 * value; kept as a separate enum here rather than reusing that one directly so `core/` doesn't
+	 * need to depend on `propagation/`.
+	 */
+	enum class PropagationModelKind : std::uint8_t
+	{
+		RcsPointScatter = 1, ///< Analytic point-target RCS/radar-equation model (default).
+		GoRayTracing = 2, ///< GPU GO+PO ray-tracing model against target meshes.
+	};
+
+	/**
 	 * @class Parameters
 	 * @brief Struct to hold simulation parameters.
 	 */
@@ -73,6 +87,10 @@ namespace params
 		unsigned render_threads = 1; ///< Number of worker threads to use for parallel tasks.
 		std::string simulation_name; ///< The name of the simulation, from the XML.
 		unsigned oversample_ratio = 1; ///< Oversampling ratio.
+
+		PropagationModelKind propagation_model = PropagationModelKind::RcsPointScatter; ///< Active propagation model.
+		unsigned rt_go_step_limit = 10; ///< Ray-tracing model: max GO bounce count per ray tube.
+		unsigned rt_rays_per_source = 10'000'000; ///< Ray-tracing model: ray tubes launched per source.
 
 		/**
 		 * @brief Resets the parameters to their default-constructed state.
@@ -149,6 +167,24 @@ namespace params
 	 * @return The oversampling ratio.
 	 */
 	inline unsigned oversampleRatio() noexcept { return params.oversample_ratio; }
+
+	/**
+	 * @brief Get the active propagation model.
+	 * @return The propagation model selected for this simulation.
+	 */
+	inline PropagationModelKind propagationModel() noexcept { return params.propagation_model; }
+
+	/**
+	 * @brief Get the ray-tracing model's GO bounce limit.
+	 * @return Maximum number of GO bounces per ray tube.
+	 */
+	inline unsigned rtGoStepLimit() noexcept { return params.rt_go_step_limit; }
+
+	/**
+	 * @brief Get the ray-tracing model's ray count.
+	 * @return Number of ray tubes launched per source.
+	 */
+	inline unsigned rtRaysPerSource() noexcept { return params.rt_rays_per_source; }
 
 	/**
 	 * @brief Gets the maximum supported oversampling ratio.

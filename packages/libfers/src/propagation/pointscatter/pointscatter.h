@@ -6,6 +6,7 @@
 
 #include <vector>
 
+#include "core/config.h"
 #include "core/simulation_state.h"
 #include "core/world.h"
 #include "propagation/propagation_model.h"
@@ -18,12 +19,13 @@ namespace propagation::pointscatter
 	public:
 		PointScatterModel(core::World* world);
 
-		[[nodiscard]] std::vector<PathsAtTime> findTxToRxPaths(const radar::Transmitter& transmitter,
-															   RealType start_tx_time) const override;
+		[[nodiscard]] std::vector<PathsAtTime> findTxToRxPaths(ThreadContext* ctx,
+															   const radar::Transmitter& transmitter,
+															   const std::vector<RealType>& times) const override;
 
 		[[nodiscard]] std::vector<PropagationPath>
-		findRxFromTxPaths(radar::Receiver* receiver, const std::vector<core::ActiveStreamingSource>& sources,
-						  RealType rx_time) const override;
+		findRxFromTxPaths(ThreadContext* ctx, radar::Receiver* receiver,
+						  const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const override;
 
 	private:
 		core::World* _world;

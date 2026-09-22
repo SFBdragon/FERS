@@ -30,12 +30,6 @@ namespace propagation
 		GoRayTracing = 2,
 	};
 
-	// struct PropagationBounce
-	// {
-	// 	math::Vec3 position;
-	// 	const radar::Target* target;
-	// };
-
 	/**
 	 * @struct PropagationPath
 	 * @brief Data type containing a valid radar path identified by the path finder.
@@ -48,19 +42,12 @@ namespace propagation
 		/// This is never zero. No path is created if this would be zero.
 		RealType delay;
 
-		/// The power
+		/// The ratio of received to transmitted voltage (Vr / Vt) at unit impedance.
+		/// This is phase-coherent: path-dependent phase modulation is included,
+		/// however bulk phase is not (e^{-jkR}).
 		///
-		/// Figure out whether this includes:
-		/// - the signal strength (no?)
-		/// - the rx gain (maybe?)
-		/// - the tx gain (?)
-		/// - many other fun aspects of the radar equation.
-		///
-		/// This will definitely include:
-		/// - RCS-based factors
-		/// - ray power division, dispersion, whatever.
-		/// - ray reflection/transmission coeffs
-		RealType gain;
+		/// The magnitude is equivalent to the square root of the linear power gain.
+		ComplexType gain;
 
 		/// A unique, stable ID for a continuously-varying channel over time.
 		uint64_t path_id;
@@ -70,13 +57,12 @@ namespace propagation
 		/// The receiver of the path.
 		radar::Receiver* receiver;
 		// ^ It's mutable so that calculateResponses can stuff the reponse into the receiver.
-
-		// /// The list of bounces from transmitter to receiver.
-		// ///
-		// /// Zero-length for direct paths.
-		// std::vector<PropagationBounce> vertices;
 	};
 
+	struct ThreadContext
+	{
+		virtual ~ThreadContext() = default;
+	};
 
 	struct PathsAtTime
 	{
@@ -91,60 +77,18 @@ namespace propagation
 	public:
 		virtual ~PropagationModel();
 
-		[[nodiscard]] virtual std::vector<PathsAtTime> findTxToRxPaths(const radar::Transmitter& transmitter,
-																	   RealType start_tx_time) const = 0;
+		// TODO_SHAUN document
+
+		/// Called once per worker thread that will call the methods below.
+		/// Default: no context needed.
+		[[nodiscard]] virtual std::unique_ptr<ThreadContext> makeThreadContext() const { return nullptr; }
+
+		[[nodiscard]] virtual std::vector<PathsAtTime> findTxToRxPaths(ThreadContext* ctx,
+																	   const radar::Transmitter& transmitter,
+																	   const std::vector<RealType>& times) const = 0;
 
 		[[nodiscard]] virtual std::vector<PropagationPath>
-		findRxFromTxPaths(radar::Receiver* receiver, const std::vector<core::ActiveStreamingSource>& sources,
-						  RealType rx_time) const = 0;
+		findRxFromTxPaths(ThreadContext* ctx, radar::Receiver* receiver,
+						  const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const = 0;
 	};
-
-	class TimePointRange
-	{
-		RealType start_, end_, step_;
-		int count_;
-
-	public:
-		TimePointRange(RealType start_time, RealType end_time, RealType sampling_rate) :
-			start_(start_time), end_(end_time), step_(RealType(1) / sampling_rate),
-			count_(static_cast<int>(std::ceil((end_time - start_time) / step_)))
-		{
-		}
-
-		class iterator
-		{
-			const TimePointRange* r_;
-			int i_;
-
-		public:
-			using iterator_category = std::input_iterator_tag;
-			using value_type = RealType;
-			using difference_type = std::ptrdiff_t;
-			using pointer = const RealType*;
-			using reference = RealType;
-
-			iterator(const TimePointRange* r, int i) : r_(r), i_(i) {}
-
-			RealType operator*() const { return i_ < r_->count_ ? r_->start_ + i_ * r_->step_ : r_->end_; }
-
-			iterator& operator++()
-			{
-				++i_;
-				return *this;
-			}
-			iterator operator++(int)
-			{
-				auto t = *this;
-				++i_;
-				return t;
-			}
-
-			bool operator==(const iterator& o) const { return i_ == o.i_; }
-			bool operator!=(const iterator& o) const { return i_ != o.i_; }
-		};
-
-		[[nodiscard]] iterator begin() const { return {this, 0}; }
-		[[nodiscard]] iterator end() const { return {this, count_ + 1}; }
-	};
-
 }

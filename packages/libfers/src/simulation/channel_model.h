@@ -27,6 +27,7 @@
 #include "core/config.h"
 #include "core/sim_id.h"
 #include "core/simulation_state.h"
+#include "propagation/propagation_model.h"
 
 namespace propagation
 {
@@ -151,8 +152,8 @@ namespace simulation
 	 * @param prop The propagation model to determine pulse signal propagation.
 	 * @param start_tx_time The absolute simulation time when the pulse transmission starts.
 	 */
-	void calculateResponses(const radar::Transmitter& tx, const propagation::PropagationModel& prop,
-							const RealType start_tx_time);
+	void calculateResponses(const radar::Transmitter& tx, const RealType start_tx_time,
+							const propagation::PropagationModel& prop, propagation::ThreadContext* ctx);
 
 	/**
 	 * @enum LinkType

@@ -21,6 +21,10 @@
                     <xs:element ref="timing"/>
                     <!-- At least 1 antenna is required -->
                     <xs:element ref="antenna"/>
+                    <!-- Any number of mesh elements is allowed -->
+                    <xs:element ref="mesh" minOccurs="0"/>
+                    <!-- Any number of material elements is allowed -->
+                    <xs:element ref="material" minOccurs="0"/>
                     <!-- At least 1 platform is required -->
                     <xs:element ref="platform"/>
                     <!-- Any number of include elements is allowed -->
@@ -53,6 +57,7 @@
                 </xs:element>
                 <xs:element minOccurs="0" ref="origin"/>
                 <xs:element minOccurs="0" ref="coordinatesystem"/>
+                <xs:element minOccurs="0" ref="propagation"/>
             </xs:sequence>
         </xs:complexType>
     </xs:element>
@@ -87,6 +92,22 @@
                     </xs:restriction>
                 </xs:simpleType>
             </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Selects the propagation model. The raytracing sub-parameters are ignored when model="pointscatter". -->
+    <xs:element name="propagation">
+        <xs:complexType>
+            <xs:attribute name="model" use="required">
+                <xs:simpleType>
+                    <xs:restriction base="xs:token">
+                        <xs:enumeration value="pointscatter"/>
+                        <xs:enumeration value="raytracing"/>
+                    </xs:restriction>
+                </xs:simpleType>
+            </xs:attribute>
+            <xs:attribute name="go_step_limit" type="xs:unsignedInt"/>
+            <xs:attribute name="rays_per_source" type="xs:unsignedInt"/>
         </xs:complexType>
     </xs:element>
 
@@ -222,6 +243,41 @@
             <xs:attribute name="name" use="required"/>
             <xs:attribute name="pattern" use="required"/>
             <xs:attribute name="filename"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Mesh Asset -->
+    <!-- A reusable mesh, loaded from a file within the "meshes" directory next to the scenario file. -->
+    <xs:element name="mesh">
+        <xs:complexType>
+            <xs:attribute name="name" use="required"/>
+            <xs:attribute name="filename" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Material Asset -->
+    <!-- A reusable surface material for ray-tracing propagation, giving its reflectivity as a
+         complex per-polarization <gamma_tm>/<gamma_te> pair for the PO/GO model. -->
+    <xs:element name="material">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="gamma_tm"/>
+                <xs:element ref="gamma_te"/>
+            </xs:sequence>
+            <xs:attribute name="name" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="gamma_tm">
+        <xs:complexType>
+            <xs:attribute name="re" type="xs:double" use="required"/>
+            <xs:attribute name="im" type="xs:double" default="0"/>
+        </xs:complexType>
+    </xs:element>
+    <xs:element name="gamma_te">
+        <xs:complexType>
+            <xs:attribute name="re" type="xs:double" use="required"/>
+            <xs:attribute name="im" type="xs:double" default="0"/>
         </xs:complexType>
     </xs:element>
 
@@ -469,8 +525,18 @@
             <xs:sequence>
                 <xs:element ref="rcs"/>
                 <xs:element ref="model" minOccurs="0"/> <!-- model is optional -->
+                <xs:element ref="geometry" minOccurs="0"/> <!-- geometry is optional -->
             </xs:sequence>
             <xs:attribute name="name" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Target Geometry -->
+    <!-- References a mesh/material pair for ray-tracing propagation. Both are required together. -->
+    <xs:element name="geometry">
+        <xs:complexType>
+            <xs:attribute name="mesh" type="xs:string" use="required"/>
+            <xs:attribute name="material" type="xs:string" use="required"/>
         </xs:complexType>
     </xs:element>
 

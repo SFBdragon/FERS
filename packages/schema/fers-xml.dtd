@@ -8,11 +8,11 @@
 -->
         <!-- Note: DTD cannot enforce the XSD's implicit requirement of "at least one of each" of waveform, timing, etc. in any order. -->
         <!-- This model enforces that parameters is present, followed by at least one of the other main elements, preserving flexible ordering. -->
-        <!ELEMENT simulation (parameters, (waveform | timing | antenna | platform | include)+)>
+        <!ELEMENT simulation (parameters, (waveform | timing | antenna | mesh | material | platform | include)+)>
         <!ATTLIST simulation name CDATA #REQUIRED>
 
         <!-- Simulation Parameters -->
-        <!ELEMENT parameters (starttime,endtime,rate,c?,simSamplingRate?,randomseed?,adc_bits?,oversample?,rotationangleunit?,origin?,coordinatesystem?)>
+        <!ELEMENT parameters (starttime,endtime,rate,c?,simSamplingRate?,randomseed?,adc_bits?,oversample?,rotationangleunit?,origin?,coordinatesystem?,propagation?)>
         <!-- Start time of simulation -->
         <!ELEMENT starttime (#PCDATA)>
         <!-- End time of simulation -->
@@ -43,7 +43,14 @@
         <!ATTLIST coordinatesystem
                 frame      (ENU|UTM|ECEF) #REQUIRED
                 zone       CDATA          #IMPLIED
-                hemisphere (N|S)           #IMPLIED
+                hemisphere (N|S)          #IMPLIED
+                >
+        <!-- Selects the propagation model. `raytracing` sub-parameters are ignored when model="pointscatter". -->
+        <!ELEMENT propagation EMPTY>
+        <!ATTLIST propagation
+                model           (pointscatter|raytracing) #REQUIRED
+                go_step_limit   CDATA                     #IMPLIED
+                rays_per_source CDATA                     #IMPLIED
                 >
 
         <!-- Waveform definition -->
@@ -128,6 +135,26 @@
         <!ELEMENT elscale (#PCDATA)>
         <!-- The antenna efficiency factor -->
         <!ELEMENT efficiency (#PCDATA)>
+
+        <!-- Mesh Asset: a reusable mesh, loaded from a file within the "meshes" directory next to the scenario file -->
+        <!ELEMENT mesh EMPTY>
+        <!ATTLIST mesh
+                name CDATA #REQUIRED
+                filename CDATA #REQUIRED>
+
+        <!-- Material Asset: a reusable surface material for ray-tracing propagation, giving its
+             reflectivity as a complex per-polarization gamma_tm/gamma_te pair for the PO/GO model. -->
+        <!ELEMENT material (gamma_tm,gamma_te)>
+        <!ATTLIST material
+                name CDATA #REQUIRED>
+        <!ELEMENT gamma_tm EMPTY>
+        <!ATTLIST gamma_tm
+                re CDATA #REQUIRED
+                im CDATA "0">
+        <!ELEMENT gamma_te EMPTY>
+        <!ATTLIST gamma_te
+                re CDATA #REQUIRED
+                im CDATA "0">
 
         <!-- Platform -->
         <!ELEMENT platform (motionpath,(rotationpath|fixedrotation),(monostatic|transmitter|receiver|target)*)>
@@ -224,9 +251,15 @@
         <!ELEMENT window_length (#PCDATA)>
 
         <!-- Target -->
-        <!ELEMENT target (rcs,model?)>
+        <!ELEMENT target (rcs,model?,geometry?)>
         <!ATTLIST target
                 name CDATA #REQUIRED>
+
+        <!-- Target Geometry: references a mesh/material pair for ray-tracing propagation -->
+        <!ELEMENT geometry EMPTY>
+        <!ATTLIST geometry
+                mesh CDATA #REQUIRED
+                material CDATA #REQUIRED>
 
         <!-- RCS can either have a 'value' element or a 'filename' attribute -->
         <!-- Target RCS -->

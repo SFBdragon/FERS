@@ -246,6 +246,45 @@ TEST_CASE("parseParameters uses defaults without warnings for omitted optional p
 	REQUIRE(p.adc_bits == 0);
 	REQUIRE(p.oversample_ratio == 1);
 	REQUIRE(capture.str().empty());
+	REQUIRE(p.propagation_model == params::PropagationModelKind::RcsPointScatter);
+}
+
+TEST_CASE("parseParameters extracts the raytracing propagation model and its sub-parameters",
+		  "[serial][xml_parser_utils]")
+{
+	ParamGuard const guard;
+	const auto p = parseParametersXml("<parameters>"
+									  "  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
+									  "  <propagation model=\"raytracing\" go_step_limit=\"5\" rays_per_source=\"250000\"/>"
+									  "</parameters>");
+
+	REQUIRE(p.propagation_model == params::PropagationModelKind::GoRayTracing);
+	REQUIRE(p.rt_go_step_limit == 5);
+	REQUIRE(p.rt_rays_per_source == 250000);
+}
+
+TEST_CASE("parseParameters keeps ray-tracing sub-parameter defaults when omitted", "[serial][xml_parser_utils]")
+{
+	ParamGuard const guard;
+	const params::Parameters defaults;
+	const auto p = parseParametersXml("<parameters>"
+									  "  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
+									  "  <propagation model=\"raytracing\"/>"
+									  "</parameters>");
+
+	REQUIRE(p.propagation_model == params::PropagationModelKind::GoRayTracing);
+	REQUIRE(p.rt_go_step_limit == defaults.rt_go_step_limit);
+	REQUIRE(p.rt_rays_per_source == defaults.rt_rays_per_source);
+}
+
+TEST_CASE("parseParameters rejects an unknown propagation model", "[serial][xml_parser_utils]")
+{
+	ParamGuard const guard;
+	REQUIRE_THROWS_AS(parseInvalidParametersXml("<parameters>"
+												"  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
+												"  <propagation model=\"quantum\"/>"
+												"</parameters>"),
+					  XmlException);
 }
 
 TEST_CASE("parseParameters defaults omitted origin altitude to zero", "[serial][xml_parser_utils]")
@@ -1323,7 +1362,14 @@ TEST_CASE("parseTarget handles chisquare model", "[serial][xml_parser_utils]")
 					   "  <model type=\"chisquare\"><k>2.0</k></model>"
 					   "</target>");
 
-	serial::xml_parser_utils::parseTarget(doc.getRootElement(), &platform, ctx);
+	std::unordered_map<std::string, SimId> const w_refs;
+	std::unordered_map<std::string, SimId> const a_refs;
+	std::unordered_map<std::string, SimId> const t_refs;
+	std::unordered_map<std::string, SimId> const mesh_refs;
+	std::unordered_map<std::string, SimId> const material_refs;
+	serial::xml_parser_utils::ReferenceLookup const refs{&w_refs, &a_refs, &t_refs, &mesh_refs, &material_refs};
+
+	serial::xml_parser_utils::parseTarget(doc.getRootElement(), &platform, ctx, refs);
 	REQUIRE(world.getTargets().size() == 1);
 
 	auto* tgt = world.getTargets().front().get();
@@ -1331,6 +1377,121 @@ TEST_CASE("parseTarget handles chisquare model", "[serial][xml_parser_utils]")
 	REQUIRE(model != nullptr);
 	REQUIRE(tgt->getSeed() == expected_seed);
 	REQUIRE_THAT(model->getK(), WithinAbs(2.0, 1e-5));
+}
+
+TEST_CASE("parseMesh resolves the path within the meshes/ directory", "[serial][xml_parser_utils]")
+{
+	core::World world;
+	serial::xml_parser_utils::ParserContext ctx;
+	ctx.world = &world;
+	ctx.base_dir = std::filesystem::path("/scenario/dir");
+
+	auto doc = loadXml("<mesh name=\"Cube\" filename=\"cube.obj\"/>");
+	serial::xml_parser_utils::parseMesh(doc.getRootElement(), ctx);
+
+	REQUIRE(world.getMeshes().size() == 1);
+	const auto& mesh = world.getMeshes().begin()->second;
+	REQUIRE(mesh.name == "Cube");
+	REQUIRE(mesh.path == std::filesystem::path("/scenario/dir/meshes/cube.obj"));
+}
+
+TEST_CASE("parseMaterial reads gamma_tm/gamma_te complex coefficients", "[serial][xml_parser_utils]")
+{
+	core::World world;
+	serial::xml_parser_utils::ParserContext ctx;
+	ctx.world = &world;
+
+	auto doc = loadXml("<material name=\"Aluminium\">"
+					   "  <gamma_tm re=\"0.9\" im=\"0.1\"/>"
+					   "  <gamma_te re=\"0.85\"/>"
+					   "</material>");
+	serial::xml_parser_utils::parseMaterial(doc.getRootElement(), ctx);
+
+	REQUIRE(world.getMaterials().size() == 1);
+	const auto& material = world.getMaterials().begin()->second;
+	REQUIRE(material.name == "Aluminium");
+	REQUIRE_THAT(material.gamma_tm.re, WithinAbs(0.9, 1e-9));
+	REQUIRE_THAT(material.gamma_tm.im, WithinAbs(0.1, 1e-9));
+	REQUIRE_THAT(material.gamma_te.re, WithinAbs(0.85, 1e-9));
+	REQUIRE_THAT(material.gamma_te.im, WithinAbs(0.0, 1e-9)); // im defaults to 0 when omitted
+}
+
+TEST_CASE("parseMaterial rejects a material missing gamma_tm or gamma_te", "[serial][xml_parser_utils]")
+{
+	core::World world;
+	serial::xml_parser_utils::ParserContext ctx;
+	ctx.world = &world;
+
+	REQUIRE_THROWS_AS(
+		serial::xml_parser_utils::parseMaterial(loadXml("<material name=\"Aluminium\"/>").getRootElement(), ctx),
+		XmlException);
+	REQUIRE_THROWS_AS(serial::xml_parser_utils::parseMaterial(
+						  loadXml("<material name=\"Aluminium\"><gamma_tm re=\"0.9\"/></material>").getRootElement(),
+						  ctx),
+					  XmlException);
+	REQUIRE_THROWS_AS(serial::xml_parser_utils::parseMaterial(
+						  loadXml("<material name=\"Aluminium\"><gamma_te re=\"0.9\"/></material>").getRootElement(),
+						  ctx),
+					  XmlException);
+}
+
+TEST_CASE("parseTarget resolves an optional geometry element", "[serial][xml_parser_utils]")
+{
+	core::World world;
+	std::mt19937 seeder(42);
+	serial::xml_parser_utils::ParserContext ctx;
+	ctx.world = &world;
+	ctx.master_seeder = &seeder;
+	radar::Platform platform("plat");
+
+	world.add(core::MeshAsset{.id = 10, .name = "Cube", .path = "/scenario/dir/meshes/cube.obj"});
+	world.add(core::MaterialAsset{.id = 20, .name = "Aluminium", .gamma_tm = {1.0, 0.0}, .gamma_te = {1.0, 0.0}});
+
+	std::unordered_map<std::string, SimId> const w_refs;
+	std::unordered_map<std::string, SimId> const a_refs;
+	std::unordered_map<std::string, SimId> const t_refs;
+	std::unordered_map<std::string, SimId> const mesh_refs = {{"Cube", 10}};
+	std::unordered_map<std::string, SimId> const material_refs = {{"Aluminium", 20}};
+	serial::xml_parser_utils::ReferenceLookup const refs{&w_refs, &a_refs, &t_refs, &mesh_refs, &material_refs};
+
+	SECTION("Target with geometry resolves the mesh and material")
+	{
+		auto doc = loadXml("<target name=\"tgt1\">"
+						   "  <rcs type=\"isotropic\"><value>1.0</value></rcs>"
+						   "  <geometry mesh=\"Cube\" material=\"Aluminium\"/>"
+						   "</target>");
+
+		serial::xml_parser_utils::parseTarget(doc.getRootElement(), &platform, ctx, refs);
+		REQUIRE(world.getTargets().size() == 1);
+
+		auto* tgt = world.getTargets().front().get();
+		const auto& geometry = tgt->getGeometry();
+		REQUIRE(geometry.has_value());
+		REQUIRE(geometry->mesh->name == "Cube");
+		REQUIRE(geometry->material->name == "Aluminium");
+	}
+
+	SECTION("Target without geometry has no value")
+	{
+		auto doc = loadXml("<target name=\"tgt1\">"
+						   "  <rcs type=\"isotropic\"><value>1.0</value></rcs>"
+						   "</target>");
+
+		serial::xml_parser_utils::parseTarget(doc.getRootElement(), &platform, ctx, refs);
+		REQUIRE(world.getTargets().size() == 1);
+		REQUIRE_FALSE(world.getTargets().front()->getGeometry().has_value());
+	}
+
+	SECTION("Target with an unknown mesh reference throws")
+	{
+		auto doc = loadXml("<target name=\"tgt1\">"
+						   "  <rcs type=\"isotropic\"><value>1.0</value></rcs>"
+						   "  <geometry mesh=\"Missing\" material=\"Aluminium\"/>"
+						   "</target>");
+
+		REQUIRE_THROWS_AS(serial::xml_parser_utils::parseTarget(doc.getRootElement(), &platform, ctx, refs),
+						  XmlException);
+	}
 }
 
 TEST_CASE("parsePlatform prefers rotationpath over fixedrotation", "[serial][xml_parser_utils]")

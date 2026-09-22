@@ -1,0 +1,151 @@
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <complex>
+#include <cstdint>
+#include <vector>
+
+#include "propagation/raytracing/model.h"
+
+using Catch::Matchers::WithinAbs;
+namespace rt = propagation::raytracing;
+
+namespace
+{
+	rt::Contribution makeContribution(rt::CFloat voltage, double delay, uint64_t path_id = 0,
+									  uint32_t source_times_index = 0, uint32_t dest_index = 0)
+	{
+		rt::Contribution c{};
+		c.voltage = voltage;
+		c.delay = delay;
+		c.path_id = path_id;
+		c.source_times_index = source_times_index;
+		c.dest_index = dest_index;
+		return c;
+	}
+}
+
+// --- aggregateContributionGroup -------------------------------------------------------------
+
+TEST_CASE("aggregateContributionGroup passes a single contribution through unchanged", "[raytracing][aggregation]")
+{
+	const auto c = makeContribution(rt::CFloat(2.0f, -1.0f), 7.5, 42);
+	const std::vector<const rt::Contribution*> group{&c};
+
+	const auto path = rt::aggregateContributionGroup(group, /*carrier_freq_hz=*/1e9);
+
+	REQUIRE_THAT(path.delay, WithinAbs(7.5, 1e-9));
+	REQUIRE_THAT(path.voltage.real(), WithinAbs(2.0, 1e-9));
+	REQUIRE_THAT(path.voltage.imag(), WithinAbs(-1.0, 1e-9));
+	REQUIRE(path.path_id == 42);
+}
+
+TEST_CASE("aggregateContributionGroup's delay is the group's minimum - the most direct path",
+		  "[raytracing][aggregation]")
+{
+	// Regression test: this used to be a power-weighted average across the whole group, which
+	// fabricates a physically meaningless "in-between" delay when the group's members have very
+	// different geometry - exactly the bug this fix addresses.
+	const auto weak = makeContribution(rt::CFloat(1.0f, 0.0f), 10.0);
+	const auto strong = makeContribution(rt::CFloat(3.0f, 0.0f), 20.0);
+
+	const std::vector<const rt::Contribution*> group{&weak, &strong};
+	const auto path = rt::aggregateContributionGroup(group, /*carrier_freq_hz=*/0.0);
+
+	// The old (wrong) power-weighted mean would give (10*1 + 20*9)/(1+9) = 19.0.
+	REQUIRE_THAT(path.delay, WithinAbs(10.0, 1e-9));
+}
+
+TEST_CASE("aggregateContributionGroup sums same-delay contributions coherently", "[raytracing][aggregation]")
+{
+	const auto c1 = makeContribution(rt::CFloat(1.0f, 0.0f), 1.0);
+	const auto c2 = makeContribution(rt::CFloat(1.0f, 0.0f), 1.0);
+	const std::vector<const rt::Contribution*> group{&c1, &c2};
+
+	const auto path = rt::aggregateContributionGroup(group, /*carrier_freq_hz=*/1e9);
+
+	REQUIRE_THAT(path.voltage.real(), WithinAbs(2.0, 1e-9));
+	REQUIRE_THAT(path.voltage.imag(), WithinAbs(0.0, 1e-9));
+}
+
+TEST_CASE("aggregateContributionGroup coherently sums a half-period delay offset destructively",
+		  "[raytracing][aggregation]")
+{
+	constexpr double carrier_freq_hz = 10e9; // 10 GHz
+	constexpr double period = 1.0 / carrier_freq_hz; // 100 ps
+
+	const auto c1 = makeContribution(rt::CFloat(1.0f, 0.0f), 100.0);
+	const auto c2 = makeContribution(rt::CFloat(1.0f, 0.0f), 100.0 + period / 2.0);
+	const std::vector<const rt::Contribution*> group{&c1, &c2};
+
+	const auto path = rt::aggregateContributionGroup(group, carrier_freq_hz);
+
+	REQUIRE_THAT(path.delay, WithinAbs(100.0, 1e-12));
+	REQUIRE_THAT(std::abs(path.voltage), WithinAbs(0.0, 1e-6));
+}
+
+TEST_CASE("aggregateContributionGroup coherently sums a full-period delay offset constructively",
+		  "[raytracing][aggregation]")
+{
+	constexpr double carrier_freq_hz = 10e9;
+	constexpr double period = 1.0 / carrier_freq_hz;
+
+	const auto c1 = makeContribution(rt::CFloat(1.0f, 0.0f), 100.0);
+	const auto c2 = makeContribution(rt::CFloat(1.0f, 0.0f), 100.0 + period); // one full cycle later
+	const std::vector<const rt::Contribution*> group{&c1, &c2};
+
+	const auto path = rt::aggregateContributionGroup(group, carrier_freq_hz);
+
+	REQUIRE_THAT(std::abs(path.voltage), WithinAbs(2.0, 1e-6));
+}
+
+// --- groupContributions -----------------------------------------------------------------------
+
+TEST_CASE("groupContributions merges contributions by path_id", "[raytracing][aggregation]")
+{
+	// Two ray-tube samples on the same TX->facet-sequence->RX path (same path_id) should merge...
+	const auto same_path_a = makeContribution(rt::CFloat(1.0f, 0.0f), 10.0, /*path_id=*/1);
+	const auto same_path_b = makeContribution(rt::CFloat(1.0f, 0.0f), 10.1, /*path_id=*/1);
+	// ...but a geometrically distinct path (different path_id) to the same destination at the same
+	// timestep must not be merged with it.
+	const auto distinct_path = makeContribution(rt::CFloat(1.0f, 0.0f), 500.0, /*path_id=*/2);
+
+	const std::vector<rt::Contribution> contributions{same_path_a, same_path_b, distinct_path};
+	const auto groups = rt::groupContributions(contributions);
+
+	REQUIRE(groups.size() == 2);
+
+	size_t merged_groups = 0;
+	for (const auto& [key, group] : groups)
+	{
+		if (group.size() == 2)
+		{
+			merged_groups++;
+			CHECK(group[0]->path_id == 1);
+			CHECK(group[1]->path_id == 1);
+		}
+		else
+		{
+			REQUIRE(group.size() == 1);
+			CHECK(group.front()->path_id == 2);
+		}
+	}
+	REQUIRE(merged_groups == 1);
+}
+
+TEST_CASE("groupContributions keeps different timesteps/destinations separate even with the same path_id",
+		  "[raytracing][aggregation]")
+{
+	// path_id alone doesn't encode time or destination (see resolveCarrierFreq's docs) - the full key
+	// must include source_times_index and dest_index too.
+	const auto t0 = makeContribution(rt::CFloat(1.0f, 0.0f), 10.0, /*path_id=*/7, /*source_times_index=*/0);
+	const auto t1 = makeContribution(rt::CFloat(1.0f, 0.0f), 10.0, /*path_id=*/7, /*source_times_index=*/1);
+	const auto d1 = makeContribution(rt::CFloat(1.0f, 0.0f), 10.0, /*path_id=*/7, /*source_times_index=*/0,
+									 /*dest_index=*/1);
+
+	const std::vector<rt::Contribution> contributions{t0, t1, d1};
+	const auto groups = rt::groupContributions(contributions);
+
+	REQUIRE(groups.size() == 3);
+	for (const auto& [key, group] : groups)
+		REQUIRE(group.size() == 1);
+}

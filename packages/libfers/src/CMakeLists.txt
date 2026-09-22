@@ -6,6 +6,7 @@
 set(LIBFERS_PRIVATE_HEADERS
 	${CMAKE_CURRENT_LIST_DIR}/radar/schedule_period.h
 	${CMAKE_CURRENT_LIST_DIR}/antenna/antenna_factory.h
+	${CMAKE_CURRENT_LIST_DIR}/core/assets.h
 	${CMAKE_CURRENT_LIST_DIR}/core/config.h
 	${CMAKE_CURRENT_LIST_DIR}/math/coord.h
 	${CMAKE_CURRENT_LIST_DIR}/math/geometry_ops.h
@@ -29,6 +30,12 @@ set(LIBFERS_PRIVATE_HEADERS
 	${CMAKE_CURRENT_LIST_DIR}/processing/finalizer_pipeline.h
 	${CMAKE_CURRENT_LIST_DIR}/propagation/propagation_model.h
 	${CMAKE_CURRENT_LIST_DIR}/propagation/pointscatter/pointscatter.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/importer.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/antenna_pattern.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/math.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/sbr_shared.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/sbr_impl.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/model.h
 	${CMAKE_CURRENT_LIST_DIR}/core/rendering_job.h
 	${CMAKE_CURRENT_LIST_DIR}/core/receiver_output.h
 	${CMAKE_CURRENT_LIST_DIR}/core/simulation_state.h
@@ -102,6 +109,9 @@ set(LIBFERS_SOURCES
 	${CMAKE_CURRENT_LIST_DIR}/radar/transmitter.cpp
 	${CMAKE_CURRENT_LIST_DIR}/propagation/propagation_model.cpp
 	${CMAKE_CURRENT_LIST_DIR}/propagation/pointscatter/pointscatter.cpp
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/model.cpp
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/importer.cpp
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/antenna_pattern.cpp
 	${CMAKE_CURRENT_LIST_DIR}/serial/json_serializer.cpp
 	${CMAKE_CURRENT_LIST_DIR}/serial/fmcw_validation.cpp
 	${CMAKE_CURRENT_LIST_DIR}/serial/hdf5_output_sink.cpp
@@ -130,3 +140,18 @@ set(LIBFERS_SOURCES
 	${CMAKE_CURRENT_LIST_DIR}/timing/prototype_timing.cpp
 	${CMAKE_CURRENT_LIST_DIR}/timing/timing.cpp
 )
+
+# --- Optional GPU Ray Tracing Backends ---
+# Each backend's CMake logic (finding its SDK, any device-code compile steps)
+# lives in its own cmake/Fers<Backend>.cmake module so this file - and the
+# main libfers CMakeLists.txt - stay backend-agnostic as more of these show
+# up (Embree, HIPRT, ...). A backend module is expected to set
+# FERS_<BACKEND>_SOURCES / _PRIVATE_HEADERS / _LINK_LIBRARIES, and optionally
+# _GENERATE_TARGET if it needs a custom build step wired into the library
+# target's dependencies (see fers_configure_library_target in the parent
+# CMakeLists.txt).
+if (FERS_ENABLE_OPTIX)
+	include(FersOptiX)
+	list(APPEND LIBFERS_PRIVATE_HEADERS ${FERS_OPTIX_PRIVATE_HEADERS})
+	list(APPEND LIBFERS_SOURCES ${FERS_OPTIX_SOURCES})
+endif ()

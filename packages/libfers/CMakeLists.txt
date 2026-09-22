@@ -137,11 +137,22 @@ function(fers_configure_library_target target_name)
 							   $<BUILD_INTERFACE:${GENERATED_HEADERS_DIR}>
 	)
 
+	# --- Optional GPU Ray Tracing Backend Build Steps ---
+	if (FERS_ENABLE_OPTIX)
+		add_dependencies(${target_name} ${FERS_OPTIX_GENERATE_TARGET})
+		# Only define this when the option is actually on, so `#if defined(FERS_ENABLE_OPTIX)`
+		# checks in code are correct (a macro defined as `0` via $<BOOL:...> would still be
+		# `defined`, which is the mismatch that used to gate the OptiX branch off entirely).
+		target_compile_definitions(${target_name} PRIVATE FERS_ENABLE_OPTIX)
+	endif ()
+
 	# --- Third-Party Dependencies ---
 	target_link_libraries(${target_name} PRIVATE
 						  ${FERS_NATIVE_LINK_DEPENDENCIES}
 	)
-	target_compile_definitions(${target_name} PRIVATE HAVE_LIBHDF5)
+	target_compile_definitions(${target_name} PRIVATE
+							   HAVE_LIBHDF5
+	)
 
 	set_target_properties(${target_name} PROPERTIES
 						  SOVERSION ${CMAKE_PROJECT_VERSION_MAJOR}
@@ -149,10 +160,6 @@ function(fers_configure_library_target target_name)
 	)
 endfunction()
 
-
-# --- Gather Source and Header Files ---
-include(include/libfers/CMakeLists.txt)
-include(src/CMakeLists.txt)
 
 # --- Schema Headers Generation ---
 set(SCHEMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../schema)
@@ -204,22 +211,37 @@ add_custom_target(generate_schemas ALL DEPENDS
 				  ${GENERATED_HEADERS_DIR}/antenna_pattern_xsd.h
 )
 
+# --- Gather Source and Header Files ---
+# (This must come after the Schema Headers Generation above and before the
+# Third-Party Dependencies below: when FERS_ENABLE_OPTIX is set, this pulls in
+# cmake/FersOptiX.cmake, which writes a generated header into
+# GENERATED_HEADERS_DIR and needs OptiX::OptiX / CUDA::cuda_driver to exist
+# before FERS_NATIVE_LINK_DEPENDENCIES is assembled below.)
+include(include/libfers/CMakeLists.txt)
+include(src/CMakeLists.txt)
+
 # --- Third-Party Dependencies (vcpkg) ---
 find_package(HighFive CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(GeographicLib CONFIG REQUIRED)
 find_package(LibXml2 REQUIRED)
 find_package(HDF5 COMPONENTS C HL REQUIRED)
+find_package(assimp CONFIG REQUIRED)
 
 set(FERS_NATIVE_LINK_DEPENDENCIES
 	HighFive
 	nlohmann_json::nlohmann_json
 	GeographicLib::GeographicLib
 	LibXml2::LibXml2
+	assimp::assimp
 	# Using this format instead of hdf5::hdf5/hdf5::hdf5_hl due to macOS linking issues
 	${HDF5_C_LIBRARIES}
 	${HDF5_HL_LIBRARIES}
 )
+
+if (FERS_ENABLE_OPTIX)
+	list(APPEND FERS_NATIVE_LINK_DEPENDENCIES ${FERS_OPTIX_LINK_LIBRARIES})
+endif ()
 
 if (WIN32)
 	list(APPEND FERS_NATIVE_LINK_DEPENDENCIES ws2_32)
@@ -235,6 +257,7 @@ endif ()
 set(FERS_NATIVE_LINK_MANIFEST_TARGETS
 	GeographicLib::GeographicLib
 	LibXml2::LibXml2
+	assimp::assimp
 	hdf5::hdf5_hl-static
 	hdf5::hdf5-static
 )

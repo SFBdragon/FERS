@@ -98,7 +98,7 @@ TEST_CASE("calculateResponses produces no responses when Tx and Rx share the sam
 	world.add(std::move(rx));
 
 	const propagation::pointscatter::PointScatterModel prop(&world);
-	simulation::calculateResponses(*tx_ptr, prop, 0.0);
+	simulation::calculateResponses(*tx_ptr, 0.0, prop, nullptr);
 
 	REQUIRE(rx_ptr->drainInbox().empty());
 }
@@ -144,7 +144,7 @@ TEST_CASE("calculateResponses produces no direct-path response for a co-located 
 	world.add(std::move(rx));
 
 	const propagation::pointscatter::PointScatterModel prop(&world);
-	simulation::calculateResponses(*tx_ptr, prop, 0.0);
+	simulation::calculateResponses(*tx_ptr, 0.0, prop, nullptr);
 
 	REQUIRE(rx_ptr->drainInbox().empty());
 }
@@ -196,7 +196,7 @@ TEST_CASE("calculateResponses produces no reflected-path response when target co
 	world.add(std::move(tgt));
 
 	const propagation::pointscatter::PointScatterModel prop(&world);
-	simulation::calculateResponses(*tx_ptr, prop, 0.0);
+	simulation::calculateResponses(*tx_ptr, 0.0, prop, nullptr);
 
 	REQUIRE(rx_ptr->drainInbox().empty());
 }
@@ -246,7 +246,7 @@ TEST_CASE("calculateResponses produces no reflected-path response when target co
 	world.add(std::move(tgt));
 
 	const propagation::pointscatter::PointScatterModel prop(&world);
-	simulation::calculateResponses(*tx_ptr, prop, 0.0);
+	simulation::calculateResponses(*tx_ptr, 0.0, prop, nullptr);
 
 	REQUIRE(rx_ptr->drainInbox().empty());
 }
@@ -295,7 +295,7 @@ TEST_CASE("calculateResponses direct path produces a routed response with interp
 	world.add(std::move(rx));
 
 	const propagation::pointscatter::PointScatterModel prop(&world);
-	simulation::calculateResponses(*tx_ptr, prop, 0.0);
+	simulation::calculateResponses(*tx_ptr, 0.0, prop, nullptr);
 
 	auto inbox = rx_ptr->drainInbox();
 	REQUIRE(inbox.size() == 1);
@@ -357,7 +357,7 @@ TEST_CASE("calculateResponses reflected path produces a routed response", "[simu
 	world.add(std::move(tgt));
 
 	const propagation::pointscatter::PointScatterModel prop(&world);
-	simulation::calculateResponses(*tx_ptr, prop, 0.0);
+	simulation::calculateResponses(*tx_ptr, 0.0, prop, nullptr);
 
 	auto inbox = rx_ptr->drainInbox();
 	REQUIRE(inbox.size() == 1);
@@ -411,7 +411,7 @@ TEST_CASE("calculateResponses direct path response spans approximately the signa
 	world.add(std::move(rx));
 
 	const propagation::pointscatter::PointScatterModel prop(&world);
-	simulation::calculateResponses(*tx_ptr, prop, 0.0);
+	simulation::calculateResponses(*tx_ptr, 0.0, prop, nullptr);
 
 	auto inbox = rx_ptr->drainInbox();
 	REQUIRE(inbox.size() == 1);

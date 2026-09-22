@@ -75,6 +75,8 @@ namespace serial::xml_parser_utils
 		const std::unordered_map<std::string, SimId>* waveforms; ///< Map of waveform names to IDs.
 		const std::unordered_map<std::string, SimId>* antennas; ///< Map of antenna names to IDs.
 		const std::unordered_map<std::string, SimId>* timings; ///< Map of timing object names to IDs.
+		const std::unordered_map<std::string, SimId>* meshes; ///< Map of mesh asset names to IDs.
+		const std::unordered_map<std::string, SimId>* materials; ///< Map of material asset names to IDs.
 	};
 
 	/**
@@ -205,6 +207,20 @@ namespace serial::xml_parser_utils
 	void parseAntenna(const XmlElement& antenna, ParserContext& ctx);
 
 	/**
+	 * @brief Parses a `<mesh>` block and adds it to the World.
+	 * @param mesh The `<mesh>` XML element.
+	 * @param ctx The current parser context.
+	 */
+	void parseMesh(const XmlElement& mesh, ParserContext& ctx);
+
+	/**
+	 * @brief Parses a `<material>` block and adds it to the World.
+	 * @param material The `<material>` XML element.
+	 * @param ctx The current parser context.
+	 */
+	void parseMaterial(const XmlElement& material, ParserContext& ctx);
+
+	/**
 	 * @brief Parses a `<motionpath>` block and attaches it to a Platform.
 	 * @param motionPath The `<motionpath>` XML element.
 	 * @param platform The platform to modify.
@@ -262,8 +278,10 @@ namespace serial::xml_parser_utils
 	 * @param target The `<target>` XML element.
 	 * @param platform The platform this target belongs to.
 	 * @param ctx The current parser context.
+	 * @param refs Lookup tables for resolving the optional `<geometry>` mesh/material references.
 	 */
-	void parseTarget(const XmlElement& target, radar::Platform* platform, ParserContext& ctx);
+	void parseTarget(const XmlElement& target, radar::Platform* platform, ParserContext& ctx,
+					 const ReferenceLookup& refs);
 
 	/**
 	 * @brief Iterates and parses all children elements (radars, targets) of a platform.

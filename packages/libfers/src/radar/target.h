@@ -13,6 +13,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
 #include <utility>
@@ -28,9 +29,25 @@ namespace math
 	class SVec3;
 }
 
+namespace core
+{
+	struct MeshAsset;
+	struct MaterialAsset;
+}
+
 namespace radar
 {
 	class Platform;
+
+	/**
+	 * @struct TargetGeometry
+	 * @brief Non-owning references to the mesh/material a target uses for ray-tracing propagation.
+	 */
+	struct TargetGeometry
+	{
+		const core::MeshAsset* mesh; ///< The target's mesh asset, owned by the World.
+		const core::MaterialAsset* material; ///< The target's material asset, owned by the World.
+	};
 
 	/**
 	 * @class RcsModel
@@ -173,10 +190,30 @@ namespace radar
 		 */
 		[[nodiscard]] unsigned getSeed() const noexcept { return _seed; }
 
+		/**
+		 * @brief Sets the target's mesh/material geometry, used by ray-tracing propagation.
+		 *
+		 * @param mesh Non-owning pointer to the mesh asset, owned by the World.
+		 * @param material Non-owning pointer to the material asset, owned by the World.
+		 */
+		void setGeometry(const core::MeshAsset* mesh, const core::MaterialAsset* material) noexcept
+		{
+			_geometry = TargetGeometry{mesh, material};
+		}
+
+		/**
+		 * @brief Gets the target's mesh/material geometry, if any.
+		 *
+		 * Targets without geometry are ignored by ray-tracing propagation.
+		 * @return The TargetGeometry, or std::nullopt if this target has no mesh/material.
+		 */
+		[[nodiscard]] const std::optional<TargetGeometry>& getGeometry() const noexcept { return _geometry; }
+
 	protected:
 		std::unique_ptr<RcsModel> _model{nullptr}; ///< The RCS fluctuation model for the target.
 		std::mt19937 _rng; ///< Per-object random number generator for statistical independence.
 		unsigned _seed; ///< The initial seed for the RNG.
+		std::optional<TargetGeometry> _geometry; ///< Optional mesh/material for ray-tracing propagation.
 	};
 
 	/**

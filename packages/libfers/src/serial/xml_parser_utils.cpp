@@ -7,7 +7,6 @@
 #include "xml_parser_utils.h"
 
 #include <GeographicLib/UTMUPS.hpp>
-#include <algorithm>
 #include <cmath>
 #include <exception>
 #include <filesystem>
@@ -17,6 +16,7 @@
 #include <string_view>
 
 #include "antenna/antenna_factory.h"
+#include "core/assets.h"
 #include "core/config.h"
 #include "core/logging.h"
 #include "core/world.h"
@@ -620,6 +620,39 @@ namespace serial::xml_parser_utils
 		}
 	}
 
+	void parsePropagationParameter(const XmlElement& parameters, params::Parameters& params_out)
+	{
+		const XmlElement prop_element = parameters.childElement("propagation", 0);
+		if (!prop_element.isValid())
+		{
+			return;
+		}
+
+		const std::string model_str = XmlElement::getSafeAttribute(prop_element, "model");
+		if (model_str == "raytracing")
+		{
+			params_out.propagation_model = params::PropagationModelKind::GoRayTracing;
+		}
+		else if (model_str == "pointscatter")
+		{
+			params_out.propagation_model = params::PropagationModelKind::RcsPointScatter;
+		}
+		else
+		{
+			throw XmlException("Unsupported propagation model '" + model_str + "'.");
+		}
+		LOG(logging::Level::INFO, "Propagation model set to: {}", model_str);
+
+		if (const auto go_step_limit = XmlElement::getOptionalAttribute(prop_element, "go_step_limit"))
+		{
+			params_out.rt_go_step_limit = parseUnsignedParameter("go_step_limit", std::stod(*go_step_limit));
+		}
+		if (const auto rays_per_source = XmlElement::getOptionalAttribute(prop_element, "rays_per_source"))
+		{
+			params_out.rt_rays_per_source = parseUnsignedParameter("rays_per_source", std::stod(*rays_per_source));
+		}
+	}
+
 	void parseParameters(const XmlElement& parameters, params::Parameters& params_out)
 	{
 		params_out.start = get_child_real_type(parameters, "starttime");
@@ -638,6 +671,7 @@ namespace serial::xml_parser_utils
 		parseRotationAngleUnit(parameters, params_out);
 		const bool origin_set = parseOriginParameter(parameters, params_out);
 		parseCoordinateSystemParameter(parameters, params_out, origin_set);
+		parsePropagationParameter(parameters, params_out);
 	}
 
 	void parseWaveform(const XmlElement& waveform, ParserContext& ctx)
@@ -901,6 +935,29 @@ namespace serial::xml_parser_utils
 		}
 
 		ctx.world->add(std::move(ant));
+	}
+
+	void parseMesh(const XmlElement& mesh, ParserContext& ctx)
+	{
+		const std::string name = XmlElement::getSafeAttribute(mesh, "name");
+		const SimId id = assign_id_from_attribute("mesh '" + name + "'", ObjectType::Mesh);
+		const std::string filename = XmlElement::getSafeAttribute(mesh, "filename");
+
+		LOG(logging::Level::DEBUG, "Adding mesh '{}' from 'meshes/{}'", name, filename);
+		ctx.world->add(core::MeshAsset{.id = id, .name = name, .path = ctx.base_dir / "meshes" / filename});
+	}
+
+	void parseMaterial(const XmlElement& material, ParserContext& ctx)
+	{
+		const std::string name = XmlElement::getSafeAttribute(material, "name");
+		const SimId id = assign_id_from_attribute("material '" + name + "'", ObjectType::Material);
+		const auto relative_permittivity = float(get_child_real_type(material, "relative_permittivity"));
+		const auto conductivity = float(get_child_real_type(material, "conductivity"));
+
+		LOG(logging::Level::DEBUG, "Adding material '{}' with relative_permittivity={} conductivity={}", name,
+			relative_permittivity, conductivity);
+		ctx.world->add(core::MaterialAsset{
+			.id = id, .name = name, .relative_permittivity = relative_permittivity, .conductivity = conductivity});
 	}
 
 	void parseMotionPath(const XmlElement& motionPath, radar::Platform* platform)
@@ -1256,7 +1313,8 @@ namespace serial::xml_parser_utils
 		recv->setAttached(trans);
 	}
 
-	void parseTarget(const XmlElement& target, radar::Platform* platform, ParserContext& ctx)
+	void parseTarget(const XmlElement& target, radar::Platform* platform, ParserContext& ctx,
+					 const ReferenceLookup& refs)
 	{
 		const std::string name = XmlElement::getSafeAttribute(target, "name");
 		const SimId id = assign_id_from_attribute("target '" + name + "'", ObjectType::Target);
@@ -1303,6 +1361,16 @@ namespace serial::xml_parser_utils
 			}
 		}
 
+		if (const XmlElement geometry = target.childElement("geometry", 0); geometry.isValid())
+		{
+			const SimId mesh_id =
+				resolve_reference_id(geometry, "mesh", "target '" + name + "' geometry", *refs.meshes);
+			const SimId material_id =
+				resolve_reference_id(geometry, "material", "target '" + name + "' geometry", *refs.materials);
+
+			target_obj->setGeometry(ctx.world->findMesh(mesh_id), ctx.world->findMaterial(material_id));
+		}
+
 		LOG(logging::Level::DEBUG, "Added target {} with RCS type {} to platform {}", name, rcs_type,
 			platform->getName());
 		ctx.world->add(std::move(target_obj));
@@ -1325,23 +1393,10 @@ namespace serial::xml_parser_utils
 			}
 		};
 
-		auto parseChildrenWithoutRefs = [&](const std::string& elementName, auto parseFunc)
-		{
-			unsigned index = 0;
-			while (true)
-			{
-				const XmlElement element = platform.childElement(elementName, index++);
-				if (!element.isValid())
-					break;
-				register_name(element, elementName);
-				parseFunc(element, plat, ctx);
-			}
-		};
-
 		parseChildrenWithRefs("monostatic", parseMonostatic);
 		parseChildrenWithRefs("transmitter", parseTransmitter);
 		parseChildrenWithRefs("receiver", parseReceiver);
-		parseChildrenWithoutRefs("target", parseTarget);
+		parseChildrenWithRefs("target", parseTarget);
 	}
 
 	void parsePlatform(const XmlElement& platform, ParserContext& ctx,
@@ -1523,12 +1578,30 @@ namespace serial::xml_parser_utils
 						  parseAntenna(p, c);
 					  });
 
+		parseElements(root, "mesh", ctx,
+					  [&](const XmlElement& p, ParserContext& c)
+					  {
+						  register_name(p, "mesh");
+						  parseMesh(p, c);
+					  });
+
+		parseElements(root, "material", ctx,
+					  [&](const XmlElement& p, ParserContext& c)
+					  {
+						  register_name(p, "material");
+						  parseMaterial(p, c);
+					  });
+
 		std::unordered_map<std::string, SimId> waveform_refs;
 		std::unordered_map<std::string, SimId> antenna_refs;
 		std::unordered_map<std::string, SimId> timing_refs;
+		std::unordered_map<std::string, SimId> mesh_refs;
+		std::unordered_map<std::string, SimId> material_refs;
 		waveform_refs.reserve(ctx.world->getWaveforms().size());
 		antenna_refs.reserve(ctx.world->getAntennas().size());
 		timing_refs.reserve(ctx.world->getTimings().size());
+		mesh_refs.reserve(ctx.world->getMeshes().size());
+		material_refs.reserve(ctx.world->getMaterials().size());
 
 		for (const auto& [id, waveform] : ctx.world->getWaveforms())
 			waveform_refs.emplace(waveform->getName(), id);
@@ -1536,8 +1609,12 @@ namespace serial::xml_parser_utils
 			antenna_refs.emplace(antenna->getName(), id);
 		for (const auto& [id, timing] : ctx.world->getTimings())
 			timing_refs.emplace(timing->getName(), id);
+		for (const auto& [id, mesh] : ctx.world->getMeshes())
+			mesh_refs.emplace(mesh.name, id);
+		for (const auto& [id, material] : ctx.world->getMaterials())
+			material_refs.emplace(material.name, id);
 
-		const ReferenceLookup refs{&waveform_refs, &antenna_refs, &timing_refs};
+		const ReferenceLookup refs{&waveform_refs, &antenna_refs, &timing_refs, &mesh_refs, &material_refs};
 
 		parseElements(root, "platform", ctx,
 					  [&](const XmlElement& p, ParserContext& c)

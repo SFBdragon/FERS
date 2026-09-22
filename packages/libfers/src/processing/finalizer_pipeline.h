@@ -109,7 +109,8 @@ namespace processing::pipeline
 	 * @param tracker_cache Caller-owned reusable tracker storage for FMCW path boundary state.
 	 */
 	void applyStreamingInterference(std::span<ComplexType> window, RealType actual_start, RealType dt,
-									const propagation::PropagationModel& prop, radar::Receiver* receiver,
+									const propagation::PropagationModel& prop, propagation::ThreadContext* ctx,
+									radar::Receiver* receiver,
 									const std::vector<core::ActiveStreamingSource>& streaming_sources,
 									core::ReceiverTrackerCache& tracker_cache,
 									const simulation::CwPhaseNoiseLookup* phase_noise_lookup = nullptr);

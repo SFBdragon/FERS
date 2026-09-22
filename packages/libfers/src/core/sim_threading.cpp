@@ -38,6 +38,7 @@
 #include "processing/signal_processor.h"
 #include "propagation/pointscatter/pointscatter.h"
 #include "propagation/propagation_model.h"
+#include "propagation/raytracing/raytracing_model.h"
 #include "radar/receiver.h"
 #include "radar/target.h"
 #include "radar/transmitter.h"
@@ -67,6 +68,19 @@ namespace core
 		{
 			return static_cast<std::size_t>(
 				std::ceil(std::max<RealType>(0.0, params::endTime() - params::startTime()) * sample_rate));
+		}
+
+		[[nodiscard]] std::shared_ptr<propagation::PropagationModel> makePropagationModel(World* world)
+		{
+			switch (params::propagationModel())
+			{
+			case params::PropagationModelKind::GoRayTracing:
+				return std::make_shared<propagation::raytracing::RayTracingModel>(
+					world, propagation::raytracing::RayTracingBackend::OptiX);
+			case params::PropagationModelKind::RcsPointScatter:
+			default:
+				return std::make_shared<propagation::pointscatter::PointScatterModel>(world);
+			}
 		}
 
 		[[nodiscard]] Vita49StreamMetadata streamStatsToMetadata(const ReceiverStreamStats& stats)
@@ -819,12 +833,14 @@ namespace core
 									   std::shared_ptr<OutputMetadataCollector> metadata_collector,
 									   ReceiverOutputSink* output_sink, std::function<bool()> cancel_callback,
 									   const bool eager_context_stream_open) :
-		_world(world), _pool(pool), _propagation(std::make_shared<propagation::pointscatter::PointScatterModel>(world)),
-		_reporter(std::move(reporter)), _metadata_collector(std::move(metadata_collector)), _output_sink(output_sink),
+		_world(world), _pool(pool), _propagation(makePropagationModel(world)), _reporter(std::move(reporter)),
+		_metadata_collector(std::move(metadata_collector)), _output_sink(output_sink),
 		_cancel_callback(std::move(cancel_callback)), _eager_context_stream_open(eager_context_stream_open),
 		_last_report_time(std::chrono::steady_clock::now()), _next_context_heartbeat_time(params::startTime() + 1.0),
 		_output_dir(std::move(output_dir)), _internal_stop_time(params::endTime())
 	{
+		_main_prop_ctx = _propagation->makeThreadContext();
+
 		_streaming_tracker_caches.resize(_world->getReceivers().size());
 		_if_pulse_tracker_caches.resize(_world->getReceivers().size());
 		_fmcw_if_block_buffers.resize(_world->getReceivers().size());
@@ -1485,7 +1501,6 @@ namespace core
 												true);
 	}
 
-	// NOLINTNEXTLINE TODO_SHAUN remove
 	void SimulationEngine::addPulsedInterferenceSamples(std::span<ComplexType> block,
 														std::span<const ComplexType> rendered_pulse,
 														const long long dest_begin, const long long dest_end,
@@ -1643,7 +1658,7 @@ namespace core
 														  : simulation::StreamingTimingPhaseMode::TransmitterOnly);
 
 
-		const auto paths = _propagation->findRxFromTxPaths(rx, streaming_sources, rx_time);
+		const auto paths = _propagation->findRxFromTxPaths(_main_prop_ctx.get(), rx, streaming_sources, rx_time);
 
 		ComplexType total_sample{0.0, 0.0};
 		for (const auto& path : paths)
@@ -1823,7 +1838,7 @@ namespace core
 
 	void SimulationEngine::handleTxPulsedStart(Transmitter* tx, const RealType t_event)
 	{
-		simulation::calculateResponses(*tx, *_propagation, t_event);
+		simulation::calculateResponses(*tx, t_event, *_propagation, _main_prop_ctx.get());
 
 		const RealType next_theoretical_time = t_event + 1.0 / tx->getPrf();
 		if (const auto next_pulse_opt = tx->getNextPulseTime(next_theoretical_time);

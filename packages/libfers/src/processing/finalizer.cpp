@@ -1026,7 +1026,6 @@ namespace processing
 	}
 
 	void runPulsedFinalizer(radar::Receiver* receiver,
-							// NOLINTNEXTLINE TODO_SHAUN this lint about const reference is kinda wrong...?
 							std::shared_ptr<const propagation::PropagationModel> prop,
 							const std::shared_ptr<core::ProgressReporter>& reporter, const std::string& output_dir,
 							const std::shared_ptr<core::OutputMetadataCollector>& metadata_collector,
@@ -1055,6 +1054,10 @@ namespace processing
 
 		LOG(logging::Level::INFO, "Finalizer thread started for receiver '{}'. Routing to output sink.",
 			receiver->getName());
+
+		// Create this finaliser thread's propagation model thread context.
+		// This manages its resources with RAII; all we need to do is hold ownership in this thread.
+		auto prop_ctx = prop->makeThreadContext();
 
 		auto last_report_time = std::chrono::steady_clock::now();
 		const auto report_interval = std::chrono::milliseconds(100);
@@ -1086,7 +1089,7 @@ namespace processing
 
 			std::vector<ComplexType> window_buffer(window_samples);
 
-			pipeline::applyStreamingInterference(window_buffer, actual_start, dt, *prop, receiver,
+			pipeline::applyStreamingInterference(window_buffer, actual_start, dt, *prop, prop_ctx.get(), receiver,
 												 job.active_streaming_sources, streaming_tracker_cache);
 
 			renderWindow(window_buffer, job.duration, actual_start, frac_delay, job.responses);

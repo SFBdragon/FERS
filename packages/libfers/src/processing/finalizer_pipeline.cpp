@@ -97,7 +97,8 @@ namespace processing::pipeline
 	}
 
 	void applyStreamingInterference(std::span<ComplexType> window, const RealType actual_start, const RealType dt,
-									const propagation::PropagationModel& prop, radar::Receiver* receiver,
+									const propagation::PropagationModel& prop, propagation::ThreadContext* ctx,
+									radar::Receiver* receiver,
 									const std::vector<core::ActiveStreamingSource>& streaming_sources,
 									core::ReceiverTrackerCache& tracker_cache,
 									const simulation::CwPhaseNoiseLookup* phase_noise_lookup)
@@ -132,7 +133,7 @@ namespace processing::pipeline
 		RealType t_sample = actual_start;
 		for (auto& window_sample : window)
 		{
-			const auto paths = prop.findRxFromTxPaths(receiver, streaming_sources, t_sample);
+			const auto paths = prop.findRxFromTxPaths(ctx, receiver, streaming_sources, t_sample);
 			ComplexType streaming_interference_sample{0.0, 0.0};
 			for (const auto& path : paths)
 			{

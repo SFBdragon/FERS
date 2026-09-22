@@ -15,6 +15,7 @@ add_executable(libfers_tests
 			   noise/test_falpha_branch.cpp
 			   antenna/test_antenna_factory.cpp
 			   antenna/test_antenna_factory_io.cpp
+			   antenna/test_antenna_gain.cpp
 			   api/test_api_contract.cpp
 			   api/test_api_scenario_io.cpp
 			   api/test_api_runtime.cpp
@@ -65,6 +66,10 @@ add_executable(libfers_tests
 			   simulation/test_channel_model_preview.cpp
 			   simulation/test_channel_model_streaming.cpp
 			   propagation/pointscatter/test_pointscatter.cpp
+			   propagation/raytracing/test_sbr_math.cpp
+			   propagation/raytracing/test_antenna_pattern.cpp
+			   propagation/raytracing/test_facet_incident_ray.cpp
+			   propagation/raytracing/test_raytracing_aggregation.cpp
 )
 
 target_include_directories(libfers_tests PRIVATE

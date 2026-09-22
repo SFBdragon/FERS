@@ -1,0 +1,116 @@
+//
+// TODO_SHAUN
+//
+
+#pragma once
+
+#include <cstdint>
+#include <memory>
+#include <unordered_map>
+#include <vector>
+
+#include "core/config.h"
+#include "core/simulation_state.h"
+#include "core/world.h"
+#include "propagation/math.h"
+#include "propagation/propagation_model.h"
+#include "propagation/raytracing/sbr_shared.h"
+#include "radar/receiver.h"
+
+namespace propagation::raytracing
+{
+	enum class RayTracingBackend : uint8_t
+	{
+		/// Use the NVIDIA CUDA-based OptiX ray tracing engine.
+		///
+		/// Requires a compatible CUDA driver and CUDA device.
+		OptiX = 1,
+	};
+
+	enum class TraceJobType : uint8_t
+	{
+		FindTxToRx = 0,
+		FindRxFromTx = 1,
+	};
+
+	struct SceneData
+	{
+		std::unordered_map<SimId, uint32_t> mesh_ids;
+		std::vector<Float3> vertices;
+		std::vector<Uint3> indices;
+		std::vector<TriangleMeshView> meshes;
+
+		std::unordered_map<SimId, uint32_t> mat_ids;
+		std::vector<Material> materials;
+
+		std::vector<float> antenna_gains;
+		std::vector<AntennaModel> antenna_models;
+	};
+
+	struct TraceJob
+	{
+		core::World* world;
+		std::span<const RealType> times;
+
+		std::vector<ActiveCarriers> active_carrier_sets;
+		std::vector<uint32_t> tx_to_carrier_indices;
+		std::vector<float> carrier_ks;
+
+		std::vector<ActiveAntenna> source_antennae;
+		std::vector<ActiveAntenna> dest_antennae;
+
+		std::vector<RxFlags> rx_flags;
+
+		TraceJobType type;
+	};
+
+	/**
+	 * @brief Coherently sums a group of `Contribution`s that share a `path_id` key
+	 * (same source, facet sequence, and distination) into a single `PropagationPath`.
+	 *
+	 * @param group Non-empty. All contributions must share the same `source_times_index`/`dest_index`/`path_id`.
+	 * @param carrier_freq_hz The carrier frequency (Hz) shared by every contribution in `group`.
+	 */
+	[[nodiscard]] PropagationPath aggregateContributionGroup(const std::vector<const Contribution*>& group,
+															 RealType carrier_freq_hz);
+
+	class RayTracingEngine
+	{
+	public:
+		virtual ~RayTracingEngine() = default;
+
+		/**
+		 * @brief Create a worker thread's mutable state object.
+		 */
+		[[nodiscard]] virtual std::unique_ptr<ThreadContext> makeThreadContext() = 0;
+
+		/**
+		 * @brief Execute the ray tracing batch job.
+		 */
+		[[nodiscard]] virtual std::vector<Contribution> trace(ThreadContext*, TraceJob&) = 0;
+	};
+
+
+	class RayTracingModel : public PropagationModel
+	{
+	public:
+		RayTracingModel(core::World* world, RayTracingBackend backend);
+
+		[[nodiscard]] std::unique_ptr<ThreadContext> makeThreadContext() const override;
+
+		[[nodiscard]] std::vector<PathsAtTime> findTxToRxPaths(ThreadContext* ctx,
+															   const radar::Transmitter& transmitter,
+															   const std::vector<RealType>& times) const override;
+
+		[[nodiscard]] std::vector<PropagationPath>
+		findRxFromTxPaths(ThreadContext* ctx, radar::Receiver* receiver,
+						  const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const override;
+
+	private:
+		core::World* _world;
+
+		std::unordered_map<SimId, uint32_t> _antenna_id_to_index;
+
+		std::unique_ptr<RayTracingEngine> _engine;
+	};
+}

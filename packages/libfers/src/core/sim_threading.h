@@ -333,6 +333,8 @@ namespace core
 		World* _world; ///< Pointer to the simulation world state.
 		pool::ThreadPool& _pool; ///< Reference to the global thread pool.
 		std::shared_ptr<propagation::PropagationModel> _propagation; ///< Shared thread-safe propagation model instance.
+		// Note: _main_prop_ctx after _propagation so _main_prop_ctx gets destructed first.
+		std::unique_ptr<propagation::ThreadContext> _main_prop_ctx; ///< Prop model context for the main sim thread.
 		std::shared_ptr<ProgressReporter> _reporter; ///< Shared progress reporter instance.
 		std::vector<std::jthread> _finalizer_threads; ///< Collection of dedicated pulsed finalizer threads.
 		std::shared_ptr<OutputMetadataCollector> _metadata_collector; ///< Collector for generated output metadata.

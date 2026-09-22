@@ -24,8 +24,10 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/config.h"
 #include "core/logging.h"
 #include "core/parameters.h"
+#include "core/sim_id.h"
 #include "core/world.h"
 #include "interpolation/interpolation_point.h"
 #include "math/geometry_ops.h"
@@ -590,10 +592,8 @@ namespace simulation
 			return {0.0, 0.0};
 		}
 
-		// Include Signal Power
-		const RealType amplitude = source.amplitude * std::sqrt(path.gain);
-
-		ComplexType contribution = amplitude * eval.envelope * std::polar(1.0, eval.phase);
+		// Accumulate amplitude and phase effects
+		ComplexType contribution = source.amplitude * path.gain * eval.envelope * std::polar(1.0, eval.phase);
 
 		// Non-coherent Local Oscillator Effects
 		const RealType non_coherent_phase =
@@ -625,8 +625,8 @@ namespace simulation
 		}
 	}
 
-	void calculateResponses(const Transmitter& tx, const propagation::PropagationModel& prop,
-							const RealType start_tx_time)
+	void calculateResponses(const radar::Transmitter& tx, const RealType start_tx_time,
+							const propagation::PropagationModel& prop, propagation::ThreadContext* ctx)
 	{
 		// Skip if there's no signal associated with the transmitter or the signal has no length.
 		if (tx.getSignal() == nullptr || !tx.getSignal()->isPulsed() ||
@@ -647,17 +647,28 @@ namespace simulation
 		{
 			size_t operator()(const ReceiverKey& k) const
 			{
-				return std::hash<uint64_t>()(k.id) ^
-					// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-					(std::hash<uintptr_t>()(reinterpret_cast<uintptr_t>(k.receiver)) << 1);
+				return std::hash<uint64_t>()(k.id) ^ (std::hash<SimId>()(k.receiver->getId()) << 1);
 			}
 		};
 
 		std::unordered_map<ReceiverKey, std::unique_ptr<serial::Response>, ReceiverKeyHash> responses;
 
+
+		const auto tx_duration = tx.getSignal()->getPulseWaveform()->getDuration();
+		const auto end_tx_time = start_tx_time + tx_duration;
+		const auto sample_period = 1.0 / params::simSamplingRate();
+		const auto point_count = static_cast<size_t>(std::ceil(tx_duration * params::simSamplingRate()));
+		std::vector<RealType> times(point_count + 1);
+		for (size_t i = 0; i < point_count; ++i)
+		{
+			times[i] = start_tx_time + i * sample_period;
+		}
+		times[point_count] = end_tx_time;
+
+
 		// This internally computes the paths for each timestep.
 		// The timestepping is internal to allow for batching across timesteps.
-		const auto timesteps_paths = prop.findTxToRxPaths(tx, start_tx_time);
+		const auto timesteps_paths = prop.findTxToRxPaths(ctx, tx, times);
 
 		for (const auto& timesteps : timesteps_paths)
 		{
@@ -700,8 +711,7 @@ namespace simulation
 		responses.clear(); // To be explicit: the items are invalidated by the above.
 	}
 
-	// TODO_SHAUN deduplicate this free space transmission strength code with the prop model's stuff
-	// // UI stuff
+	// UI stuff
 	namespace
 	{
 

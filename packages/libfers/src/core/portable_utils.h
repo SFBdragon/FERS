@@ -16,6 +16,7 @@
 #include <thread>
 
 #include "config.h"
+#include "logging.h"
 
 namespace core
 {
