@@ -1,6 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 //
-// TODO_SHAUN
+// Copyright (c) 2026-present FERS Contributors (see AUTHORS.md).
 //
+// See the GNU GPLv2 LICENSE file in the FERS project root for more information.
 
 #pragma once
 

@@ -181,7 +181,8 @@ namespace antenna
 
 	private:
 		RealType _loss_factor{1}; ///< Efficiency factor of the antenna.
-		JonesPolarisation _polarisation{}; ///< Polarisation of the antenna boresight.
+		/// Polarisation of the antenna boresight. Defaults to horizontal.
+		JonesPolarisation _polarisation{.horizontal = ComplexType(1.0, 0.0), .veritcal = ComplexType(0.0, 0.0)};
 		SimId _id; ///< Unique ID for this antenna.
 		std::string _name; ///< Name of the antenna.
 	};

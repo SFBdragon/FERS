@@ -934,6 +934,42 @@ namespace serial::xml_parser_utils
 			}
 		}
 
+		const bool has_polarisation = antenna.childElement("polarisation_h_re", 0).isValid() ||
+			antenna.childElement("polarisation_h_im", 0).isValid() ||
+			antenna.childElement("polarisation_v_re", 0).isValid() ||
+			antenna.childElement("polarisation_v_im", 0).isValid();
+		if (has_polarisation)
+		{
+			const auto component = [&](const char* child_name)
+			{
+				if (!antenna.childElement(child_name, 0).isValid())
+				{
+					return RealType(0.0);
+				}
+				try
+				{
+					return get_child_real_type(antenna, child_name);
+				}
+				catch (const XmlException&)
+				{
+					LOG(logging::Level::WARNING, "Antenna '{}' has an empty '{}', assuming 0.", name, child_name);
+					return RealType(0.0);
+				}
+			};
+
+			try
+			{
+				ant->setPolarisation(antenna::JonesPolarisation{
+					.horizontal = ComplexType{component("polarisation_h_re"), component("polarisation_h_im")},
+					.veritcal = ComplexType{component("polarisation_v_re"), component("polarisation_v_im")}});
+			}
+			catch (const std::runtime_error& e)
+			{
+				LOG(logging::Level::WARNING, "Antenna '{}' has an invalid polarisation ({}), assuming horizontal.",
+					name, e.what());
+			}
+		}
+
 		ctx.world->add(std::move(ant));
 	}
 

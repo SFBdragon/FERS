@@ -108,7 +108,7 @@ TEST_CASE("calculateResponses produces no direct-path response for a co-located 
 {
 	// Real monostatic Tx/Rx pairs (see parseMonostatic) are always parsed onto the
 	// same platform, so co-location alone (not attachment) is what pointscatter's
-	// directPath() uses to suppress self-interference -- exercise that realistic case.
+	// directPath() uses to suppress self-interference. Exercise that realistic case.
 	ParamGuard const guard;
 	params::params.reset();
 	params::setSimSamplingRate(1000.0);
@@ -394,7 +394,7 @@ TEST_CASE("calculateResponses direct path response spans approximately the signa
 	tx->setAntenna(&iso_ant);
 	tx->setTiming(timing);
 
-	// 5e-3 s worth of samples at 10000 Hz -- matches the old TestSignal's 5ms duration.
+	// 5e-3 s worth of samples at 10000 Hz.
 	std::vector<ComplexType> samples(50, ComplexType{1.0, 0.0});
 	auto wave = makeSampledWave("sig", 1.0, carrier, samples, 10000.0);
 	tx->setSignal(&wave);

@@ -443,7 +443,7 @@ TEST_CASE("calculatePreviewLinks respects receiver schedule", "[simulation][chan
 	auto* tx_plat_ptr = tx_plat.get();
 
 	auto rx_plat = std::make_unique<radar::Platform>("rx_plat");
-	setupPlatform(*rx_plat, math::Vec3{1000.0, 0.0, 0.0});
+	setupPlatform(*rx_plat, math::Vec3{1000.0, 500.0, 0.0});
 	auto* rx_plat_ptr = rx_plat.get();
 
 	auto tgt_plat = std::make_unique<radar::Platform>("tgt_plat");

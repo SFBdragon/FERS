@@ -215,15 +215,12 @@ TEST_CASE("applyPulsedInterference clips rendered pulses to LO-active sample spa
 	// rendered index 2 == 2.0 (a real sample, not the taper stub); index 6 -> rendered
 	// index 5 == 5.0.
 	//
-	// This also exercises a real numerical-robustness edge: startTime() lands exactly on
+	// This also exercises a numerical-robustness edge case: startTime() lands exactly on
 	// a sample boundary here (0.1 * rate == 1.0 precisely), but is computed from Response's
 	// own rx_time arithmetic (front point minus a locally-measured control-point delta),
-	// which can differ from the "true" value by a couple of ULPs -- e.g. 0.1 coming out as
+	// which can differ from the "true" value by a couple of ULPs, e.g. 0.1 coming out as
 	// 0.09999999999999998. applyPulsedInterference must place the pulse with
-	// std::round(), not std::floor(): floor() has a hard cliff exactly at integer sample
-	// boundaries, so that same couple of ULPs can flip the destination index by a whole
-	// sample, whereas round() tolerates any error far smaller than half a sample (which
-	// covers this by about 15 orders of magnitude).
+	// std::round(), as opposed to std::floor().
 	const std::vector<processing::pipeline::SampleSpan> active_spans = {
 		processing::pipeline::SampleSpan{.start = 3, .end_exclusive = 4},
 		processing::pipeline::SampleSpan{.start = 6, .end_exclusive = 7}};
@@ -233,7 +230,7 @@ TEST_CASE("applyPulsedInterference clips rendered pulses to LO-active sample spa
 	// Note: near the edge of a short (6-sample) buffer, the render filter's fractional-delay
 	// lookup can land on a neighboring table bin due to ordinary floating-point rounding in
 	// the accumulated sample time (getFilter truncates rather than rounds to a bin index),
-	// giving a small (~0.1%) deviation from exact identity rather than a bug -- hence the
+	// giving a small (~0.1%) deviation from exact identity rather than a bug, hence the
 	// looser tolerance here versus the 1e-9 used for interior-sample checks elsewhere.
 	for (std::size_t i = 0; i < iq_buffer.size(); ++i)
 	{

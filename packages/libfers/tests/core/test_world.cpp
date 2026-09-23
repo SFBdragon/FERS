@@ -97,7 +97,7 @@ TEST_CASE("World stores and retrieves added objects", "[core][world]")
 	world.add(std::move(timing));
 
 	world.add(core::MeshAsset{.id = 601, .name = "Mesh-A", .path = "/scenario/meshes/mesh-a.obj"});
-	world.add(core::MaterialAsset{.id = 701, .name = "Material-A", .gamma_tm = {0.5, 0.0}, .gamma_te = {0.5, 0.0}});
+	world.add(core::MaterialAsset{.id = 701, .name = "Material-A", .relative_permittivity = 0.5, .conductivity = 0.0});
 
 	REQUIRE(world.getPlatforms().size() == 3);
 	REQUIRE(world.getTargets().size() == 1);
@@ -397,8 +397,8 @@ TEST_CASE("World enforces unique ids for assets", "[core][world]")
 
 	SECTION("Material ids are unique")
 	{
-		world.add(core::MaterialAsset{.id = 222, .name = "Material-1", .gamma_tm = {0.9, 0.0}, .gamma_te = {0.9, 0.0}});
-		REQUIRE_THROWS_AS(world.add(core::MaterialAsset{.id = 222, .name = "Material-2", .gamma_tm = {0.8, 0.0}, .gamma_te = {0.8, 0.0}}),
+		world.add(core::MaterialAsset{.id = 222, .name = "Material-1", .relative_permittivity = 0.9, .conductivity = 0.0});
+		REQUIRE_THROWS_AS(world.add(core::MaterialAsset{.id = 222, .name = "Material-2", .relative_permittivity = 0.8, .conductivity = 0.0}),
 						  std::runtime_error);
 	}
 }
@@ -417,7 +417,7 @@ TEST_CASE("World clear resets storage and state", "[core][world]")
 	world.add(std::make_unique<antenna::Isotropic>("Ant-A", 505));
 	world.add(std::make_unique<timing::PrototypeTiming>("Timing-A", 606));
 	world.add(core::MeshAsset{.id = 707, .name = "Mesh-A", .path = "mesh-a.obj"});
-	world.add(core::MaterialAsset{.id = 808, .name = "Material-A", .gamma_tm = {0.5, 0.0}, .gamma_te = {0.5, 0.0}});
+	world.add(core::MaterialAsset{.id = 808, .name = "Material-A", .relative_permittivity = 0.5, .conductivity = 0.0});
 
 	world.getEventQueue().push({1.0, core::EventType::TX_STREAMING_START, world.getTransmitters().front().get()});
 	world.getSimulationState().t_current = 42.0;

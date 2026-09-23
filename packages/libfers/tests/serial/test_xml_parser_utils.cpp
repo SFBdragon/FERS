@@ -1395,28 +1395,27 @@ TEST_CASE("parseMesh resolves the path within the meshes/ directory", "[serial][
 	REQUIRE(mesh.path == std::filesystem::path("/scenario/dir/meshes/cube.obj"));
 }
 
-TEST_CASE("parseMaterial reads gamma_tm/gamma_te complex coefficients", "[serial][xml_parser_utils]")
+TEST_CASE("parseMaterial reads relative_permittivity/conductivity", "[serial][xml_parser_utils]")
 {
 	core::World world;
 	serial::xml_parser_utils::ParserContext ctx;
 	ctx.world = &world;
 
 	auto doc = loadXml("<material name=\"Aluminium\">"
-					   "  <gamma_tm re=\"0.9\" im=\"0.1\"/>"
-					   "  <gamma_te re=\"0.85\"/>"
+					   "  <relative_permittivity>0.9</relative_permittivity>"
+					   "  <conductivity>0.1</conductivity>"
 					   "</material>");
 	serial::xml_parser_utils::parseMaterial(doc.getRootElement(), ctx);
 
 	REQUIRE(world.getMaterials().size() == 1);
 	const auto& material = world.getMaterials().begin()->second;
 	REQUIRE(material.name == "Aluminium");
-	REQUIRE_THAT(material.gamma_tm.re, WithinAbs(0.9, 1e-9));
-	REQUIRE_THAT(material.gamma_tm.im, WithinAbs(0.1, 1e-9));
-	REQUIRE_THAT(material.gamma_te.re, WithinAbs(0.85, 1e-9));
-	REQUIRE_THAT(material.gamma_te.im, WithinAbs(0.0, 1e-9)); // im defaults to 0 when omitted
+	REQUIRE_THAT(material.relative_permittivity, WithinAbs(0.9, 1e-6));
+	REQUIRE_THAT(material.conductivity, WithinAbs(0.1, 1e-6));
 }
 
-TEST_CASE("parseMaterial rejects a material missing gamma_tm or gamma_te", "[serial][xml_parser_utils]")
+TEST_CASE("parseMaterial rejects a material missing relative_permittivity or conductivity",
+		  "[serial][xml_parser_utils]")
 {
 	core::World world;
 	serial::xml_parser_utils::ParserContext ctx;
@@ -1425,14 +1424,17 @@ TEST_CASE("parseMaterial rejects a material missing gamma_tm or gamma_te", "[ser
 	REQUIRE_THROWS_AS(
 		serial::xml_parser_utils::parseMaterial(loadXml("<material name=\"Aluminium\"/>").getRootElement(), ctx),
 		XmlException);
-	REQUIRE_THROWS_AS(serial::xml_parser_utils::parseMaterial(
-						  loadXml("<material name=\"Aluminium\"><gamma_tm re=\"0.9\"/></material>").getRootElement(),
-						  ctx),
-					  XmlException);
-	REQUIRE_THROWS_AS(serial::xml_parser_utils::parseMaterial(
-						  loadXml("<material name=\"Aluminium\"><gamma_te re=\"0.9\"/></material>").getRootElement(),
-						  ctx),
-					  XmlException);
+	REQUIRE_THROWS_AS(
+		serial::xml_parser_utils::parseMaterial(
+			loadXml("<material name=\"Aluminium\"><relative_permittivity>0.9</relative_permittivity></material>")
+				.getRootElement(),
+			ctx),
+		XmlException);
+	REQUIRE_THROWS_AS(
+		serial::xml_parser_utils::parseMaterial(
+			loadXml("<material name=\"Aluminium\"><conductivity>0.9</conductivity></material>").getRootElement(),
+			ctx),
+		XmlException);
 }
 
 TEST_CASE("parseTarget resolves an optional geometry element", "[serial][xml_parser_utils]")
@@ -1445,7 +1447,8 @@ TEST_CASE("parseTarget resolves an optional geometry element", "[serial][xml_par
 	radar::Platform platform("plat");
 
 	world.add(core::MeshAsset{.id = 10, .name = "Cube", .path = "/scenario/dir/meshes/cube.obj"});
-	world.add(core::MaterialAsset{.id = 20, .name = "Aluminium", .gamma_tm = {1.0, 0.0}, .gamma_te = {1.0, 0.0}});
+	world.add(
+		core::MaterialAsset{.id = 20, .name = "Aluminium", .relative_permittivity = 1.0, .conductivity = 0.0});
 
 	std::unordered_map<std::string, SimId> const w_refs;
 	std::unordered_map<std::string, SimId> const a_refs;

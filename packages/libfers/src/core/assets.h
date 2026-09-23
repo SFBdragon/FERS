@@ -36,10 +36,8 @@ namespace core
 
 	/**
 	 * @struct MaterialAsset
-	 * @brief A named surface material definition.
-	 *
-	 * Reflectivity is given as a complex, per-polarization `gamma_tm`/`gamma_te` pair, used by the
-	 * ray-tracing PO/GO model's reflection/current calculations.
+	 * @brief A named surface material definition, used by the ray-tracing PO/GO model's
+	 * reflection/current calculations.
 	 */
 	struct MaterialAsset
 	{

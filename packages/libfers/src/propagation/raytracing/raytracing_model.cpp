@@ -1,6 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 //
-// TODO
+// Copyright (c) 2026-present FERS Contributors (see AUTHORS.md).
 //
+// See the GNU GPLv2 LICENSE file in the FERS project root for more information.
 
 #include "raytracing_model.h"
 
@@ -11,6 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <ranges>
 #include <span>
 #include <unordered_map>
 #include <utility>
@@ -84,16 +87,16 @@ namespace propagation::raytracing
 		}
 	}
 
-	template <std::ranges::input_range I, typename Proj = std::identity>
+	template <std::ranges::forward_range I, typename Proj = std::identity>
 	static void buildRadarBuffer(const std::span<const RealType> times,
-								 const std::unordered_map<SimId, uint32_t>& antenna_id_to_index, I&& items,
+								 const std::unordered_map<SimId, uint32_t>& antenna_id_to_index, const I& items,
 								 std::vector<ActiveAntenna>& antennae_out, Proj proj = {}) noexcept
 	{
 		antennae_out.clear();
 
 		for (const auto t : times)
 		{
-			for (auto&& item : items)
+			for (auto& item : items)
 			{
 				const radar::Radar& radar = std::invoke(proj, item);
 
@@ -126,30 +129,6 @@ namespace propagation::raytracing
 			job_out.rx_flags.push_back(static_cast<RxFlags>(flags));
 		}
 	}
-
-	/**
-	 * @brief A `(source_times_index, dest_index, path_id)` key. Contributions sharing a key are
-	 * ray-tube samples along the same TX->facet-sequence->RX path, at the same timestep.
-	 */
-	struct ContributionGroupKey
-	{
-		/// `(source_times_index << 32) | dest_index`.
-		uint64_t coarse;
-		uint64_t path_id;
-
-		bool operator==(const ContributionGroupKey&) const = default;
-	};
-
-	struct ContributionGroupKeyHash
-	{
-		size_t operator()(const ContributionGroupKey& k) const
-		{
-			return std::hash<uint64_t>{}(k.coarse) ^ (std::hash<uint64_t>{}(k.path_id) << 1);
-		}
-	};
-
-	using ContributionGroups =
-		std::unordered_map<ContributionGroupKey, std::vector<const Contribution*>, ContributionGroupKeyHash>;
 
 	ContributionGroups groupContributions(const std::vector<Contribution>& contributions)
 	{
@@ -322,9 +301,12 @@ namespace propagation::raytracing
 		carrier_frequencies_across_times.reserve(job.times.size() * sources.size());
 		for (auto t : job.times)
 			for (const auto& src : sources)
-				carrier_frequencies_across_times.push_back(src.transmitter->getSignal()->getCarrier());
-		// TODO_SHAUN swap the above for
-		// src.transmitter->getSignal()->getModulatedCarrier(t - src.segment_start));
+				// TODO_SHAUN improve? I don't think prop model should be handling the carrier dropping out itself.
+				// It's not designed to distinguish paths dropping out for different reasons.
+				// I think that should be accounted for later by the rest of FERS.
+				carrier_frequencies_across_times.push_back(src.transmitter->getSignal()
+															   ->getModulatedCarrier(t - src.segment_start)
+															   .value_or(src.transmitter->getSignal()->getCarrier()));
 
 		buildCarrierBuffers(carrier_frequencies_across_times, job.times.size(), sources.size(), job);
 

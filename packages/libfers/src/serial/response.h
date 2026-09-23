@@ -230,7 +230,7 @@ namespace serial
 		 *
 		 * With at least two real points, rx_time, delay and phase_delay are all linearly
 		 * extrapolated from the nearest two real points, using the same (possibly
-		 * Doppler-compressed or -stretched) time step observed there -- not a fixed
+		 * Doppler-compressed or -stretched) time step observed there, not a fixed
 		 * controlPointEdgePeriod() width.
 		 * This does matter. For example, two Responses covering the same
 		 * continuous physical path but split by a path_id change (as ray tracing can do)

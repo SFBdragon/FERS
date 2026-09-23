@@ -850,6 +850,15 @@ namespace antenna
 		{
 			j["pattern"] = "isotropic";
 		}
+
+		const auto pol = a.getPolarisation();
+		if (pol.horizontal != ComplexType(1.0, 0.0) || pol.veritcal != ComplexType(0.0, 0.0))
+		{
+			j["polarisation_h_re"] = pol.horizontal.real();
+			j["polarisation_h_im"] = pol.horizontal.imag();
+			j["polarisation_v_re"] = pol.veritcal.real();
+			j["polarisation_v_im"] = pol.veritcal.imag();
+		}
 	}
 
 	void from_json(const nlohmann::json& j, std::unique_ptr<Antenna>& ant) // NOLINT(*-use-internal-linkage)
@@ -906,6 +915,22 @@ namespace antenna
 		}
 
 		ant->setEfficiencyFactor(j.value("efficiency", 1.0));
+
+		if (j.contains("polarisation_h_re") || j.contains("polarisation_h_im") || j.contains("polarisation_v_re") ||
+			j.contains("polarisation_v_im"))
+		{
+			try
+			{
+				ant->setPolarisation(JonesPolarisation{
+					.horizontal = ComplexType{j.value("polarisation_h_re", 0.0), j.value("polarisation_h_im", 0.0)},
+					.veritcal = ComplexType{j.value("polarisation_v_re", 0.0), j.value("polarisation_v_im", 0.0)}});
+			}
+			catch (const std::runtime_error& e)
+			{
+				LOG(logging::Level::WARNING, "Antenna '{}' has an invalid polarisation ({}), assuming horizontal.",
+					name, e.what());
+			}
+		}
 	}
 }
 

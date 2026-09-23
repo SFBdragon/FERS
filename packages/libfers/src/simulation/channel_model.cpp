@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <memory>
 #include <string_view>
@@ -28,10 +29,10 @@
 #include "core/config.h"
 #include "core/logging.h"
 #include "core/parameters.h"
-#include "core/sim_id.h"
 #include "core/world.h"
 #include "interpolation/interpolation_point.h"
 #include "math/geometry_ops.h"
+#include "propagation/common.h"
 #include "propagation/pointscatter/pointscatter.h"
 #include "propagation/propagation_model.h"
 #include "radar/radar_obj.h"
@@ -631,15 +632,12 @@ namespace simulation
 			return;
 		}
 
-		std::unordered_map<std::pair<uint64_t, Receiver*>, std::unique_ptr<serial::Response>, PairHash> responses;
-
-
 		const auto tx_duration = tx.getSignal()->getPulseWaveform()->getDuration();
 		const auto end_tx_time = start_tx_time + tx_duration;
 		const auto sample_period = 1.0 / params::simSamplingRate();
-		const auto point_count = static_cast<size_t>(std::ceil(tx_duration * params::simSamplingRate()));
+		const auto point_count = static_cast<uint32_t>(std::ceil(tx_duration * params::simSamplingRate()));
 		std::vector<RealType> times(point_count + 1);
-		for (size_t i = 0; i < point_count; ++i)
+		for (uint32_t i = 0; i < point_count; ++i)
 		{
 			times[i] = start_tx_time + i * sample_period;
 		}
@@ -650,40 +648,41 @@ namespace simulation
 		// The timestepping is internal to allow for batching across timesteps.
 		const auto timesteps_paths = prop.findTxToRxPaths(ctx, tx, times);
 
+		std::unordered_map<uint64_t, std::pair<std::unique_ptr<serial::Response>, Receiver*>> responses;
+
 		for (const auto& timesteps : timesteps_paths)
 		{
 			for (const auto& path : timesteps.paths)
 			{
-				auto phase_delay = -path.delay * 2.0 * PI * tx.getSignal()->getCarrier();
+				auto phase_delay = -path.delay * 2.0 * PI * tx.getSignal()->getCarrier() + std::arg(path.gain);
 
-				const interp::InterpPoint point{.gain = path.gain,
+				const interp::InterpPoint point{.gain = std::sqrt(std::norm(path.gain)),
 												.rx_time = timesteps.tx_time + path.delay,
 												.delay = path.delay,
 												.phase_delay = phase_delay};
 
-				auto key = std::pair{path.path_id, path.receiver};
-				if (responses.contains(key))
+				if (responses.contains(path.path_id))
 				{
 					// TODO_SHAUN Consider adding a maximum number of points after which we
 					// consider a separate response to be occuring?
 					// This handles the case of momentary occlusion.
 					// Currently, we assume that if we miss a point, it was just missed by
 					// the propagation model. Shaun expects this to be common with the ray tracer.
-					responses.at(key)->addInterpPoint(point);
+					responses.at(path.path_id).first->addInterpPoint(point);
 				}
 				else
 				{
 					responses.insert({
-						key,
-						std::make_unique<serial::Response>(tx.getSignal(), point),
+						path.path_id,
+						{std::make_unique<serial::Response>(tx.getSignal(), point), path.receiver},
 					});
 				}
 			}
 		}
 
-		for (auto& [k, response] : responses)
+		for (auto& [k, v] : responses)
 		{
-			routeResponse(k.second, std::move(response));
+			routeResponse(v.second, std::move(v.first));
 		}
 		responses.clear(); // To be explicit: the items are invalidated by the above.
 	}
@@ -779,15 +778,20 @@ namespace simulation
 				const Vec3 u_tx_tgt = vec_tx_tgt / range;
 				const RealType gt = computeAntennaGain(&tx_ctx.transmitter, u_tx_tgt, time, tx_ctx.lambda);
 				const RealType gr = computeAntennaGain(&rx_ctx.receiver, u_tx_tgt, time, tx_ctx.lambda);
+				const auto tx_pol =
+					propagation::pointscatter::computeAntennaPolarisation(&tx_ctx.transmitter, vec_tx_tgt, time);
+				const auto rx_pol =
+					propagation::pointscatter::computeAntennaPolarisation(&rx_ctx.receiver, vec_tx_tgt, time);
 				SVec3 in_angle(u_tx_tgt);
 				SVec3 out_angle(-u_tx_tgt);
 				const RealType rcs = target->getRcs(in_angle, out_angle, time);
-				const RealType power_ratio = propagation::pointscatter::computeReflectedPathPower(
-					gt, gr, rcs, tx_ctx.lambda, range, range, rx_ctx.no_loss);
+				const auto gain = propagation::pointscatter::computeReflectedPathGain(
+					gt, gr, tx_pol, rx_pol, vec_tx_tgt, -vec_tx_tgt, range, range, rcs, tx_ctx.lambda, rx_ctx.no_loss);
+				const RealType power_ratio = std::abs(gain) * std::abs(gain);
 				const RealType pr_watts = tx_ctx.radiated_power * power_ratio;
-				const RealType pr_unit_watts = tx_ctx.radiated_power *
-					propagation::pointscatter::computeReflectedPathPower(gt, gr, 1.0, tx_ctx.lambda, range, range,
-																		 rx_ctx.no_loss);
+				const auto unit_gain = propagation::pointscatter::computeReflectedPathGain(
+					gt, gr, tx_pol, rx_pol, vec_tx_tgt, -vec_tx_tgt, range, range, 1.0, tx_ctx.lambda, rx_ctx.no_loss);
+				const RealType pr_unit_watts = tx_ctx.radiated_power * std::abs(unit_gain) * std::abs(unit_gain);
 
 				links.push_back({.type = LinkType::Monostatic,
 								 .quality = isSignalStrong(pr_unit_watts, rx_ctx.receiver.getNoiseTemperature())
@@ -821,8 +825,13 @@ namespace simulation
 			const Vec3 u_tx_rx = vec_direct / range;
 			const RealType gt = computeAntennaGain(&tx_ctx.transmitter, u_tx_rx, time, tx_ctx.lambda);
 			const RealType gr = computeAntennaGain(&rx_ctx.receiver, -u_tx_rx, time, tx_ctx.lambda);
-			const RealType power_ratio =
-				propagation::pointscatter::computeDirectPathPower(gt, gr, tx_ctx.lambda, range, rx_ctx.no_loss);
+			const auto tx_pol =
+				propagation::pointscatter::computeAntennaPolarisation(&tx_ctx.transmitter, vec_direct, time);
+			const auto rx_pol =
+				propagation::pointscatter::computeAntennaPolarisation(&rx_ctx.receiver, -vec_direct, time);
+			const auto gain =
+				propagation::computeDirectPathGain(gt, gr, tx_pol, rx_pol, tx_ctx.lambda, range, rx_ctx.no_loss);
+			const RealType power_ratio = propagation::cabs(gain) * propagation::cabs(gain);
 			const RealType pr_watts = tx_ctx.radiated_power * power_ratio;
 
 			links.push_back({.type = LinkType::DirectTxRx,
@@ -852,17 +861,29 @@ namespace simulation
 
 				const Vec3 u_tx_tgt = vec_tx_tgt / r1;
 				const Vec3 u_tgt_rx = vec_tgt_rx / r2;
+
+				// computeReflectedPathGain requires tx_to_tgt and tgt_to_rx not to point in exactly
+				// the same direction (forward scatter).
+				if (math::dotProduct(u_tx_tgt, u_tgt_rx) > 1.0 - EPSILON)
+				{
+					continue;
+				}
 				const RealType gt = computeAntennaGain(&tx_ctx.transmitter, u_tx_tgt, time, tx_ctx.lambda);
 				const RealType gr = computeAntennaGain(&rx_ctx.receiver, -u_tgt_rx, time, tx_ctx.lambda);
+				const auto tx_pol =
+					propagation::pointscatter::computeAntennaPolarisation(&tx_ctx.transmitter, vec_tx_tgt, time);
+				const auto rx_pol =
+					propagation::pointscatter::computeAntennaPolarisation(&rx_ctx.receiver, -vec_tgt_rx, time);
 				SVec3 in_angle(u_tx_tgt);
 				SVec3 out_angle(-u_tgt_rx);
 				const RealType rcs = target->getRcs(in_angle, out_angle, time);
-				const RealType power_ratio = propagation::pointscatter::computeReflectedPathPower(
-					gt, gr, rcs, tx_ctx.lambda, r1, r2, rx_ctx.no_loss);
+				const auto gain = propagation::pointscatter::computeReflectedPathGain(
+					gt, gr, tx_pol, rx_pol, vec_tx_tgt, vec_tgt_rx, r1, r2, rcs, tx_ctx.lambda, rx_ctx.no_loss);
+				const RealType power_ratio = std::abs(gain) * std::abs(gain);
 				const RealType pr_watts = tx_ctx.radiated_power * power_ratio;
-				const RealType pr_unit_watts = tx_ctx.radiated_power *
-					propagation::pointscatter::computeReflectedPathPower(gt, gr, 1.0, tx_ctx.lambda, r1, r2,
-																		 rx_ctx.no_loss);
+				const auto unit_gain = propagation::pointscatter::computeReflectedPathGain(
+					gt, gr, tx_pol, rx_pol, vec_tx_tgt, vec_tgt_rx, r1, r2, 1.0, tx_ctx.lambda, rx_ctx.no_loss);
+				const RealType pr_unit_watts = tx_ctx.radiated_power * std::abs(unit_gain) * std::abs(unit_gain);
 
 				links.push_back({.type = LinkType::BistaticTgtRx,
 								 .quality = isSignalStrong(pr_unit_watts, rx_ctx.receiver.getNoiseTemperature())

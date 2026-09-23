@@ -217,8 +217,8 @@ TEST_CASE("PulseWaveform render scales output by the amplitude parameter", "[sig
 	params::setOversampleRatio(1);
 
 	// At exactly zero fractional delay the render filter is an exact identity (see
-	// test_response.cpp for why), so with delay == 0.0 the rendered output is just
-	// the loaded samples scaled by the amplitude parameter -- no mock needed.
+	// test_response.cpp for why), so with delay == 0.0 the rendered output is
+	// the loaded samples scaled by the amplitude parameter, no mock needed.
 	const std::vector<ComplexType> input = {ComplexType{1.0, 0.0}, ComplexType{2.0, -1.0}};
 	fers_signal::PulseWaveform signal;
 	signal.load(input, static_cast<unsigned>(input.size()), 1.0);

@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
+//
+// Copyright (c) 2026-present FERS Contributors (see AUTHORS.md).
+//
+// See the GNU GPLv2 LICENSE file in the FERS project root for more information.
+
 #include "antenna_model.h"
 
 #include <cstdint>
@@ -34,7 +40,10 @@ namespace propagation::raytracing
 					const RealType azimuth = (static_cast<RealType>(j) / az_denominator) * 2.0 * PI - PI;
 					const math::SVec3 sample_angle(1.0, azimuth, elevation);
 					// H5Antenna::isWavelengthDependent() is false; the wavelength argument is unused.
-					const RealType gain = antenna.getGain(sample_angle, ref_angle, 1.0);
+					// getGain() already folds in the antenna's efficiency factor, but so does
+					// sampleAntennaModel (via AntennaModel::efficiency) for every kind uniformly -
+					// divide it back out here so it isn't applied twice for the baked Grid2D kind.
+					const RealType gain = antenna.getGain(sample_angle, ref_angle, 1.0) / antenna.getEfficiencyFactor();
 					gains_buffer[buffer_offset + i * az_count + j] = static_cast<float>(gain);
 				}
 			}
@@ -48,6 +57,10 @@ namespace propagation::raytracing
 	{
 		AntennaModel result{};
 		result.efficiency = antenna.getEfficiencyFactor();
+
+		const auto pol = antenna.getPolarisation();
+		result.horizontal_pol = CFloat{float(pol.horizontal.real()), float(pol.horizontal.imag())};
+		result.vertical_pol = CFloat{float(pol.veritcal.real()), float(pol.veritcal.imag())};
 
 		if (dynamic_cast<const antenna::Isotropic*>(&antenna) != nullptr)
 		{

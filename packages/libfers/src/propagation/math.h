@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0-only
 //
-// TODO_SHAUN
+// Copyright (c) 2026-present FERS Contributors (see AUTHORS.md).
 //
+// See the GNU GPLv2 LICENSE file in the FERS project root for more information.
 
 #pragma once
 
-// TODO_SHAUN potentially consider dropping this dependency?
 #include "linalg.h"
 
 #ifndef HC_FN
@@ -35,19 +36,24 @@ namespace propagation
 	/// Speed of light in a vacuum. Meters per second.
 	/// https://physics.nist.gov/cgi-bin/cuu/Value?c
 	/// Accessed 2026-09-15
-	constexpr float C = 299792458.0f;
+	constexpr double C = 299792458.0;
 
 	// Don't use HLSL/CUDA/HIP naming convention to mitigate naming clashes and confusion.
 	// They use double3/float2/uint4 etc.
-	//
-	// We'll use `vecnt` where `n` is the number of elements and
-	// `t` is f/d/c/u/i (float, double, complex, uint, int).
-	// Complex numbers are always double-precsion for our purposes.
+	// We'll use PascalCase versions to distinguish our own types, inline with FERS naming convention.
 
-	using Vec2f = linalg::aliases::float2;
 	using Uint3 = linalg::aliases::uint3;
-	using Float3 = linalg::aliases::float3;
-	using Double3 = linalg::aliases::double3;
+
+	template <typename Real>
+	using Real2 = linalg::vec<Real, 2>;
+
+	template <typename Real>
+	using Real3 = linalg::vec<Real, 3>;
+	using Float3 = Real3<float>;
+	using Double3 = Real3<double>;
+
+	template <typename Real>
+	using Real2x2 = linalg::mat<Real, 2, 2>;
 
 	using Float3x4 = linalg::aliases::float3x4;
 
@@ -58,11 +64,15 @@ namespace propagation
 	 * local +X; `rotateLocalToWorld(AzEl{0,0}, ...)`'s boresight direction is
 	 * `(cos(az)cos(el), sin(az)cos(el), sin(el))`, i.e. `Vec3(SVec3(1, az, el))`.
 	 */
+	template <typename Real>
 	struct AzEl
 	{
-		float azimuth{};
-		float elevation{};
+		Real azimuth{};
+		Real elevation{};
 	};
+
+	using FloatAzEl = AzEl<float>;
+	using DoubleAzEl = AzEl<double>;
 
 	/**
 	 * @brief Rotates a local direction (in the same az/el spherical convention as `SVec3` - see
@@ -72,14 +82,15 @@ namespace propagation
 	 * "yaw then pitch, no roll" rotation that carries local +X to
 	 * `Vec3(SVec3(1, rot.azimuth, rot.elevation))`) and applying it to `local_dir`.
 	 */
-	HC_FN Float3 rotateLocalToWorld(const AzEl& rot, const Float3& local_dir)
+	template <typename Real>
+	HC_FN Real3<Real> rotateLocalToWorld(const AzEl<Real>& rot, const Real3<Real>& local_dir)
 	{
-		const float caz = cosf(rot.azimuth), saz = sinf(rot.azimuth);
-		const float cel = cosf(rot.elevation), sel = sinf(rot.elevation);
+		const Real caz = std::cos(rot.azimuth), saz = std::sin(rot.azimuth);
+		const Real cel = std::cos(rot.elevation), sel = std::sin(rot.elevation);
 
-		return Float3{caz * cel * local_dir.x - saz * local_dir.y - caz * sel * local_dir.z,
-					  saz * cel * local_dir.x + caz * local_dir.y - saz * sel * local_dir.z,
-					  sel * local_dir.x + cel * local_dir.z};
+		return Real3<Real>{caz * cel * local_dir.x - saz * local_dir.y - caz * sel * local_dir.z,
+						   saz * cel * local_dir.x + caz * local_dir.y - saz * sel * local_dir.z,
+						   sel * local_dir.x + cel * local_dir.z};
 	}
 
 	/**
@@ -87,14 +98,15 @@ namespace propagation
 	 * coordinates. Since the rotation is orthonormal, this is just its transpose applied to
 	 * `world_dir`.
 	 */
-	HC_FN Float3 rotateWorldToLocal(const AzEl& rot, const Float3& world_dir)
+	template <typename Real>
+	HC_FN Real3<Real> rotateWorldToLocal(const AzEl<Real>& rot, const Real3<Real>& world_dir)
 	{
-		const float caz = cosf(rot.azimuth), saz = sinf(rot.azimuth);
-		const float cel = cosf(rot.elevation), sel = sinf(rot.elevation);
+		const Real caz = std::cos(rot.azimuth), saz = std::sin(rot.azimuth);
+		const Real cel = std::cos(rot.elevation), sel = std::sin(rot.elevation);
 
-		return Float3{caz * cel * world_dir.x + saz * cel * world_dir.y + sel * world_dir.z,
-					  -saz * world_dir.x + caz * world_dir.y,
-					  -caz * sel * world_dir.x - saz * sel * world_dir.y + cel * world_dir.z};
+		return Real3<Real>{caz * cel * world_dir.x + saz * cel * world_dir.y + sel * world_dir.z,
+						   -saz * world_dir.x + caz * world_dir.y,
+						   -caz * sel * world_dir.x - saz * sel * world_dir.y + cel * world_dir.z};
 	}
 
 	template <typename Real>
@@ -162,15 +174,15 @@ namespace propagation
 		return Complex(a.re, -a.im);
 	}
 	template <typename Real>
-	HC_FN constexpr Complex<Real> mul_i(Complex<Real> a)
+	HC_FN constexpr Complex<Real> mul_i(Complex<Real> a) // a * j
 	{
 		return Complex(-a.im, a.re);
-	} // a * j
+	}
 	template <typename Real>
-	HC_FN constexpr Complex<Real> cexp_i(Real x)
+	HC_FN constexpr Complex<Real> cexp_i(Real x) // e^{jx}
 	{
 		return Complex<Real>(std::cos(x), std::sin(x));
-	} // e^{jx}
+	}
 	template <typename Real>
 	HC_FN constexpr Complex<Real> csqrt(Complex<Real> a)
 	{
@@ -193,26 +205,107 @@ namespace propagation
 	using CFloat = Complex<float>;
 	using CDouble = Complex<double>;
 
-	struct CFloat3
+
+	template <typename Real>
+	struct Complex2
 	{
-		CFloat x, y, z;
+		Complex<Real> x, y;
 	};
 
-	HC_FN constexpr CFloat3 operator+(CFloat3 a, CFloat3 b) { return CFloat3{a.x + b.x, a.y + b.y, a.z + b.z}; }
-	HC_FN constexpr CFloat3 operator-(const CFloat3& v) { return CFloat3{-v.x, -v.y, -v.z}; }
-	HC_FN constexpr CFloat3 operator*(const Float3& r, CFloat c) { return CFloat3{r.x * c, r.y * c, r.z * c}; }
-	HC_FN constexpr CFloat3 operator*(CFloat c, const Float3& r) { return r * c; }
-	HC_FN constexpr CFloat3 operator*(const CFloat3& v, CFloat c) { return CFloat3{v.x * c, v.y * c, v.z * c}; }
-	HC_FN constexpr CFloat3 operator*(CFloat c, const CFloat3& v) { return v * c; }
-	HC_FN constexpr CFloat3 operator*(const CFloat3& v, float s) { return CFloat3{v.x * s, v.y * s, v.z * s}; }
-	HC_FN constexpr CFloat3 operator/(const CFloat3& v, float s) { return CFloat3{v.x / s, v.y / s, v.z / s}; }
-
-	HC_FN constexpr CFloat3 cross(const Float3& a, const CFloat3& b)
+	template <typename Real>
+	HC_FN constexpr Complex2<Real> operator+(Complex2<Real> a, Complex2<Real> b)
 	{
-		return CFloat3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+		return Complex2{a.x + b.x, a.y + b.y};
 	}
-	HC_FN constexpr CFloat dot(const CFloat3& a, const Float3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
-	HC_FN constexpr CFloat dot_no_conj(const CFloat3& a, const CFloat3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+	template <typename Real>
+	HC_FN constexpr Complex2<Real> operator-(const Complex2<Real>& v)
+	{
+		return Complex2{-v.x, -v.y, -v.z};
+	}
+	template <typename Real>
+	HC_FN constexpr Complex2<Real> operator*(const Real2<Real>& r, Complex<Real> c)
+	{
+		return Complex2{r.x * c, r.y * c, r.z * c};
+	}
+	template <typename Real>
+	HC_FN constexpr Complex2<Real> operator*(Complex<Real> c, const Real2<Real>& r)
+	{
+		return r * c;
+	}
+	template <typename Real>
+	HC_FN constexpr Complex2<Real> operator*(const Real2x2<Real>& m, Complex2<Real> v)
+	{
+		return Complex2{m.x.x * v.x + m.y.x * v.y, m.x.y * v.x + m.y.y * v.y};
+	}
+
+	template <typename Real>
+	struct Complex3
+	{
+		Complex<Real> x, y, z;
+	};
+
+	template <typename Real>
+	HC_FN constexpr Complex3<Real> operator+(Complex3<Real> a, Complex3<Real> b)
+	{
+		return Complex3{a.x + b.x, a.y + b.y, a.z + b.z};
+	}
+	template <typename Real>
+	HC_FN constexpr Complex3<Real> operator-(const Complex<Real>& v)
+	{
+		return Complex3{-v.x, -v.y, -v.z};
+	}
+	template <typename Real>
+	HC_FN constexpr Complex3<Real> operator*(const Real3<Real>& r, Complex<Real> c)
+	{
+		return Complex3{r.x * c, r.y * c, r.z * c};
+	}
+	template <typename Real>
+	HC_FN constexpr Complex3<Real> operator*(Complex<Real> c, const Real3<Real>& r)
+	{
+		return r * c;
+	}
+	template <typename Real>
+	HC_FN constexpr Complex3<Real> operator*(const Complex3<Real>& v, Complex<Real> c)
+	{
+		return Complex3{v.x * c, v.y * c, v.z * c};
+	}
+	template <typename Real>
+	HC_FN constexpr Complex3<Real> operator*(Complex<Real> c, const Complex3<Real>& v)
+	{
+		return v * c;
+	}
+	template <typename Real>
+	HC_FN constexpr Complex3<Real> operator*(const Complex3<Real>& v, Real s)
+	{
+		return Complex3{v.x * s, v.y * s, v.z * s};
+	}
+	template <typename Real>
+	HC_FN constexpr Complex3<Real> operator/(const Complex3<Real>& v, Real s)
+	{
+		return Complex3{v.x / s, v.y / s, v.z / s};
+	}
+
+	template <typename Real>
+	HC_FN constexpr Complex3<Real> cross(const Real3<Real>& a, const Complex3<Real>& b)
+	{
+		return Complex3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+	}
+	template <typename Real>
+	HC_FN constexpr Complex<Real> dot(const Complex3<Real>& a, const Real3<Real>& b)
+	{
+		return a.x * b.x + a.y * b.y + a.z * b.z;
+	}
+	template <typename Real>
+	HC_FN constexpr Complex<Real> dot_no_conj(const Complex3<Real>& a, const Complex3<Real>& b)
+	{
+		return a.x * b.x + a.y * b.y + a.z * b.z;
+	}
+
+	using CFloat3 = Complex3<float>;
+	using CDouble3 = Complex3<double>;
+
+
+	// --- Affine local<->global space geometry transforms ------------------------------------------- //
 
 	/// Applies a 3x4 affine matrix to a 3-vector.
 	/// Result = A * v + t

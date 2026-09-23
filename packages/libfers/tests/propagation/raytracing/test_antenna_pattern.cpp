@@ -7,15 +7,17 @@
 #include <highfive/highfive.hpp>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "antenna/antenna_factory.h"
 #include "math/geometry_ops.h"
-#include "propagation/raytracing/antenna_pattern.h"
+#include "propagation/raytracing/antenna_model.h"
 #include "propagation/raytracing/sbr_impl.h"
 
 using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
 namespace rt = propagation::raytracing;
+namespace prop = propagation;
 
 namespace
 {
@@ -28,10 +30,10 @@ namespace
 
 	// A local direction, expressed as a unit Cartesian vector, matching SVec3(1, azimuth,
 	// elevation)'s convention exactly (boresight = local +X).
-	rt::Double3 localDir(const RealType azimuth, const RealType elevation)
+	prop::Float3 localDir(const RealType azimuth, const RealType elevation)
 	{
-		return rt::Double3{std::cos(azimuth) * std::cos(elevation), std::sin(azimuth) * std::cos(elevation),
-						   std::sin(elevation)};
+		return prop::Float3{float(std::cos(azimuth) * std::cos(elevation)), float(std::sin(azimuth) * std::cos(elevation)),
+						  float(std::sin(elevation))};
 	}
 
 	// Evaluates the CPU antenna's own getGain() in its local frame (zero-rotation boresight,
@@ -42,10 +44,24 @@ namespace
 		return antenna.getGain(math::SVec3(1.0, azimuth, elevation), math::SVec3(1.0, 0.0, 0.0), wavelength);
 	}
 
-	double gpuGain(const rt::AntennaModel& model, const RealType azimuth, const RealType elevation,
-				  const RealType wavelength)
+	// Evaluates the device-side model exactly as the ray tracer would: through SbrParams, which
+	// holds a Grid2D model's baked gains.
+	float gpuGain(const rt::AntennaModel& model, const std::vector<float>& gains_buffer, const RealType azimuth,
+				 const RealType elevation, const RealType wavelength)
 	{
-		return sampleAntennaModel(model, localDir(azimuth, elevation), azimuth, elevation, wavelength);
+		rt::SbrParams params{};
+		params.antenna_gains = gains_buffer.data();
+		return sampleAntennaModel(params, model, localDir(azimuth, elevation), float(azimuth), float(elevation),
+								  float(wavelength));
+	}
+
+	// The (azimuth, elevation) of grid point (j, i) of an az_count x el_count grid, matching
+	// buildAntennaModel's own baking convention exactly (see antenna_model.cpp's bakeGrid).
+	std::pair<RealType, RealType> gridPoint(uint32_t j, uint32_t i, uint32_t az_count, uint32_t el_count)
+	{
+		const RealType azimuth = (RealType(j) / RealType(az_count - 1)) * 2.0 * prop::PI - prop::PI;
+		const RealType elevation = (RealType(i) / RealType(el_count - 1)) * prop::PI - prop::PI / 2.0;
+		return {azimuth, elevation};
 	}
 }
 
@@ -54,10 +70,11 @@ TEST_CASE("buildAntennaModel captures Isotropic as a trivial model", "[raytracin
 	antenna::Isotropic antenna("iso", 1);
 	antenna.setEfficiencyFactor(0.6);
 
-	const auto host_model = rt::buildAntennaModel(antenna);
-	REQUIRE(host_model.model.kind == rt::AntennaKind::Isotropic);
-	REQUIRE_THAT(host_model.model.efficiency, WithinAbs(0.6, 1e-12));
-	REQUIRE_THAT(gpuGain(host_model.model, 0.3, -0.2, 0.03), WithinRel(0.6, 1e-6));
+	std::vector<float> gains_buffer;
+	const auto model = rt::buildAntennaModel(antenna, gains_buffer);
+	REQUIRE(model.kind == rt::AntennaKind::Isotropic);
+	REQUIRE_THAT(model.efficiency, WithinAbs(0.6, 1e-12));
+	REQUIRE_THAT(gpuGain(model, gains_buffer, 0.3, -0.2, 0.03), WithinRel(0.6, 1e-6));
 }
 
 TEST_CASE("buildAntennaModel's Sinc matches antenna::Sinc::getGain exactly", "[raytracing][antenna_pattern]")
@@ -65,13 +82,14 @@ TEST_CASE("buildAntennaModel's Sinc matches antenna::Sinc::getGain exactly", "[r
 	antenna::Sinc antenna("sinc", 2.0, 1.5, 2.0, 1);
 	antenna.setEfficiencyFactor(0.7);
 
-	const auto host_model = rt::buildAntennaModel(antenna);
-	REQUIRE(host_model.model.kind == rt::AntennaKind::Sinc);
+	std::vector<float> gains_buffer;
+	const auto model = rt::buildAntennaModel(antenna, gains_buffer);
+	REQUIRE(model.kind == rt::AntennaKind::Sinc);
 
 	for (const auto& [az, el] : {std::pair{0.0, 0.0}, std::pair{0.3, -0.1}, std::pair{-0.5, 0.2}})
 	{
 		const auto expected = cpuGain(antenna, az, el, 0.03);
-		const auto actual = gpuGain(host_model.model, az, el, 0.03);
+		const auto actual = gpuGain(model, gains_buffer, az, el, 0.03);
 		REQUIRE_THAT(actual, WithinRel(expected, 1e-6));
 	}
 }
@@ -81,13 +99,14 @@ TEST_CASE("buildAntennaModel's Gaussian matches antenna::Gaussian::getGain exact
 	antenna::Gaussian antenna("gauss", 0.8, 1.3, 1);
 	antenna.setEfficiencyFactor(0.4);
 
-	const auto host_model = rt::buildAntennaModel(antenna);
-	REQUIRE(host_model.model.kind == rt::AntennaKind::Gaussian);
+	std::vector<float> gains_buffer;
+	const auto model = rt::buildAntennaModel(antenna, gains_buffer);
+	REQUIRE(model.kind == rt::AntennaKind::Gaussian);
 
 	for (const auto& [az, el] : {std::pair{0.0, 0.0}, std::pair{0.25, -0.15}, std::pair{-0.3, 0.1}})
 	{
 		const auto expected = cpuGain(antenna, az, el, 0.03);
-		const auto actual = gpuGain(host_model.model, az, el, 0.03);
+		const auto actual = gpuGain(model, gains_buffer, az, el, 0.03);
 		REQUIRE_THAT(actual, WithinRel(expected, 1e-6));
 	}
 }
@@ -98,15 +117,18 @@ TEST_CASE("buildAntennaModel's SquareHorn matches antenna::SquareHorn::getGain e
 	antenna::SquareHorn antenna("horn", 0.4, 1);
 	antenna.setEfficiencyFactor(0.9);
 
-	const auto host_model = rt::buildAntennaModel(antenna);
-	REQUIRE(host_model.model.kind == rt::AntennaKind::SquareHorn);
+	std::vector<float> gains_buffer;
+	const auto model = rt::buildAntennaModel(antenna, gains_buffer);
+	REQUIRE(model.kind == rt::AntennaKind::SquareHorn);
 
 	constexpr RealType wavelength = 0.1;
 	for (const auto& [az, el] : {std::pair{0.0, 0.0}, std::pair{0.1, 0.0}, std::pair{0.0, -0.05}})
 	{
 		const auto expected = cpuGain(antenna, az, el, wavelength);
-		const auto actual = gpuGain(host_model.model, az, el, wavelength);
-		REQUIRE_THAT(actual, WithinRel(expected, 1e-6));
+		const auto actual = gpuGain(model, gains_buffer, az, el, wavelength);
+		// Not an exact match: the GPU path's boresight angle passes through a float32 acosf() before
+		// squareHornGain's otherwise-double sinc, so it picks up float rounding - loosened accordingly.
+		REQUIRE_THAT(actual, WithinRel(expected, 1e-5));
 	}
 }
 
@@ -116,21 +138,22 @@ TEST_CASE("buildAntennaModel's Parabolic matches antenna::Parabolic::getGain to 
 	antenna::Parabolic antenna("dish", 1.2, 1);
 	antenna.setEfficiencyFactor(0.8);
 
-	const auto host_model = rt::buildAntennaModel(antenna);
-	REQUIRE(host_model.model.kind == rt::AntennaKind::Parabolic);
+	std::vector<float> gains_buffer;
+	const auto model = rt::buildAntennaModel(antenna, gains_buffer);
+	REQUIRE(model.kind == rt::AntennaKind::Parabolic);
 
 	constexpr RealType wavelength = 0.3;
 	for (const auto& [az, el] : {std::pair{0.0, 0.0}, std::pair{0.1, 0.0}, std::pair{0.0, 0.05}})
 	{
 		const auto expected = cpuGain(antenna, az, el, wavelength);
-		const auto actual = gpuGain(host_model.model, az, el, wavelength);
+		const auto actual = gpuGain(model, gains_buffer, az, el, wavelength);
 		// Not an exact match: the GPU path uses the portable besselJ1Approx, the CPU one uses exact
 		// libm j1() (see antenna_gain.h) - loosened accordingly.
 		REQUIRE_THAT(actual, WithinRel(expected, 1e-5));
 	}
 }
 
-TEST_CASE("buildAntennaModel's Separable1D matches antenna::XmlAntenna::getGain exactly",
+TEST_CASE("buildAntennaModel bakes an XmlAntenna into a Grid2D model matching its samples exactly",
 		  "[raytracing][antenna_pattern]")
 {
 	const auto path = tempFilePath("xml_antenna_model", ".xml");
@@ -154,18 +177,27 @@ TEST_CASE("buildAntennaModel's Separable1D matches antenna::XmlAntenna::getGain 
 	antenna::XmlAntenna antenna("xml", path.string(), 1);
 	antenna.setEfficiencyFactor(0.5);
 
-	const auto host_model = rt::buildAntennaModel(antenna);
+	constexpr uint32_t az_count = 9, el_count = 5;
+	std::vector<float> gains_buffer;
+	const auto model = rt::buildAntennaModel(antenna, gains_buffer, az_count, el_count);
 	std::filesystem::remove(path);
 
-	REQUIRE(host_model.model.kind == rt::AntennaKind::Separable1D);
-	REQUIRE(host_model.az_samples.size() == 3);
-	REQUIRE(host_model.el_samples.size() == 3);
+	REQUIRE(model.kind == rt::AntennaKind::Grid2D);
+	REQUIRE(model.params.grid_2d.grid.az_count == az_count);
+	REQUIRE(model.params.grid_2d.grid.el_count == el_count);
+	REQUIRE(gains_buffer.size() == az_count * el_count);
 
-	for (const auto& [az, el] : {std::pair{0.0, 0.0}, std::pair{0.5, 0.5}, std::pair{-1.5, 1.5}})
+	// Sampling exactly at a grid vertex incurs no bilinear interpolation, so it should reproduce
+	// the baked-in getGain() sample (mod float rounding) rather than merely approximating it.
+	for (uint32_t i = 0; i < el_count; ++i)
 	{
-		const auto expected = cpuGain(antenna, az, el, 0.03);
-		const auto actual = gpuGain(host_model.model, az, el, 0.03);
-		REQUIRE_THAT(actual, WithinRel(expected, 1e-6));
+		for (uint32_t j = 0; j < az_count; ++j)
+		{
+			const auto [az, el] = gridPoint(j, i, az_count, el_count);
+			const auto expected = cpuGain(antenna, az, el, 0.03);
+			const auto actual = gpuGain(model, gains_buffer, az, el, 0.03);
+			REQUIRE_THAT(actual, WithinRel(expected, 1e-5));
+		}
 	}
 }
 
@@ -181,13 +213,14 @@ TEST_CASE("buildAntennaModel's Grid2D wraps an H5Antenna pattern", "[raytracing]
 	antenna::H5Antenna antenna("h5", path.string(), 1);
 	antenna.setEfficiencyFactor(0.3);
 
-	const auto host_model = rt::buildAntennaModel(antenna, 10, 6);
+	std::vector<float> gains_buffer;
+	const auto model = rt::buildAntennaModel(antenna, gains_buffer, 10, 6);
 	std::filesystem::remove(path);
 
-	REQUIRE(host_model.model.kind == rt::AntennaKind::Grid2D);
-	REQUIRE(host_model.model.params.grid_2d.grid.az_count == 10);
-	REQUIRE(host_model.model.params.grid_2d.grid.el_count == 6);
-	REQUIRE(host_model.grid.size() == 60);
+	REQUIRE(model.kind == rt::AntennaKind::Grid2D);
+	REQUIRE(model.params.grid_2d.grid.az_count == 10);
+	REQUIRE(model.params.grid_2d.grid.el_count == 6);
+	REQUIRE(gains_buffer.size() == 60);
 }
 
 TEST_CASE("buildAntennaModel rejects a degenerate grid resolution for H5Antenna", "[raytracing][antenna_pattern]")
@@ -200,8 +233,9 @@ TEST_CASE("buildAntennaModel rejects a degenerate grid resolution for H5Antenna"
 	}
 
 	antenna::H5Antenna antenna("h5", path.string(), 1);
-	REQUIRE_THROWS_AS(rt::buildAntennaModel(antenna, 1, 10), std::invalid_argument);
-	REQUIRE_THROWS_AS(rt::buildAntennaModel(antenna, 10, 1), std::invalid_argument);
+	std::vector<float> gains_buffer;
+	REQUIRE_THROWS_AS(rt::buildAntennaModel(antenna, gains_buffer, 1, 10), std::invalid_argument);
+	REQUIRE_THROWS_AS(rt::buildAntennaModel(antenna, gains_buffer, 10, 1), std::invalid_argument);
 
 	std::filesystem::remove(path);
 }

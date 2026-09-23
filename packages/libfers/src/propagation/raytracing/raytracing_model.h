@@ -1,10 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0-only
 //
-// TODO_SHAUN
+// Copyright (c) 2026-present FERS Contributors (see AUTHORS.md).
 //
+// See the GNU GPLv2 LICENSE file in the FERS project root for more information.
 
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -63,6 +66,36 @@ namespace propagation::raytracing
 
 		TraceJobType type;
 	};
+
+	/**
+	 * @brief A `(source_times_index, dest_index, path_id)` key. Contributions sharing a key are
+	 * ray-tube samples along the same TX->facet-sequence->RX path, at the same timestep.
+	 */
+	struct ContributionGroupKey
+	{
+		/// `(source_times_index << 32) | dest_index`.
+		uint64_t coarse;
+		uint64_t path_id;
+
+		bool operator==(const ContributionGroupKey&) const = default;
+	};
+
+	struct ContributionGroupKeyHash
+	{
+		size_t operator()(const ContributionGroupKey& k) const
+		{
+			return std::hash<uint64_t>{}(k.coarse) ^ (std::hash<uint64_t>{}(k.path_id) << 1);
+		}
+	};
+
+	using ContributionGroups =
+		std::unordered_map<ContributionGroupKey, std::vector<const Contribution*>, ContributionGroupKeyHash>;
+
+	/**
+	 * @brief Buckets `contributions` by `(source_times_index, dest_index, path_id)`: ray-tube samples
+	 * along the same TX->facet-sequence->RX path, at the same timestep.
+	 */
+	[[nodiscard]] ContributionGroups groupContributions(const std::vector<Contribution>& contributions);
 
 	/**
 	 * @brief Coherently sums a group of `Contribution`s that share a `path_id` key

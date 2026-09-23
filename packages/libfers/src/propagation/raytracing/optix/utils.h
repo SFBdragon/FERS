@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
+//
+// Copyright (c) 2026-present FERS Contributors (see AUTHORS.md).
+//
+// See the GNU GPLv2 LICENSE file in the FERS project root for more information.
 
 #pragma once
 
@@ -185,17 +190,5 @@ namespace propagation::raytracing::optix
 		size_t _capacity = 0;
 		/// Logical size in use, by count of T. May be less than _capacity after reserve().
 		size_t _size = 0;
-	};
-
-	/**
-	 * @brief A small helper for using std::pair in `unordered_map`s.
-	 */
-	struct PairHash
-	{
-		template <typename T1, typename T2>
-		size_t operator()(const std::pair<T1, T2>& p) const
-		{
-			return std::hash<T1>{}(p.first) ^ (std::hash<T2>{}(p.second) << 1);
-		}
 	};
 }

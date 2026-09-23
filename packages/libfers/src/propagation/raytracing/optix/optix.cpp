@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
+//
+// Copyright (c) 2026-present FERS Contributors (see AUTHORS.md).
+//
+// See the GNU GPLv2 LICENSE file in the FERS project root for more information.
 
 #include "optix.h"
 
@@ -24,15 +29,15 @@
 #include "core/world.h"
 #include "propagation/math.h"
 #include "propagation/propagation_model.h"
-#include "propagation/raytracing/optix/common.h"
+#include "propagation/raytracing/optix/kernel_defs.h"
 #include "propagation/raytracing/optix/utils.h"
 #include "propagation/raytracing/raytracing_model.h"
 #include "propagation/raytracing/sbr_shared.h"
 #include "radar/target.h"
 
-// rt.cu compiled to PTX with nvcc. See `cmake/FersOptiX.cmake`.
+// kernel.cu compiled to PTX with nvcc. See `cmake/FersOptiX.cmake`.
 // Embedded as `devicePrograms_ptx` and `devicePrograms_ptx_len`.
-#include "rt_ptx.h"
+#include "kernel_ptx.h"
 
 namespace propagation::raytracing::optix
 {
@@ -153,9 +158,11 @@ namespace propagation::raytracing::optix
 		char log[2048];
 		size_t log_size = sizeof(log);
 
-		OPTIX_CHECK(optixModuleCreate(_optix_ctx.get(), &_module_comp_options, &_pipeline_comp_options,
-									  reinterpret_cast<const char*>(devicePrograms_ptx), devicePrograms_ptx_len,
-									  &log[0], &log_size, &_module));
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): unsigned char -> char is memory safe
+		const auto* ptx = reinterpret_cast<const char*>(devicePrograms_ptx);
+
+		OPTIX_CHECK(optixModuleCreate(_optix_ctx.get(), &_module_comp_options, &_pipeline_comp_options, ptx,
+									  devicePrograms_ptx_len, &log[0], &log_size, &_module));
 		OPTIX_LOG(log, log_size);
 
 		// ----------------------------------- Raygen programs ----------------------------------- //
@@ -330,13 +337,13 @@ namespace propagation::raytracing::optix
 
 		// Build hitgroup records
 		std::vector<HitgroupRecord> hitgroup_records;
-		for (const auto& _mesh : _meshes)
+		for (const auto& _ : _meshes)
 		{
 			for (size_t rayID = 0; rayID < RAY_TYPE_COUNT; rayID++)
 			{
 				HitgroupRecord rec{};
 				OPTIX_CHECK(optixSbtRecordPackHeader(_hitgroup_programs[rayID], &rec.header));
-				rec.data = _mesh;
+				// We currently don't upload any per-mesh data as OptiX provides the necessary data in the CH program.
 				hitgroup_records.push_back(rec);
 			}
 		}
@@ -456,7 +463,7 @@ namespace propagation::raytracing::optix
 			const auto mat_idx = _material_indices.at(geom->material->id);
 
 			OptixInstance inst{};
-			// instanceId doubles as the material index already — see __closesthit__go in rt.cu,
+			// instanceId doubles as the material index already — see __closesthit__go in kernel.cu,
 			// which reads optixGetInstanceId() straight into shader_params.materials. A real
 			// per-instance-properties buffer (with instanceId as an index into it) is future work
 			// once there's actually per-instance data to store (see common.h's ShaderParams).
@@ -465,6 +472,7 @@ namespace propagation::raytracing::optix
 			inst.visibilityMask = 0xFF;
 			inst.flags = OPTIX_INSTANCE_FLAG_NONE;
 			inst.traversableHandle = _gas_handles[mesh_idx];
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay): OptiX C API uses arrays.
 			computeInstanceTransform(target.get(), t, inst.transform);
 
 			instances.push_back(inst);

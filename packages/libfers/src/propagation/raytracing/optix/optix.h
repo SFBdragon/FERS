@@ -1,6 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 //
-// TODO_SHAUN
+// Copyright (c) 2026-present FERS Contributors (see AUTHORS.md).
 //
+// See the GNU GPLv2 LICENSE file in the FERS project root for more information.
 
 #pragma once
 
@@ -17,7 +19,7 @@
 
 #include "core/config.h"
 #include "core/sim_id.h"
-#include "propagation/raytracing/optix/common.h"
+#include "propagation/raytracing/optix/kernel_defs.h"
 #include "propagation/raytracing/optix/utils.h"
 #include "propagation/raytracing/raytracing_model.h"
 #include "propagation/raytracing/sbr_shared.h"
@@ -34,7 +36,6 @@ namespace propagation::raytracing::optix
 	struct __align__(OPTIX_SBT_RECORD_ALIGNMENT) HitgroupRecord
 	{
 		__align__(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
-		TriangleMeshView data;
 	};
 
 	/// SBT record for a ray miss program. __miss__

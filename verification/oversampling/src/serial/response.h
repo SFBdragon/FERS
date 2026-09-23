@@ -211,7 +211,7 @@ namespace serial
 		 *
 		 * With at least two real points, rx_time, delay and phase_delay are all linearly
 		 * extrapolated from the nearest two real points, using the same time step observed
-		 * there -- not a fixed controlPointEdgePeriod() width.
+		 * there, not a fixed controlPointEdgePeriod() width.
 		 * With only one real point, lead/tail fall back to a fixed controlPointEdgePeriod()
 		 * width with delay/phase_delay copied from that point.
 		 */

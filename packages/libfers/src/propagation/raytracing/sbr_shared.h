@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
+//
+// Copyright (c) 2026-present FERS Contributors (see AUTHORS.md).
+//
+// See the GNU GPLv2 LICENSE file in the FERS project root for more information.
 
 #pragma once
 
@@ -6,35 +11,12 @@
 
 #include "propagation/math.h"
 
-// This file defines most of the propagation logic for the RayTracingModel propagation model.
+// This file defines shared definitions for types used by the SBR-like engine
+// for the RayTracingModel propagation model.
 //
 // ## On Precision
 //
-// Floating point precision is worth careful consideration in FERS.
-// For example, the difference of a facet 1cm wide verses 2cm is important, even 200km away.
-//
-// A number of bounding facts are considered in the approach used:
-// - Double-precision is valuable for cases where a very big number and a very small number are added together,
-//      and the small number must retain a high degree of precision.
-// - OptiX and similar engines trace against 32-bit precision geometry (local mesh space).
-// - This geometry remains in local space (centered at its local origin), so this precision issue is minimal.
-// - FERS may be used for very long-distance radar, e.g. ground-to-space, i.e. 100s of kilometers between objects.
-// - This means that global spacial data and geometry must be in double-precision.
-// - However, normals often don't need to be in double-precision - they're unit-magnitude.
-// - Complex math operations (e.g. sqrt, trig) on GPUs have significant performance gains at 32-bit precision.
-// - Similarly, most physical constants are only known up to roughly single-precision (~11d.p.)
-//      e.g. Z0, E0, material properties, and C by definition.
-// - The carrier frequencies in use are often narrowband approximations to far worse accuracy than 32-bit precision.
-// - Antenna gains are linear, often between 0-1, and are often approximated by interpolation anyway.
-//
-// As such, the following approach is taken to choices of precision:
-// - Local geometry is in single-precision.
-// - Global spatial positions and lengths is kept in double-precision.
-// - Unit vectors' precision is generally chosen to match the precision of the other data in operations.
-// - AzEl orientations are in 32-bit precision.
-// - Carrier frequencies are in 32-bit precision.
-// - Antenna gains are in 32-bit precision.
-// - Material property calculations are in 32-bit precision, and hence so are electric fields.
+// See sbr_impl.h's section of the same name.
 
 namespace propagation::raytracing
 {
@@ -69,8 +51,6 @@ namespace propagation::raytracing
 		///
 		/// Zero for dielectrics, infinity for perfect electric conductors.
 		float conductivity;
-
-		// 2x2 scattering matrix?
 	};
 
 	struct ActiveCarriers
@@ -148,7 +128,7 @@ namespace propagation::raytracing
 	struct ActiveAntenna
 	{
 		Double3 position;
-		AzEl direction;
+		FloatAzEl direction;
 		uint32_t antenna_model_index{};
 	};
 

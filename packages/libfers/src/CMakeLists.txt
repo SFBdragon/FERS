@@ -30,12 +30,14 @@ set(LIBFERS_PRIVATE_HEADERS
 	${CMAKE_CURRENT_LIST_DIR}/processing/finalizer_pipeline.h
 	${CMAKE_CURRENT_LIST_DIR}/propagation/propagation_model.h
 	${CMAKE_CURRENT_LIST_DIR}/propagation/pointscatter/pointscatter.h
-	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/importer.h
-	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/antenna_pattern.h
-	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/math.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/common.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/linalg.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/math.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/mesh_importer.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/antenna_model.h
 	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/sbr_shared.h
 	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/sbr_impl.h
-	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/model.h
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/raytracing_model.h
 	${CMAKE_CURRENT_LIST_DIR}/core/rendering_job.h
 	${CMAKE_CURRENT_LIST_DIR}/core/receiver_output.h
 	${CMAKE_CURRENT_LIST_DIR}/core/simulation_state.h
@@ -109,9 +111,9 @@ set(LIBFERS_SOURCES
 	${CMAKE_CURRENT_LIST_DIR}/radar/transmitter.cpp
 	${CMAKE_CURRENT_LIST_DIR}/propagation/propagation_model.cpp
 	${CMAKE_CURRENT_LIST_DIR}/propagation/pointscatter/pointscatter.cpp
-	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/model.cpp
-	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/importer.cpp
-	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/antenna_pattern.cpp
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/raytracing_model.cpp
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/mesh_importer.cpp
+	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/antenna_model.cpp
 	${CMAKE_CURRENT_LIST_DIR}/serial/json_serializer.cpp
 	${CMAKE_CURRENT_LIST_DIR}/serial/fmcw_validation.cpp
 	${CMAKE_CURRENT_LIST_DIR}/serial/hdf5_output_sink.cpp

@@ -1,5 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
+//
+// Copyright (c) 2026-present FERS Contributors (see AUTHORS.md).
+//
+// See the GNU GPLv2 LICENSE file in the FERS project root for more information.
+
 #include <cmath>
-#include <cstddef>
 #include <cstdint>
 #include <cuda_runtime_api.h>
 #include <optix_device.h>
@@ -7,7 +12,7 @@
 #include <vector_types.h>
 
 #include "propagation/math.h"
-#include "propagation/raytracing/optix/common.h"
+#include "propagation/raytracing/optix/kernel_defs.h"
 #include "propagation/raytracing/sbr_impl.h"
 
 // Get rid of the warnings about the names starting with two underscores.
@@ -20,18 +25,21 @@ namespace propagation::raytracing::optix
 	// -------------------------------------------------------------------------------- //
 
 	template <typename T>
-	static constexpr inline __device__ void packPointer(T* ptr, unsigned int* hi, unsigned int* lo)
+	static constexpr inline __device__ void packPointer(T* ptr, uint32_t* hi, uint32_t* lo)
 	{
-		auto bits = reinterpret_cast<uintptr_t>(ptr);
-		*lo = static_cast<unsigned int>(bits);
-		*hi = static_cast<unsigned int>(bits >> sizeof(unsigned int) * 8);
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): bitcasting pointers to uintptr_t is safe.
+		auto bits = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(ptr));
+		*lo = static_cast<uint32_t>(bits);
+		*hi = static_cast<uint32_t>(bits >> 32);
 	}
 
 	template <typename T>
-	static constexpr inline __device__ T* unpackPointer(unsigned int hi, unsigned int lo)
+	static constexpr inline __device__ T* unpackPointer(uint32_t hi, uint32_t lo)
 	{
-		auto bits = static_cast<uintptr_t>(lo) + (static_cast<uintptr_t>(hi) << (sizeof(unsigned int) * 8));
-		return reinterpret_cast<T*>(bits);
+		auto bits = static_cast<uint64_t>(lo) + (static_cast<uint64_t>(hi) << 32);
+		// Bitcasting uintptr_t to a pointer is safe:
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast, performance-no-int-to-ptr)
+		return reinterpret_cast<T*>(static_cast<uintptr_t>(bits));
 	}
 
 	static constexpr inline __device__ float3 asF32(Double3& v)
@@ -59,9 +67,13 @@ namespace propagation::raytracing::optix
 	// Shadow/Occlusion rays
 	// -------------------------------------------------------------------------------- //
 
+// Suppress "warning #20044-D: extern declaration of the entity shader_params is treated as a static definition"
+// That's what we want to happen - this is the only device-side translation unit.
+// NOLINTNEXTLINE: clangd incorrectly complains about the nvcc-specific pragma.
+#pragma nv_diag_suppress 20044
+
 	/// Launch parameters in constant memory, filled in by optix upon optixLaunch.
 	extern "C" __constant__ ShaderParams shader_params;
-
 
 	extern "C" __global__ void __closesthit__shadow()
 	{
@@ -77,7 +89,7 @@ namespace propagation::raytracing::optix
 
 	static __device__ inline float shadowTest(Float3 origin, Float3 segment, OptixTraversableHandle ias)
 	{
-		// Default to unoccluded. Occluded results in this value ending up <1f.
+		// Default to unoccluded. Occluded results in this value ending up <1.
 		float shadow_t = INFINITY;
 
 		unsigned int hi{}, lo{};
@@ -107,9 +119,7 @@ namespace propagation::raytracing::optix
 	// Geometric Optics (GO) rays
 	// -------------------------------------------------------------------------------- //
 
-	/// This is going to be the Geometric Optics (GO) closest hit program.
-	///
-	/// This is where the fun stuff is going to happen.
+	/// The Geometric Optics (GO) closest hit program.
 	extern "C" __global__ void __closesthit__go()
 	{
 		const uint32_t material_index = optixGetInstanceId();
@@ -124,11 +134,14 @@ namespace propagation::raytracing::optix
 
 		float world_to_obj_raw[12];
 		float obj_to_world_raw[12];
+
+		// These OptiX C API functions and helpers expect float[12] arrays. Passing them in as-is is appropriate.
+		// NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
 		optixGetWorldToObjectTransformMatrix(world_to_obj_raw);
 		optixGetObjectToWorldTransformMatrix(obj_to_world_raw);
-
 		hit.world_to_obj = fromOptixTransform(world_to_obj_raw);
 		hit.obj_to_world = fromOptixTransform(obj_to_world_raw);
+		// NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
 
 		unsigned int hi = optixGetPayload_0(), lo = optixGetPayload_1();
 		auto* path = unpackPointer<PathState>(hi, lo);

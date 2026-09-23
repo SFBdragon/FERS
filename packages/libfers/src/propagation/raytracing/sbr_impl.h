@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
+//
+// Copyright (c) 2026-present FERS Contributors (see AUTHORS.md).
+//
+// See the GNU GPLv2 LICENSE file in the FERS project root for more information.
 
 #pragma once
 
@@ -7,8 +12,8 @@
 #include <cstdint>
 
 #include "antenna/antenna_gain.h"
+#include "propagation/common.h"
 #include "propagation/math.h"
-#include "propagation/propagation_physics.h"
 #include "propagation/raytracing/sbr_shared.h"
 
 #ifndef HC_FN
@@ -61,31 +66,33 @@ namespace propagation::raytracing
 		// Updating path information.
 
 		/// Ray origin, a position, in meters.
-		Double3 origin;
+		Double3 origin{};
 		/// Ray direction from the origin, a unit vector.
-		Double3 direction;
+		Double3 direction{};
 		/// The length of the ray path to `origin`, in meters.
-		double length;
+		double length = 0.0;
 		/// The hash of the path, unique per facet sequence.
-		uint64_t hash;
+		uint64_t hash = HASH_SEED;
 		/// The number of bounces along the path thus far.
-		uint32_t ray_index;
+		uint32_t ray_index = 0;
 
 		// Launch information.
 
 		/// The "weight" of the ray tube, in steradians. (solid angle / pdf)
-		double weight;
+		double weight{};
 		/// Which radar source antenna this ray originates from, by index.
-		uint32_t source_index;
+		uint32_t source_index{};
 		/// Which time this ray originates from, by index.
-		uint32_t time_index;
+		uint32_t time_index{};
 
 		// Carriers and fields.
 
 		/// Number of active carrier frequencies.
-		uint32_t carrier_count;
+		uint32_t carrier_count{};
+		/// Transmitter, by index, to carrier index.
+		uint32_t* tx_to_carrier_indices{};
 		/// Carrier angular wavenumbers active during this path trace.
-		float* carrier_ks;
+		float* carrier_ks{};
 		/// Electric field cartesian vectors. One per active carrier.
 		/// Perpendicular to direction of propagation.
 		///
@@ -103,38 +110,23 @@ namespace propagation::raytracing
 		/// All geometric optics and physical optics physics performed is linear with
 		/// respect to the electric field, and thus the results remain physical.
 		std::array<CFloat3, MAX_CARRIERS> elec_fields;
-
-		uint32_t* tx_to_carrier_indices;
 	};
 
 	struct HitInfo
 	{
 		/// The triangle index that was hit.
-		uint32_t triangle_index;
+		uint32_t triangle_index{};
 		/// The hit objects surface material.
-		uint32_t material_index;
+		uint32_t material_index{};
 		/// The barycentric hit posititon u coordinate.
-		float bary_u;
+		float bary_u{};
 		/// The barycentric hit posititon v coordinate.
-		float bary_v;
+		float bary_v{};
 		/// The hit object's world to local transformation (affine 3D matrix with translation).
 		Float3x4 world_to_obj;
 		/// The hit object's local to world transformation (affine 3D matrix with translation).
 		Float3x4 obj_to_world;
 	};
-
-	// Fold a single low-biased uint32_t into a running 64-bit hash.
-	[[nodiscard]] HC_FN uint64_t hash_mix(uint64_t hash, uint32_t idx)
-	{
-		constexpr uint64_t P1 = 0x9E3779B97F4A7C15ULL; // odd, golden-ratio
-		constexpr uint64_t P2 = 0xC2B2AE3D27D4EB4FULL; // odd, independent
-
-		uint64_t v = uint64_t(idx) * P2; // spreads idx's low bits across all 64 output bits
-		hash ^= v;
-		hash *= P1;
-		hash ^= hash >> 32; // fold keeps high+low bits interacting
-		return hash;
-	}
 
 	/// Bilinearly samples an `AntennaPatternView` at a local (azimuth, elevation), clamping
 	/// both axes to the grid's covered range.
@@ -183,7 +175,7 @@ namespace propagation::raytracing
 	 * `acos(local_dir.x)`, since boresight is local +X by construction - cheaper than round-tripping
 	 * through `local_az`/`local_el`).
 	 * @param local_az, local_el As used by `Gaussian` (directly, as the az/el deltas from boresight)
-	 * and by the tabulated kinds (`Separable1D`/`Grid2D`).
+	 * and by the tabulated kinds (`Grid2D`).
 	 * @param wavelength Only used by the wavelength-dependent kinds (`SquareHorn`/`Parabolic`).
 	 */
 	HC_FN float sampleAntennaModel(const SbrParams& params, const AntennaModel& model, const Float3& local_dir,
@@ -268,12 +260,12 @@ namespace propagation::raytracing
 		{
 			const float wavelength = 2.0f * PIf / path_out.carrier_ks[i];
 			const float gain = sampleAntennaModel(params, model, local_dir, src_local_az, src_local_el, wavelength);
-			path_out.elec_fields[i] = pol * CFloat(std::sqrt(gain), 0.0f);
+			path_out.elec_fields.at(i) = pol * CFloat(std::sqrt(gain), 0.0f);
 		}
 
 		path_out.ray_index = 0;
 		path_out.length = 0.0;
-		path_out.hash = hash_mix(0xcbf29ce484222325ULL, source_idx);
+		path_out.hash = hash_mix(HASH_SEED, source_idx);
 		path_out.source_index = source_idx;
 		path_out.time_index = time_idx;
 		path_out.origin = antenna.position;
@@ -288,7 +280,7 @@ namespace propagation::raytracing
 			/// The vertices defining the hit ray tube patch triangle, in local space.
 			/// The vertices are centered on the ray hit point.
 			/// CCW winding order (right-hand-rule)
-			Float3 verts[3];
+			std::array<Float3, 3> verts;
 			/// The pre-computed area of the patch defined by `verts`.
 			float area;
 		};
@@ -318,16 +310,17 @@ namespace propagation::raytracing
 		 * @param dist Total accumulated path length from the ray's original source to this hit.
 		 * @param solid_angle The ray tube's solid angle (steradians).
 		 */
-		HC_FN TubePatch computeTubePatch(const Double3 tri_verts[3], const Double3& hit_pos, const Double3& norm,
-										 const Double3& k_in, double tri_area, double dist, double solid_angle)
+		HC_FN TubePatch computeTubePatch(const std::array<const Double3, 3>& tri_verts, const Double3& hit_pos,
+										 const Double3& norm, const Double3& k_in, double tri_area, double dist,
+										 double solid_angle)
 		{
 			const double cos_theta_i = fmax(dot(-k_in, norm), 1e-3);
 			const double a_tube = (dist * dist * solid_angle) / cos_theta_i;
 			const double scale = sqrt(fmin(a_tube, tri_area) / tri_area);
 
 			TubePatch patch{};
-			for (int vi = 0; vi < 3; vi++)
-				patch.verts[vi] = Float3{scale * (tri_verts[vi] - hit_pos)};
+			for (size_t vi = 0; vi < 3; vi++)
+				patch.verts.at(vi) = Float3{scale * (tri_verts.at(vi) - hit_pos)};
 			patch.area = float(scale * scale * tri_area);
 			return patch;
 		}
@@ -350,16 +343,17 @@ namespace propagation::raytracing
 			if (scatter_inplane2 < 1e-8f)
 				return CFloat{patch.area};
 
-			Float3 delta_vs[3] = {patch.verts[1] - patch.verts[0], patch.verts[2] - patch.verts[1],
-								  patch.verts[0] - patch.verts[2]};
-			Float3 mid_vs[3] = {0.5f * (patch.verts[1] + patch.verts[0]), 0.5f * (patch.verts[2] + patch.verts[1]),
-								0.5f * (patch.verts[0] + patch.verts[2])};
+			std::array<Float3, 3> delta_vs = {patch.verts[1] - patch.verts[0], patch.verts[2] - patch.verts[1],
+											  patch.verts[0] - patch.verts[2]};
+			std::array<Float3, 3> mid_vs = {0.5f * (patch.verts[1] + patch.verts[0]),
+											0.5f * (patch.verts[2] + patch.verts[1]),
+											0.5f * (patch.verts[0] + patch.verts[2])};
 
 			CFloat acc{0.0f};
-			for (int i = 0; i < 3; i++)
+			for (size_t i = 0; i < 3; i++)
 			{
-				float re = dot(cross(scatter, norm), delta_vs[i]) * sinc(0.5f * dot(scatter, delta_vs[i]));
-				acc = acc + re * cexp_i(dot(scatter, mid_vs[i]));
+				float re = dot(cross(scatter, norm), delta_vs.at(i)) * sinc(0.5f * dot(scatter, delta_vs.at(i)));
+				acc = acc + re * cexp_i(dot(scatter, mid_vs.at(i)));
 			}
 
 			// [j k0 / 4 / pi] * [j k0 / |w_t|^2] = -k0^2 / |w_t|^2 / 4 / pi
@@ -379,39 +373,6 @@ namespace propagation::raytracing
 
 	namespace go
 	{
-		/**
-		 * @brief Local (perpendicular/TE, parallel/TM) basis for the plane of
-		 * incidence at a facet hit.
-		 *
-		 * Degenerate at normal incidence (k_in parallel to n): e_perp is 0/0, so
-		 * an arbitrary tangent is substituted. Safe because gamma_te ==
-		 * gamma_tm at normal incidence for any isotropic material.
-		 */
-		struct IncidencePlaneBasis
-		{
-			/// Transverse Electric (TE) basis. Perpendicular to facet normal and incoming direction.
-			Float3 e_te;
-			/// Transverse Magnetic (TM) basis of the incoming ray. In-plane with incoming direction and facet normal.
-			Float3 e_tm_in;
-		};
-
-		HC_FN IncidencePlaneBasis incidencePlaneBasis(const Float3& n, const Float3& k_in)
-		{
-			auto raw = cross(k_in, n);
-			auto len = length(raw);
-			Float3 e_te;
-			if (len < 1e-9f)
-			{
-				auto t = fabsf(n.x) < 0.9f ? Float3{1, 0, 0} : Float3{0, 1, 0};
-				e_te = normalize(cross(t, n));
-			}
-			else
-			{
-				e_te = raw / len;
-			}
-			return {e_te, cross(e_te, k_in)};
-		}
-
 		HC_FN void complexSnellsLaw(const Float3& norm, const Float3& k_in, CFloat n2, CFloat& gamma_tm_out,
 									CFloat& gamma_te_out)
 		{
@@ -436,7 +397,7 @@ namespace propagation::raytracing
 			if (conductivity == 0)
 				return CFloat{std::sqrt(relative_permittivity), 0.0};
 
-			const float angular_frequency = carrier_k * C;
+			const float angular_frequency = carrier_k * float(C);
 			const float im = conductivity / (angular_frequency * E0);
 
 			// Special-case the calculation for PECs.
@@ -452,7 +413,7 @@ namespace propagation::raytracing
 		///
 		/// Additionally writes out the combined surface magnetic fields H.Z0 = (H_inc + H_refl).Z0 to `mag_z0_fields`.
 		HC_FN void reflectFields(PathState* path, const Float3& norm, const Float3& k_inc, const Float3& k_refl,
-								 const Material* mat, CFloat3 (&mag_z0_fields)[MAX_CARRIERS])
+								 const Material* mat, std::array<CFloat3, MAX_CARRIERS>& mag_z0_fields)
 		{
 			// This implements Fresnel equations for solving the reflected field
 			// given an incident electric plane wave on a planar surface.
@@ -473,14 +434,14 @@ namespace propagation::raytracing
 				CFloat gamma_tm, gamma_te;
 				complexSnellsLaw(norm, k_inc, n2, gamma_tm, gamma_te);
 
-				const auto elec_inc = path->elec_fields[i];
+				const auto elec_inc = path->elec_fields.at(i);
 				const Complex elec_te = dot(elec_inc, basis.e_te);
 				const Complex elec_tm = dot(elec_inc, basis.e_tm_in);
 				const CFloat3 elec_refl = basis.e_te * (gamma_te * elec_te) + e_tm_out * (gamma_tm * elec_tm);
 
-				mag_z0_fields[i] = cross(k_inc, elec_inc) + cross(k_refl, elec_refl);
+				mag_z0_fields.at(i) = cross(k_inc, elec_inc) + cross(k_refl, elec_refl);
 
-				path->elec_fields[i] = elec_refl;
+				path->elec_fields.at(i) = elec_refl;
 			}
 		}
 	} // namespace go
@@ -509,7 +470,7 @@ namespace propagation::raytracing
 
 		// Simulation computations in 64-bit precision world space.
 
-		const Double3 verts[3]{
+		const std::array<const Double3, 3> verts{
 			amuld(hit.obj_to_world, l_v0),
 			amuld(hit.obj_to_world, l_v1),
 			amuld(hit.obj_to_world, l_v2),
@@ -537,7 +498,7 @@ namespace propagation::raytracing
 
 		// Compute the reflected eletric field and surface magnetic fields.
 		const Material* material = &params.materials[hit.material_index];
-		CFloat3 mag_z0_fields[MAX_CARRIERS];
+		std::array<CFloat3, MAX_CARRIERS> mag_z0_fields;
 		go::reflectFields(path, Float3{norm}, Float3{k_inc}, Float3{k_refl}, material, mag_z0_fields);
 
 		// Add the current facet to the path hash
@@ -575,7 +536,7 @@ namespace propagation::raytracing
 				float wavelength = 2.0f * PIf / k0;
 
 				CFloat3 e_po = po::facetScatteredField(patch, Float3{norm}, Float3{k_inc}, k_scat,
-													   mag_z0_fields[carrier_index], k0);
+													   mag_z0_fields.at(carrier_index), k0);
 
 				// Weight by the destination antenna's gain towards this facet.
 				const AntennaModel& model = params.antenna_models[dst.antenna_model_index];
@@ -608,7 +569,7 @@ namespace propagation::raytracing
 				uint32_t contrib_index = get_contrib_index();
 				auto& contrib = params.contributions[contrib_index];
 				contrib.voltage = voltage;
-				contrib.delay = path_dist / double(C);
+				contrib.delay = path_dist / C;
 				contrib.dest_index = dst_idx;
 				contrib.path_id = hash_mix(path->hash, dst_idx);
 				contrib.source_times_index = path->source_index + params.source_antenna_count * path->time_index;
@@ -684,9 +645,9 @@ namespace propagation::raytracing
 
 		// Compute antenna polarisation vectors.
 		const CFloat3 src_pol = propagation::antennaPolarizationVector(src_model.horizontal_pol, src_model.vertical_pol,
-																	   src_antenna.direction, k_direct);
+																	   src_antenna.direction, src_local_dir);
 		const CFloat3 dst_pol = propagation::antennaPolarizationVector(dst_model.horizontal_pol, dst_model.vertical_pol,
-																	   src_antenna.direction, k_direct);
+																	   dst_antenna.direction, dst_local_dir);
 
 		const bool no_prop_loss = (rx_flags & RxFlags::FLAG_NOSPREADING) != 0;
 		const CFloat voltage =
@@ -698,7 +659,7 @@ namespace propagation::raytracing
 		contrib->delay = length(dst_antenna.position - src_antenna.position) / C;
 		contrib->source_times_index = src_idx + time_idx * params.source_antenna_count;
 		contrib->dest_index = dst_idx;
-		contrib->path_id = 0;
+		contrib->path_id = hash_mix(hash_mix(HASH_SEED, src_idx), dst_idx);
 	}
 
 } // namespace propagation::raytracing

@@ -4,7 +4,7 @@
 // delay/phase, retarded-transmit-time gating, and FMCW dechirp/beat-frequency
 // behavior against hand-calculated values. Path-finding physics itself
 // (Friis/bistatic gain and delay) is covered by
-// propagation/pointscatter/test_pointscatter.cpp -- here every
+// propagation/pointscatter/test_pointscatter.cpp; here every
 // propagation::PropagationPath is built by hand.
 
 #include <catch2/catch_test_macros.hpp>
@@ -81,7 +81,7 @@ namespace
 		return std::sqrt(sum_sq / static_cast<RealType>(samples.size()));
 	}
 
-	// Builds a direct (path_id == 0) path with a hand-computed delay/gain -- the
+	// Builds a direct (path_id == 0) path with a hand-computed delay/gain, the
 	// counterpart of what propagation::pointscatter::PointScatterModel would have
 	// found for this geometry, without needing a World/PointScatterModel here.
 	propagation::PropagationPath makeDirectPath(radar::Receiver* rx, RealType dist, RealType gain)
@@ -149,7 +149,7 @@ TEST_CASE("calculateDirectPathContribution amplitude matches Friis equation with
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-	const auto path = makeDirectPath(&rx, dist, friis);
+	const auto path = makeDirectPath(&rx, dist, std::sqrt(friis));
 
 	const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 
@@ -255,7 +255,7 @@ TEST_CASE("calculateDirectPathContribution with noproploss gives distance-indepe
 	const RealType lambda = c / carrier;
 	const RealType power = 50.0;
 
-	// With noproploss: Friis = lambda^2 / (16*pi^2) (no R^2) -- constant regardless of dist
+	// With noproploss: Friis = lambda^2 / (16*pi^2) (no R^2), constant regardless of dist
 	const RealType friis_noloss = (lambda * lambda) / (16.0 * PI * PI);
 	const RealType expected_amplitude = std::sqrt(power * friis_noloss);
 
@@ -284,7 +284,7 @@ TEST_CASE("calculateDirectPathContribution with noproploss gives distance-indepe
 		rx.setFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
 
 		const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-		const auto path = makeDirectPath(&rx, dist, friis_noloss);
+		const auto path = makeDirectPath(&rx, dist, std::sqrt(friis_noloss));
 
 		const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 
@@ -706,7 +706,7 @@ TEST_CASE("calculateReflectedPathContribution amplitude matches bistatic equatio
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-	const auto path = makeReflectedPath(&rx, (r1 + r2) / c, bistatic);
+	const auto path = makeReflectedPath(&rx, (r1 + r2) / c, std::sqrt(bistatic));
 
 	const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 

@@ -253,6 +253,15 @@ namespace serial::xml_serializer_utils
 		{
 			addChildWithNumber(parent, "efficiency", antenna.getEfficiencyFactor());
 		}
+
+		const auto pol = antenna.getPolarisation();
+		if (pol.horizontal != ComplexType(1.0, 0.0) || pol.veritcal != ComplexType(0.0, 0.0))
+		{
+			addChildWithNumber(parent, "polarisation_h_re", pol.horizontal.real());
+			addChildWithNumber(parent, "polarisation_h_im", pol.horizontal.imag());
+			addChildWithNumber(parent, "polarisation_v_re", pol.veritcal.real());
+			addChildWithNumber(parent, "polarisation_v_im", pol.veritcal.imag());
+		}
 	}
 
 	void serializeMotionPath(const math::Path& path, const XmlElement& parent)

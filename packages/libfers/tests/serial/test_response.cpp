@@ -43,12 +43,12 @@ TEST_CASE("Response start/end time always pad a single real point by controlPoin
 	const interp::InterpPoint first{.gain = 1.0, .rx_time = 0.5, .delay = 0.0, .phase_delay = 0.0};
 	serial::Response const response(&wave, first);
 
-	// Response no longer materializes a synthetic lead point at construction time (or
-	// requires a finalise() call to add a trailing one) -- startTime()/endTime() simply
-	// report the real point's range padded by one controlPointEdgePeriod() on each side,
-	// computed fresh every call. This holds even for a single-sample response, which is
-	// the common case once responses are built from ephemeral ray-traced paths rather
-	// than always spanning a whole transmitted pulse.
+	// Response does not materialize a synthetic lead point at construction, and no
+	// finalise() call is needed to add a trailing one. startTime()/endTime() report the
+	// real point's range padded by one controlPointEdgePeriod() on each side, computed
+	// fresh on every call. This holds even for a single-sample response, the common case
+	// for responses built from ephemeral ray-traced paths rather than a whole transmitted
+	// pulse.
 	REQUIRE_THAT(response.startTime(), WithinAbs(0.5 - 1.0e-3, 1e-12));
 	REQUIRE_THAT(response.endTime(), WithinAbs(0.5 + 1.0e-3, 1e-12));
 	REQUIRE_THAT(response.getRxDuration(), WithinAbs(2.0e-3, 1e-12));
@@ -65,12 +65,12 @@ TEST_CASE("Response taper width tracks the actual local rx_time spacing between 
 	response.addInterpPoint({.gain = 1.0, .rx_time = 1.0, .delay = 0.0, .phase_delay = 0.0});
 
 	// These two real points are spaced 1.0s apart, far more than controlPointEdgePeriod()
-	// (1e-3 here) -- e.g. because they're the endpoints of a response that was split from
+	// (1e-3 here), e.g. because they're the endpoints of a response that was split from
 	// an adjacent one under heavy Doppler compression/stretching (a path_id change mid
 	// ray-trace, say). The taper must extrapolate using that same 1.0s step, not the
 	// nominal control-point width, or an adjacent response's own taper wouldn't meet this
-	// one's real data where it should -- causing rendered energy to overlap or gap right
-	// at the seam between them. No finalise() call is needed (or exists) any more.
+	// one's real data where it should, causing rendered energy to overlap or gap right
+	// at the seam between them. No finalise() call is needed.
 	REQUIRE_THAT(response.startTime(), WithinAbs(-1.0, 1e-9));
 	REQUIRE_THAT(response.endTime(), WithinAbs(2.0, 1e-9));
 }
@@ -106,7 +106,7 @@ TEST_CASE("Response renderSlice reproduces the source waveform at zero delay", "
 	// center tap is a bit-exact 1.0; every other tap is sinc(integer) ~ 0), so with
 	// delay == 0.0 throughout, rendered samples must reproduce the loaded ones
 	// verbatim. Native sample 0 lines up with `first` itself (the true first real
-	// point), not with the synthetic taper -- the taper is a padded, separate concern
+	// point), not with the synthetic taper. The taper is a padded, separate concern
 	// (see the startTime()/endTime() tests) that doesn't shift the native buffer.
 	const auto data = response.renderSlice(rate, first.rx_time, samples.size(), 0.0);
 

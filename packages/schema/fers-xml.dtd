@@ -116,7 +116,8 @@
         <!ELEMENT random_phase_offset_stdev (#PCDATA)>
 
         <!-- Antenna -->
-        <!ELEMENT antenna (alpha?,beta?,gamma?,diameter?,azscale?,elscale?,efficiency?)>
+        <!ELEMENT antenna (alpha?,beta?,gamma?,diameter?,azscale?,elscale?,efficiency?,
+                          polarisation_h_re?,polarisation_h_im?,polarisation_v_re?,polarisation_v_im?)>
         <!ATTLIST antenna
                 name CDATA #REQUIRED
                 pattern CDATA #REQUIRED
@@ -135,6 +136,11 @@
         <!ELEMENT elscale (#PCDATA)>
         <!-- The antenna efficiency factor -->
         <!ELEMENT efficiency (#PCDATA)>
+        <!-- Boresight polarisation Jones vector (Ludwig-3). Defaults to purely horizontal if omitted. -->
+        <!ELEMENT polarisation_h_re (#PCDATA)>
+        <!ELEMENT polarisation_h_im (#PCDATA)>
+        <!ELEMENT polarisation_v_re (#PCDATA)>
+        <!ELEMENT polarisation_v_im (#PCDATA)>
 
         <!-- Mesh Asset: a reusable mesh, loaded from a file within the "meshes" directory next to the scenario file -->
         <!ELEMENT mesh EMPTY>

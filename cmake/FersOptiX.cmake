@@ -1,7 +1,7 @@
 # FERS OptiX GPU ray-tracing backend.
 #
 # Included (once) from packages/libfers/src/CMakeLists.txt when
-# FERS_ENABLE_OPTIX is ON. Locates OptiX + CUDA, compiles rt.cu to PTX with
+# FERS_ENABLE_OPTIX is ON. Locates OptiX + CUDA, compiles kernel.cu to PTX with
 # nvcc, and embeds the PTX into a generated header (via FersEmbedFile.cmake,
 # the same tool used for the XML schema headers) so optix.cpp can hand the
 # module bytes straight to optixModuleCreate() without FERS needing to locate
@@ -35,12 +35,12 @@ set(FERS_OPTIX_LINK_LIBRARIES
 
 # -------------------- PTX Generation -------------------- #
 
-set(_fers_optix_rt_cu ${_fers_optix_dir}/rt.cu)
-set(_fers_optix_rt_ptx ${CMAKE_CURRENT_BINARY_DIR}/optix_ptx/rt.ptx)
-set(_fers_optix_rt_ptx_header ${GENERATED_HEADERS_DIR}/rt_ptx.h)
+set(_fers_optix_kernel_cu ${_fers_optix_dir}/kernel.cu)
+set(_fers_optix_kernel_ptx ${CMAKE_CURRENT_BINARY_DIR}/optix_ptx/kernel.ptx)
+set(_fers_optix_kernel_ptx_header ${GENERATED_HEADERS_DIR}/kernel_ptx.h)
 
 add_custom_command(
-	OUTPUT ${_fers_optix_rt_ptx}
+	OUTPUT ${_fers_optix_kernel_ptx}
 	COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/optix_ptx
 	COMMAND "${CUDAToolkit_NVCC_EXECUTABLE}"
 			--ptx
@@ -49,37 +49,37 @@ add_custom_command(
 			-I "${OptiX_INCLUDE_DIR}"
 			-I "${_fers_optix_dir}"
 			-I "${CMAKE_CURRENT_SOURCE_DIR}/src"
-			-o "${_fers_optix_rt_ptx}"
-			"${_fers_optix_rt_cu}"
+			-o "${_fers_optix_kernel_ptx}"
+			"${_fers_optix_kernel_cu}"
 	DEPENDS
-		${_fers_optix_rt_cu}
-		${_fers_optix_dir}/common.h
+		${_fers_optix_kernel_cu}
+		${_fers_optix_dir}/kernel_defs.h
 		${_fers_optix_dir}/utils.h
-		${CMAKE_CURRENT_SOURCE_DIR}/src/propagation/raytracing/sbr.h
-		${CMAKE_CURRENT_SOURCE_DIR}/src/propagation/raytracing/math.h
-		${CMAKE_CURRENT_SOURCE_DIR}/src/propagation/raytracing/linalg.h
-	COMMENT "Compiling rt.cu to PTX with nvcc"
+		${CMAKE_CURRENT_SOURCE_DIR}/src/propagation/raytracing/sbr_shared.h
+		${CMAKE_CURRENT_SOURCE_DIR}/src/propagation/math.h
+		${CMAKE_CURRENT_SOURCE_DIR}/src/propagation/linalg.h
+	COMMENT "Compiling kernel.cu to PTX with nvcc"
 	VERBATIM
 )
 
 add_custom_command(
-	OUTPUT ${_fers_optix_rt_ptx_header}
+	OUTPUT ${_fers_optix_kernel_ptx_header}
 	COMMAND ${CMAKE_COMMAND}
-			"-DINPUT=${_fers_optix_rt_ptx}"
-			"-DOUTPUT=${_fers_optix_rt_ptx_header}"
+			"-DINPUT=${_fers_optix_kernel_ptx}"
+			"-DOUTPUT=${_fers_optix_kernel_ptx_header}"
 			-DVAR=devicePrograms_ptx
 			-P "${CMAKE_SOURCE_DIR}/cmake/FersEmbedFile.cmake"
-	DEPENDS ${_fers_optix_rt_ptx} "${CMAKE_SOURCE_DIR}/cmake/FersEmbedFile.cmake"
-	COMMENT "Embedding rt.ptx into rt_ptx.h"
+	DEPENDS ${_fers_optix_kernel_ptx} "${CMAKE_SOURCE_DIR}/cmake/FersEmbedFile.cmake"
+	COMMENT "Embedding kernel.ptx into kernel_ptx.h"
 )
 
 # ALL so that a plain `cmake --build` regenerates it even before anything
 # depends on it yet (matches generate_schemas' behaviour below in the parent
 # CMakeLists.txt) - useful for e.g. warming up an IDE's build directory.
-add_custom_target(generate_optix_ptx ALL DEPENDS ${_fers_optix_rt_ptx_header})
+add_custom_target(generate_optix_ptx ALL DEPENDS ${_fers_optix_kernel_ptx_header})
 set(FERS_OPTIX_GENERATE_TARGET generate_optix_ptx)
 
 unset(_fers_optix_dir)
-unset(_fers_optix_rt_cu)
-unset(_fers_optix_rt_ptx)
-unset(_fers_optix_rt_ptx_header)
+unset(_fers_optix_kernel_cu)
+unset(_fers_optix_kernel_ptx)
+unset(_fers_optix_kernel_ptx_header)
