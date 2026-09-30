@@ -17,8 +17,10 @@
 #include "core/world.h"
 #include "math/geometry_ops.h"
 #include "propagation/common.h"
+#include "propagation/common_defs.h"
 #include "propagation/math.h"
 #include "propagation/propagation_model.h"
+#include "propagation/utils.h"
 #include "radar/radar_obj.h"
 #include "radar/receiver.h"
 #include "radar/transmitter.h"
@@ -74,12 +76,12 @@ namespace propagation::pointscatter
 		const auto e_tm = dot(tx_pol, basis.e_tm_in);
 
 		const auto sqrt_rcs = std::sqrt(rcs);
-		// Assume the Sinclair matrix for a PEC for now. TODO_SHAUN add polarimetric scattering matrices.
-		const auto sinclair = Real2x2<RealType>{{sqrt_rcs, 0}, {0, -sqrt_rcs}};
-		const auto e_scat = sinclair * Complex2{e_tm, e_te};
+		// Assume the FSA Jones scattering matrix for a PEC for now. TODO_SHAUN add polarimetric scattering matrices.
+		const auto scatter = Real2x2<RealType>{{-sqrt_rcs, 0}, {0, sqrt_rcs}};
+		const auto e_scat = scatter * Complex2{e_te, e_tm};
 
 		const auto e_tm_scat = cross(basis.e_te, k_scat);
-		const auto refl = e_tm_scat * e_scat.x + basis.e_te * e_scat.y;
+		const auto refl = basis.e_te * e_scat.x + e_tm_scat * e_scat.y;
 		const auto pol = dot_no_conj(refl, rx_pol);
 
 		RealType scalar = std::sqrt(tx_gain * rx_gain * (1 / (64.0 * PI * PI * PI))) * lambda;
@@ -99,8 +101,8 @@ namespace propagation::pointscatter
 	 * @param tx_time True if time is a transmission time, otherwise it's considered to be the receiving time.
 	 */
 	static void directPath(const radar::Transmitter& tx, radar::Receiver* rx, const RealType time,
-						   const bool is_tx_time, const RealType segment_start, size_t source_index,
-						   std::vector<PropagationPath>& found_paths)
+						   const bool is_tx_time, const CarrierModel<RealType>& carrier, const RealType segment_start,
+						   size_t source_index, std::vector<PropagationPath>& found_paths)
 	{
 
 		// Calculate the direct path contribution.
@@ -132,13 +134,8 @@ namespace propagation::pointscatter
 		const RealType tx_time = is_tx_time ? time : time - delay;
 		const RealType rx_time = is_tx_time ? time + delay : time;
 
-		const auto carrier_opt = tx.getSignal()->getModulatedCarrier(tx_time - segment_start);
-		if (!carrier_opt.has_value())
-		{
-			return;
-		}
-		const RealType carrier = carrier_opt.value();
-		const RealType lambda = params::c() / carrier;
+		const RealType frequency = sampleCarrierFrequency(carrier, tx_time - segment_start);
+		const RealType lambda = params::c() / frequency;
 
 		// Tx Gain and Polarisation: Direction Tx -> Rx
 		const auto tx_gain = computeAntennaGain(&tx, tx_to_rx, tx_time, lambda);
@@ -160,8 +157,9 @@ namespace propagation::pointscatter
 	}
 
 	static void bistaticPath(const radar::Transmitter& tx, radar::Receiver* rx, const radar::Target& target,
-							 const RealType time, const bool is_tx_time, const RealType segment_start,
-							 size_t source_index, std::vector<PropagationPath>& found_paths)
+							 const RealType time, const bool is_tx_time, const CarrierModel<RealType>& carrier,
+							 const RealType segment_start, size_t source_index,
+							 std::vector<PropagationPath>& found_paths)
 	{
 
 		// If calculating reflected path and target is co-located with either Tx or Rx:
@@ -211,11 +209,8 @@ namespace propagation::pointscatter
 		const auto target_delay = tx_to_tgt_dist / params::c();
 		RealType tgt_time = tx_time + target_delay;
 
-		const auto carrier_opt = tx.getSignal()->getModulatedCarrier(tx_time - segment_start);
-		if (!carrier_opt.has_value())
-			return;
-		const RealType carrier = carrier_opt.value();
-		const RealType lambda = params::c() / carrier;
+		const RealType frequency = sampleCarrierFrequency(carrier, tx_time - segment_start);
+		const RealType lambda = params::c() / frequency;
 
 		// Calculate RCS
 		// InAngle: Tx -> Tgt (link_tx_tgt.u_vec)
@@ -248,6 +243,10 @@ namespace propagation::pointscatter
 																const radar::Transmitter& transmitter,
 																const std::vector<RealType>& times) const
 	{
+		CarrierModel<RealType> carrier;
+		carrier.kind = CarrierModelKind::Constant;
+		carrier.params.constant.frequency = params::c() / transmitter.getSignal()->getCarrier();
+
 		std::vector<PathsAtTime> timesteps;
 
 		for (const auto current_time : times)
@@ -263,13 +262,14 @@ namespace propagation::pointscatter
 				if (!receiver->checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
 				{
 					// Calculate the direct path contribution, if any.
-					directPath(transmitter, receiver.get(), current_time, true, current_time, 0, paths);
+					directPath(transmitter, receiver.get(), current_time, true, carrier, current_time, 0, paths);
 				}
 
 				for (const auto& target : _world->getTargets())
 				{
 					// Calculate bistatic reflection contribution, if any.
-					bistaticPath(transmitter, receiver.get(), *target, current_time, true, current_time, 0, paths);
+					bistaticPath(transmitter, receiver.get(), *target, current_time, true, carrier, current_time, 0,
+								 paths);
 				}
 			}
 
@@ -289,17 +289,19 @@ namespace propagation::pointscatter
 		for (size_t s = 0; s < sources.size(); s++)
 		{
 			const auto& source = sources[s];
+			const auto carrier = buildPropagationCarrier<RealType>(source);
 
 			if (!receiver->checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
 			{
 				// Calculate the direct path contribution, if any.
-				directPath(*source.transmitter, receiver, rx_time, false, source.segment_start, s, paths);
+				directPath(*source.transmitter, receiver, rx_time, false, carrier, source.segment_start, s, paths);
 			}
 
 			for (const auto& target : _world->getTargets())
 			{
 				// Calculate bistatic reflection contribution, if any.
-				bistaticPath(*source.transmitter, receiver, *target, rx_time, false, source.segment_start, s, paths);
+				bistaticPath(*source.transmitter, receiver, *target, rx_time, false, carrier, source.segment_start, s,
+							 paths);
 			}
 		}
 

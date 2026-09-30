@@ -125,7 +125,7 @@ namespace propagation::raytracing::optix
 		 *
 		 * Only reallocates (growing, never shrinking capacity) if the buffer is too small.
 		 */
-		void upload(const std::vector<T>& v)
+		void upload(const std::span<const T>& v)
 		{
 			reserve(v.size());
 			_size = v.size();

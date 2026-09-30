@@ -10,101 +10,116 @@
  * @brief Antenna gain-pattern formulas, shared between the CPU antenna model
  * (`antenna::Antenna` subclasses) and the GPU ray-tracing propagation model.
  *
- * Each function here is a plain `constexpr` free function operating only on scalar angles and
- * antenna parameters to be portable to CUDA/HIP device code.
+ * These functions are templated by precision as GPUs benefit greatly from 32-bit precision,
+ * and double-precision accuracy is not critical for antenna gains.
+ * Note that the bessel J1 function is not available on GPUs. A Taylor approximated version is used.
+ *
+ * Functions are plain `constexpr` free function operating only on scalar
+ * angles and antenna parameters to be portable to CUDA/HIP device code.
  * This works because plain, unannotated `constexpr` functions are callable from both host and
  * device code by `nvcc` with `--expt-relaxed-constexpr` (see `cmake/FersOptiX.cmake`).
  */
 
 #pragma once
 
-#include <cmath>
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+#define DEVICE 1
+#else
+#define DEVICE 0
+#endif
 
-#include "core/config.h"
+#include <cmath>
+#include <limits>
+
+#if !DEVICE
+#include "core/portable_utils.h"
+#endif
 
 namespace antenna::gain
 {
+	/// The ratio of a circle's circumference to its diameter.
+	// Far more than enough digits to saturate double-precision.
+	template <typename Real>
+	constexpr Real PI = Real(3.1415926535897932384626433832795028841971693993751);
+
 	/// sinc(x) = sin(x)/x, with the x=0 singularity resolved to its limit, 1.
-	constexpr RealType sinc(const RealType x) noexcept
+	template <typename Real>
+	constexpr Real sinc(const Real x) noexcept
 	{
-		if (std::abs(x) < EPSILON)
+		if (std::abs(x) < std::numeric_limits<Real>::epsilon())
 		{
-			return RealType(1);
+			return Real(1);
 		}
 		return std::sin(x) / x;
 	}
 
 	/// `antenna::Sinc`'s gain pattern (excluding the efficiency factor, applied by the caller).
-	constexpr RealType sincGain(const RealType theta, const RealType alpha, const RealType beta,
-								const RealType gamma) noexcept
+	template <typename Real>
+	constexpr Real sincGain(const Real theta, const Real alpha, const Real beta, const Real gamma) noexcept
 	{
-		return alpha * pow(fabs(sinc(beta * theta)), gamma);
+		return alpha * std::pow(std::abs(sinc(beta * theta)), gamma);
 	}
 
 	/// `antenna::Gaussian`'s gain pattern (excluding the efficiency factor, applied by the caller).
-	constexpr RealType gaussianGain(const RealType delta_azimuth, const RealType delta_elevation,
-									const RealType azimuth_scale, const RealType elevation_scale) noexcept
+	template <typename Real>
+	constexpr Real gaussianGain(const Real delta_azimuth, const Real delta_elevation, const Real azimuth_scale,
+								const Real elevation_scale) noexcept
 	{
-		return exp(-delta_azimuth * delta_azimuth * azimuth_scale) *
-			exp(-delta_elevation * delta_elevation * elevation_scale);
+		return std::exp(-delta_azimuth * delta_azimuth * azimuth_scale) *
+			std::exp(-delta_elevation * delta_elevation * elevation_scale);
 	}
 
 	/// `antenna::SquareHorn`'s gain pattern (excluding the efficiency factor, applied by the caller).
-	constexpr RealType squareHornGain(const RealType theta, const RealType dimension,
-									  const RealType wavelength) noexcept
+	template <typename Real>
+	constexpr Real squareHornGain(const Real theta, const Real dimension, const Real wavelength) noexcept
 	{
-		const RealType directivity = RealType(4) * PI * dimension * dimension / (wavelength * wavelength);
-		const RealType x = PI * dimension * sin(theta) / wavelength;
-		const RealType s = sinc(x);
+		const Real directivity = Real(4) * PI<Real> * dimension * dimension / (wavelength * wavelength);
+		const Real x = PI<Real> * dimension * std::sin(theta) / wavelength;
+		const Real s = sinc(x);
 		return directivity * s * s;
 	}
 
 	/**
 	 * @brief A portable rational approximation of the Bessel function of the first kind, order 1,
-	 * J1(x), accurate to roughly 1e-8 relative error. Used in place of `core::besselJ1` (which just
-	 * wraps libm's `j1()`, host-only, no CUDA device equivalent) so `parabolicGain` below is
-	 * evaluable from both host and device code.
+	 * J1(x), accurate to roughly 1e-8 relative error. Used in place of `core::besselJ1` for deivce code.
 	 *
-	 * Standard split-domain rational-polynomial form (Abramowitz & Stegun 9.4 coefficients); this is
-	 * an independent implementation of that classical, public-domain numerical result, not a copy of
-	 * any particular library's source.
+	 * Split-domain rational-polynomial form with Abramowitz & Stegun 9.4 coefficients.
 	 */
-	constexpr RealType besselJ1Approx(const RealType x) noexcept
+	template <typename Real>
+	constexpr Real besselJ1Approx(const Real x) noexcept
 	{
-		const RealType ax = fabs(x);
-		if (ax < RealType(8))
+		const Real abs_x = std::abs(x);
+		if (abs_x < Real(8))
 		{
-			const RealType y = x * x;
-			const RealType p = x *
-				(RealType(72362614232.0) +
+			const Real y = x * x;
+			const Real p = x *
+				(Real(72362614232.0) +
 				 y *
-					 (RealType(-7895059235.0) +
+					 (Real(-7895059235.0) +
 					  y *
-						  (RealType(242396853.1) +
-						   y * (RealType(-2972611.439) + y * (RealType(15704.48260) + y * RealType(-30.16036606))))));
-			const RealType q = RealType(144725228442.0) +
+						  (Real(242396853.1) +
+						   y * (Real(-2972611.439) + y * (Real(15704.48260) + y * Real(-30.16036606))))));
+			const Real q = Real(144725228442.0) +
 				y *
-					(RealType(2300535178.0) +
-					 y *
-						 (RealType(18583304.74) +
-						  y * (RealType(99447.43394) + y * (RealType(376.9991397) + y * RealType(1.0)))));
+					(Real(2300535178.0) +
+					 y *  (Real(18583304.74) +  y * (Real(99447.43394) + y * (Real(376.9991397) + y * Real(1.0)))));
 			return p / q;
 		}
 
-		const RealType z = RealType(8) / ax;
-		const RealType y = z * z;
-		const RealType envelope_phase = ax - RealType(2.356194491);
-		const RealType p = RealType(1.0) +
+		const Real z = Real(8) / abs_x;
+		const Real y = z * z;
+		const Real envelope_phase = abs_x - Real(2.356194491);
+		const Real p = Real(1.0) +
 			y *
-				(RealType(0.183105e-2) +
-				 y * (RealType(-0.3516396496e-4) + y * (RealType(0.2457520174e-5) + y * RealType(-0.240337019e-6))));
-		const RealType q = RealType(0.04687499995) +
+				(Real(0.183105e-2) +
+				 y * (Real(-0.3516396496e-4) + y * (Real(0.2457520174e-5) + y * Real(-0.240337019e-6))));
+		const Real q = Real(0.04687499995) +
 			y *
-				(RealType(-0.2002690873e-3) +
-				 y * (RealType(0.8449199096e-5) + y * (RealType(-0.88228987e-6) + y * RealType(0.105787412e-6))));
-		RealType result =
-			sqrt(RealType(0.636619772) / ax) * (cos(envelope_phase) * p - z * std::sin(envelope_phase) * q);
-		if (x < RealType(0))
+				(Real(-0.2002690873e-3) +
+				 y * (Real(0.8449199096e-5) + y * (Real(-0.88228987e-6) + y * Real(0.105787412e-6))));
+		Real result =
+			std::sqrt(Real(0.636619772) / abs_x) * (std::cos(envelope_phase) * p - z * std::sin(envelope_phase) * q);
+		if (x < Real(0))
 		{
 			result = -result;
 		}
@@ -114,22 +129,31 @@ namespace antenna::gain
 	/// J1(x)/x, with the x=0 singularity resolved to its limit, 1/2 (NOT 1 - see antenna_factory.cpp
 	/// history: the pre-refactor `j1C` helper returned 1 at x=0, a bug causing a 4x peak-gain error
 	/// for `Parabolic` right at boresight).
-	constexpr RealType besselJ1OverX(const RealType x) noexcept
+	template <typename Real>
+	constexpr Real besselJ1OverX(const Real x) noexcept
 	{
-		if (fabs(x) < EPSILON)
+		if (std::abs(x) < std::numeric_limits<Real>::epsilon())
 		{
-			return 0.5;
+			return Real(0.5);
 		}
-		return besselJ1Approx(x) / x;
+
+#if DEVICE
+		const Real bessel_j1 = besselJ1Approx(x);
+#else
+		const Real bessel_j1 = Real(core::besselJ1(double(x)));
+#endif
+
+		return bessel_j1 / x;
 	}
 
 	/// `antenna::Parabolic`'s gain pattern (excluding the efficiency factor, applied by the caller).
-	constexpr RealType parabolicGain(const RealType theta, const RealType diameter, const RealType wavelength) noexcept
+	template <typename Real>
+	constexpr Real parabolicGain(const Real theta, const Real diameter, const Real wavelength) noexcept
 	{
-		const RealType k = PI * diameter / wavelength;
-		const RealType directivity = k * k;
-		const RealType x = k * sin(theta);
-		const RealType j1_over_x = besselJ1OverX(x);
-		return directivity * (RealType(2) * j1_over_x) * (RealType(2) * j1_over_x);
+		const Real k = PI<Real> * diameter / wavelength;
+		const Real directivity = k * k;
+		const Real x = k * std::sin(theta);
+		const Real j1_over_x = besselJ1OverX(x);
+		return directivity * (Real(2) * j1_over_x) * (Real(2) * j1_over_x);
 	}
 }

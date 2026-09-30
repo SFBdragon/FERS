@@ -20,8 +20,8 @@ namespace propagation
 {
 	/// The ratio of a circle's circumference to its diameter.
 	// Far more than enough digits to saturate double-precision.
-	constexpr double PI = 3.1415926535897932384626433832795028841971693993751;
-	constexpr float PIf = 3.1415926535897932384626433832795028841971693993751f;
+	template <typename Real = double>
+	constexpr Real PI_V = Real(3.1415926535897932384626433832795028841971693993751);
 
 	/// Intrinsic impedance of free space, Ohms.
 	/// https://physics.nist.gov/cgi-bin/cuu/Value?z0
@@ -36,7 +36,8 @@ namespace propagation
 	/// Speed of light in a vacuum. Meters per second.
 	/// https://physics.nist.gov/cgi-bin/cuu/Value?c
 	/// Accessed 2026-09-15
-	constexpr double C = 299792458.0;
+	template <typename T>
+	constexpr T C = T(299792458);
 
 	// Don't use HLSL/CUDA/HIP naming convention to mitigate naming clashes and confusion.
 	// They use double3/float2/uint4 etc.

@@ -55,12 +55,10 @@ namespace propagation::raytracing
 		core::World* world;
 		std::span<const RealType> times;
 
-		std::vector<ActiveCarriers> active_carrier_sets;
-		std::vector<uint32_t> tx_to_carrier_indices;
-		std::vector<float> carrier_ks;
+		std::vector<CarrierModel<float>> carriers;
 
-		std::vector<ActiveAntenna> source_antennae;
-		std::vector<ActiveAntenna> dest_antennae;
+		std::vector<ActiveAntenna> source_antennas;
+		std::vector<ActiveAntenna> dest_antennas;
 
 		std::vector<RxFlags> rx_flags;
 
@@ -98,14 +96,24 @@ namespace propagation::raytracing
 	[[nodiscard]] ContributionGroups groupContributions(const std::vector<Contribution>& contributions);
 
 	/**
+	 * @brief The reference delay for a group: the minimum delay across its contributions, i.e. the
+	 * most direct of the ray-tube samples making up the path.
+	 *
+	 * @param group Non-empty.
+	 */
+	[[nodiscard]] RealType contributionGroupDelay(const std::vector<const Contribution*>& group);
+
+	/**
 	 * @brief Coherently sums a group of `Contribution`s that share a `path_id` key
-	 * (same source, facet sequence, and distination) into a single `PropagationPath`.
+	 * (same source, facet sequence, and destination) into a single `PropagationPath`.
 	 *
 	 * @param group Non-empty. All contributions must share the same `source_times_index`/`dest_index`/`path_id`.
-	 * @param carrier_freq_hz The carrier frequency (Hz) shared by every contribution in `group`.
+	 * @param group_delay The reference delay (typically `contributionGroupDelay(group)`) used to align phases.
+	 * @param carrier_frequency The carrier frequency (Hz) shared by every contribution in `group`.
 	 */
 	[[nodiscard]] PropagationPath aggregateContributionGroup(const std::vector<const Contribution*>& group,
-															 RealType carrier_freq_hz);
+															 RealType group_delay, RealType carrier_frequency);
+
 
 	class RayTracingEngine
 	{

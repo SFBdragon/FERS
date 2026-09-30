@@ -46,6 +46,7 @@ namespace propagation::raytracing::optix
 	{
 		return float3{static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)};
 	}
+	static constexpr inline __device__ float3 asF32(Float3& v) { return float3{v.x, v.y, v.z}; }
 
 	/**
 	 * @brief Build a linalg.h affine 3x4 transform from an OptiX transform float array.
@@ -156,8 +157,8 @@ namespace propagation::raytracing::optix
 			return; // we're done with this path
 
 		optixTrace(ias, // AS handle
-				   asF32(path->origin), // rayOrigin
-				   asF32(path->direction), // rayDirection
+				   asF32(path->path_vertices[path->ray_count]), // rayOrigin
+				   asF32(path->trace_directions[path->ray_count]), // rayDirection
 				   1e-3f, // tmin TODO?
 				   INFINITY, // tmax
 				   0.0f, // rayTime
@@ -184,7 +185,7 @@ namespace propagation::raytracing::optix
 	/// (transmitter or receiver antenna, depending on findTxToRxPaths or findRxFromTxPaths)
 	/// and each time step and generate lots of rays to trace through the scene and
 	/// determine contributions to each of the "sinks" (receivers or transmitters, respectively).
-	extern "C" __global__ void __raygen__antennaeOverTimes()
+	extern "C" __global__ void __raygen__antennasOverTimes()
 	{
 		uint3 idx = optixGetLaunchIndex();
 		/// The ray/path index to launch.
@@ -212,8 +213,8 @@ namespace propagation::raytracing::optix
 		unsigned int hi{}, lo{};
 		packPointer(&path, &hi, &lo);
 		optixTrace(ias, // AS handle
-				   asF32(path.origin), // rayOrigin
-				   asF32(path.direction), // rayDirection
+				   asF32(path.path_vertices[0]), // rayOrigin
+				   asF32(path.trace_directions[0]), // rayDirection
 				   1e-3f, // tmin
 				   INFINITY, // tmax
 				   0.0f, // rayTime

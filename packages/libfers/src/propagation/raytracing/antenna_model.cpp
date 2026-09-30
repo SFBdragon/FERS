@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "core/config.h"
 #include "math/geometry_ops.h"
 
 namespace propagation::raytracing
@@ -56,7 +57,7 @@ namespace propagation::raytracing
 								   uint32_t grid_az_count, uint32_t grid_el_count)
 	{
 		AntennaModel result{};
-		result.efficiency = antenna.getEfficiencyFactor();
+		result.efficiency = float(antenna.getEfficiencyFactor());
 
 		const auto pol = antenna.getPolarisation();
 		result.horizontal_pol = CFloat{float(pol.horizontal.real()), float(pol.horizontal.imag())};
@@ -70,25 +71,25 @@ namespace propagation::raytracing
 		if (const auto* sinc = dynamic_cast<const antenna::Sinc*>(&antenna))
 		{
 			result.kind = AntennaKind::Sinc;
-			result.params.sinc = {sinc->getAlpha(), sinc->getBeta(), sinc->getGamma()};
+			result.params.sinc = {float(sinc->getAlpha()), float(sinc->getBeta()), float(sinc->getGamma())};
 			return result;
 		}
 		if (const auto* gaussian = dynamic_cast<const antenna::Gaussian*>(&antenna))
 		{
 			result.kind = AntennaKind::Gaussian;
-			result.params.gaussian = {gaussian->getAzimuthScale(), gaussian->getElevationScale()};
+			result.params.gaussian = {float(gaussian->getAzimuthScale()), float(gaussian->getElevationScale())};
 			return result;
 		}
 		if (const auto* horn = dynamic_cast<const antenna::SquareHorn*>(&antenna))
 		{
 			result.kind = AntennaKind::SquareHorn;
-			result.params.square_horn = {horn->getDimension()};
+			result.params.square_horn = {float(horn->getDimension())};
 			return result;
 		}
 		if (const auto* parabolic = dynamic_cast<const antenna::Parabolic*>(&antenna))
 		{
 			result.kind = AntennaKind::Parabolic;
-			result.params.parabolic = {parabolic->getDiameter()};
+			result.params.parabolic = {float(parabolic->getDiameter())};
 			return result;
 		}
 		if (dynamic_cast<const antenna::H5Antenna*>(&antenna) != nullptr ||

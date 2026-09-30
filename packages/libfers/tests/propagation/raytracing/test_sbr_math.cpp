@@ -62,10 +62,12 @@ TEST_CASE("sampleAntennaPattern reproduces exact grid values at grid points", "[
 	rt::SbrParams params{};
 	params.antenna_gains = gains.data();
 
-	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, -prop::PIf, -prop::PIf / 2.0f), WithinAbs(1.0, 1e-6));
-	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, 0.0f, -prop::PIf / 2.0f), WithinAbs(2.0, 1e-6));
+	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, -prop::PI_V<float>, -prop::PI_V<float> / 2.0f),
+				 WithinAbs(1.0, 1e-6));
+	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, 0.0f, -prop::PI_V<float> / 2.0f), WithinAbs(2.0, 1e-6));
 	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, 0.0f, 0.0f), WithinAbs(5.0, 1e-6));
-	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, prop::PIf, prop::PIf / 2.0f), WithinAbs(9.0, 1e-6));
+	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, prop::PI_V<float>, prop::PI_V<float> / 2.0f),
+				 WithinAbs(9.0, 1e-6));
 }
 
 TEST_CASE("sampleAntennaPattern bilinearly interpolates between grid points", "[raytracing][math]")
@@ -76,9 +78,10 @@ TEST_CASE("sampleAntennaPattern bilinearly interpolates between grid points", "[
 	rt::SbrParams params{};
 	params.antenna_gains = gains.data();
 
-	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, 0.0f, -prop::PIf / 2.0f),
+	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, 0.0f, -prop::PI_V<float> / 2.0f),
 				 WithinAbs(5.0, 1e-6)); // az midpoint, el0 row
-	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, -prop::PIf, 0.0f), WithinAbs(10.0, 1e-6)); // az0, el midpoint
+	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, -prop::PI_V<float>, 0.0f),
+				 WithinAbs(10.0, 1e-6)); // az0, el midpoint
 	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, 0.0f, 0.0f), WithinAbs(15.0, 1e-6)); // center of all 4 corners
 }
 
@@ -137,21 +140,21 @@ namespace
 	// v0=(0,0,0), v1=(1,0,0), v2=(0,1,0): a right triangle in the z=0 plane, area 0.5, outward
 	// normal +Z (CCW as seen from +Z, matching TriangleMeshView's winding convention).
 	const std::array<const prop::Double3, 3> test_tri{prop::Double3{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}};
-	constexpr double test_tri_area = 0.5;
-	const prop::Double3 test_norm{0.0, 0.0, 1.0};
+	constexpr float test_tri_area = 0.5f;
+	const prop::Float3 test_norm{0.0f, 0.0f, 1.0f};
 	const prop::Double3 test_hit_pos{1.0 / 3.0, 1.0 / 3.0, 0.0}; // centroid
-	const prop::Double3 test_incoming_dir{0.0, 0.0, -1.0}; // normal incidence, travelling in -Z
+	const prop::Float3 test_incoming_dir{0.0f, 0.0f, -1.0f}; // normal incidence, travelling in -Z
 }
 
 TEST_CASE("computeTubePatch shrinks to the tube footprint when it's smaller than the triangle",
 		  "[raytracing][math]")
 {
-	constexpr double dist = 1.0;
-	constexpr double solid_angle = 0.01; // a_tube = dist^2 * solid_angle / cos(0) = 0.01 < 0.5
+	constexpr float dist = 1.0f;
+	constexpr float solid_angle = 0.01f; // a_tube = dist^2 * solid_angle / cos(0) = 0.01 < 0.5
 	const auto patch = rt::po::computeTubePatch(test_tri, test_hit_pos, test_norm, test_incoming_dir, test_tri_area,
 												dist, solid_angle);
 
-	REQUIRE_THAT(patch.area, WithinAbs(0.01, 1e-9));
+	REQUIRE_THAT(patch.area, WithinAbs(0.01, 1e-6));
 	// Scaled toward the hit point, and hit-pos-centered per computeTubePatch's contract (verts are
 	// relative to hit_pos, not world-space).
 	const double scale = std::sqrt(0.01 / 0.5);
@@ -167,14 +170,14 @@ TEST_CASE("computeTubePatch shrinks to the tube footprint when it's smaller than
 TEST_CASE("computeTubePatch clamps to the full triangle when the tube footprint is larger",
 		  "[raytracing][math]")
 {
-	constexpr double dist = 100.0;
-	constexpr double solid_angle = 1.0; // a_tube = 10000, way over the 0.5 triangle area
+	constexpr float dist = 100.0f;
+	constexpr float solid_angle = 1.0f; // a_tube = 10000, way over the 0.5 triangle area
 	const auto patch = rt::po::computeTubePatch(test_tri, test_hit_pos, test_norm, test_incoming_dir, test_tri_area,
 												dist, solid_angle);
 
 	REQUIRE_THAT(patch.area, WithinAbs(test_tri_area, 1e-9));
 	// scale=1 here (no shrinking), but verts are still hit-pos-centered per computeTubePatch's contract.
-	for (int i = 0; i < 3; ++i)
+	for (size_t i = 0; i < 3; ++i)
 	{
 		const auto expected = test_tri[i] - test_hit_pos;
 		REQUIRE_THAT(patch.verts[i].x, WithinAbs(expected.x, 1e-6));
@@ -186,13 +189,13 @@ TEST_CASE("computeTubePatch clamps to the full triangle when the tube footprint 
 TEST_CASE("computeTubePatch stays finite at grazing incidence", "[raytracing][math]")
 {
 	// Travelling almost parallel to the triangle plane - cos(theta_i) would be near 0 unclamped.
-	const prop::Double3 grazing_dir = normalize(prop::Double3{1.0, 0.0, -1e-6});
+	const prop::Float3 grazing_dir = normalize(prop::Float3{1.0, 0.0, -1e-5f});
 	const auto patch =
-		rt::po::computeTubePatch(test_tri, test_hit_pos, test_norm, grazing_dir, test_tri_area, 1.0, 0.001);
+		rt::po::computeTubePatch(test_tri, test_hit_pos, test_norm, grazing_dir, test_tri_area, 1.0f, 0.001f);
 
 	REQUIRE(std::isfinite(patch.area));
-	REQUIRE(patch.area >= 0.0);
-	REQUIRE(patch.area <= test_tri_area + 1e-9);
+	REQUIRE(patch.area >= 0.0f);
+	REQUIRE(patch.area <= test_tri_area + 1e-6f);
 }
 
 TEST_CASE("arbitraryPerpendicular returns a unit vector perpendicular to its input", "[raytracing][math]")

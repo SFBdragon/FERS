@@ -10,6 +10,7 @@
 #include <cstdint>
 
 #include "core/sim_id.h"
+#include "propagation/common_defs.h"
 #include "propagation/math.h"
 
 namespace propagation
@@ -130,18 +131,73 @@ namespace propagation
 	 */
 	template <typename Real>
 	[[nodiscard]] HC_FN Complex<Real> computeDirectPathGain(Real tx_gain, Real rx_gain, const Complex3<Real>& tx_pol,
-															const Complex3<Real>& rx_pol, Real lambda, double dist,
+															const Complex3<Real>& rx_pol, Real lambda, Real dist,
 															bool no_prop_loss)
 	{
 		const Real numerator = std::sqrt(tx_gain * rx_gain) * lambda;
 
-		double denominator = 4.0 * PI; // 4 * PI
+		Real denominator = 4.0 * PI_V<Real>;
 		if (!no_prop_loss)
 		{
 			denominator *= dist;
 		}
 
 		return Real(numerator / denominator) * dot_no_conj(tx_pol, rx_pol);
+	}
+
+	// --- Carrier Modelling ----------------------------------------------------------------------------- //
+
+	template <typename Real>
+	constexpr Real sampleCarrierFrequency(const CarrierModel<Real>& model, double tx_time)
+	{
+		// Avoid computing in double-precision.
+		// The host is expected to set `start_time` such that `float(t - start_time)`
+		// doesn't become highly inaccurate.
+
+		switch (model.kind)
+		{
+		case CarrierModelKind::Constant:
+			return model.params.constant.frequency;
+		case CarrierModelKind::Chirps:
+			{
+				const auto& chirps = model.params.chirps;
+				const Real dt = Real(tx_time - chirps.start_time);
+				const Real chirp_index = std::floor(dt / chirps.chirp_duration);
+				const Real t_chirp = std::fma(-chirp_index, chirps.chirp_duration, dt);
+				return chirps.start_frequency + t_chirp * chirps.slope_frequency_per_time;
+			}
+		case CarrierModelKind::Triangles:
+			{
+				const auto& triangles = model.params.triangles;
+				const Real dt = Real(tx_time - triangles.start_time);
+				const Real chirp_index = std::floor(dt / triangles.chirp_duration);
+				const Real t_chirp = std::fma(-chirp_index, triangles.chirp_duration, dt);
+
+				// Parity without any integer cast. Correct for negative too.
+				const Real half = chirp_index * Real(0.5);
+				const bool odd = (half != std::floor(half));
+
+				Real start = triangles.start_frequency;
+				Real slope = triangles.slope_frequency_per_time;
+				if (odd)
+				{
+					start += slope * triangles.chirp_duration;
+					slope = -slope;
+				}
+				return start + t_chirp * slope;
+			}
+		case CarrierModelKind::Stairs:
+			{
+				const auto& stairs = model.params.stairs;
+				const Real dt = Real(tx_time - stairs.start_time);
+				const Real step_index = std::floor(dt / stairs.step_duration);
+				const Real step_index_within_stair =
+					step_index - stairs.step_count * std::floor(step_index / stairs.step_count);
+				return stairs.start_frequency + stairs.step_frequency * step_index_within_stair;
+			}
+		}
+
+		return Real(-1);
 	}
 
 	// --- Path IDs ----------------------------------------------------------------------------- //

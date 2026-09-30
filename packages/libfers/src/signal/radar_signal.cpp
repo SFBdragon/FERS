@@ -339,30 +339,6 @@ namespace fers_signal
 	{
 	}
 
-	std::optional<RealType> RadarSignal::getModulatedCarrier(RealType time_since_segment_start) const noexcept
-	{
-		// TODO
-		// This was ported directly from computeStreamingtEvaluation with no change in logic.
-		// It would be ideal to either remove the approximations or document them better.
-
-		return std::visit(
-			util::Overloaded{
-				[&](const PulseWaveform&) -> std::optional<RealType> { return _carrierfreq; },
-				[&](const CwWaveform&) -> std::optional<RealType> { return _carrierfreq; },
-				[&](const FmcwChirpWaveform&) -> std::optional<RealType> { return _carrierfreq; },
-				[&](const FmcwTriangleWaveform&) -> std::optional<RealType> { return _carrierfreq; },
-				[&](const FileWaveform&) -> std::optional<RealType> { return _carrierfreq; },
-				[&](const SfcwWaveform& sfcw) -> std::optional<RealType>
-				{
-					const auto step = sfcw.activeStepAt(time_since_segment_start, _carrierfreq);
-					if (!step.has_value() || step->rf_frequency <= 0.0)
-						return std::nullopt;
-					return step->rf_frequency;
-				},
-			},
-			_wave);
-	}
-
 	bool RadarSignal::isPulsed() const noexcept { return std::holds_alternative<PulseWaveform>(_wave); }
 
 	bool RadarSignal::isFileWaveform() const noexcept { return std::holds_alternative<FileWaveform>(_wave); }

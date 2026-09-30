@@ -21,15 +21,17 @@
 
 #include "core/assets.h"
 #include "core/config.h"
-#include "core/parameters.h"
 #include "core/sim_id.h"
 #include "core/simulation_state.h"
 #include "core/world.h"
+#include "propagation/common.h"
+#include "propagation/common_defs.h"
 #include "propagation/math.h"
 #include "propagation/propagation_model.h"
 #include "propagation/raytracing/antenna_model.h"
 #include "propagation/raytracing/mesh_importer.h"
 #include "propagation/raytracing/sbr_shared.h"
+#include "propagation/utils.h"
 #include "radar/radar_obj.h"
 #include "radar/receiver.h"
 #include "radar/target.h"
@@ -46,53 +48,12 @@ using namespace radar;
 
 namespace propagation::raytracing
 {
-	static void buildCarrierBuffers(std::vector<RealType>& carrier_frequencies_across_times, size_t time_count,
-									size_t tx_count, TraceJob& job_out) noexcept
-	{
-		job_out.tx_to_carrier_indices.clear();
-		job_out.carrier_ks.clear();
-		job_out.active_carrier_sets.clear();
-
-		for (size_t time_index = 0; time_index < time_count; time_index++)
-		{
-			ActiveCarriers set{};
-			set.tx_to_carrier_buffer_offset = static_cast<uint32_t>(job_out.tx_to_carrier_indices.size());
-			set.carrier_ks_buffer_offset = static_cast<uint32_t>(job_out.carrier_ks.size());
-
-			std::unordered_map<float, uint32_t> carrier_to_index;
-			for (size_t tx_index = 0; tx_index < tx_count; tx_index++)
-			{
-				const auto f = carrier_frequencies_across_times[tx_index + time_index * tx_count];
-				const auto k = float(2.0 * PI / params::c() * f);
-
-				uint32_t carrier_index{};
-				if (carrier_to_index.contains(k))
-				{
-					carrier_index = carrier_to_index[k];
-				}
-				else
-				{
-					carrier_index = static_cast<uint32_t>(job_out.carrier_ks.size());
-					carrier_index -= set.carrier_ks_buffer_offset; // local buffer index
-					job_out.carrier_ks.push_back(k);
-					carrier_to_index.emplace(k, carrier_index);
-				}
-
-				job_out.tx_to_carrier_indices.push_back(carrier_index);
-			}
-
-			set.carrier_count = static_cast<uint32_t>(job_out.carrier_ks.size()) - set.carrier_ks_buffer_offset;
-
-			job_out.active_carrier_sets.push_back(set);
-		}
-	}
-
 	template <std::ranges::forward_range I, typename Proj = std::identity>
 	static void buildRadarBuffer(const std::span<const RealType> times,
 								 const std::unordered_map<SimId, uint32_t>& antenna_id_to_index, const I& items,
-								 std::vector<ActiveAntenna>& antennae_out, Proj proj = {}) noexcept
+								 std::vector<ActiveAntenna>& antennas_out, Proj proj = {}) noexcept
 	{
-		antennae_out.clear();
+		antennas_out.clear();
 
 		for (const auto t : times)
 		{
@@ -110,7 +71,7 @@ namespace propagation::raytracing
 					.antenna_model_index = antenna_index,
 				};
 
-				antennae_out.push_back(antenna);
+				antennas_out.push_back(antenna);
 			}
 		}
 	}
@@ -141,8 +102,19 @@ namespace propagation::raytracing
 		return groups;
 	}
 
+	[[nodiscard]] RealType contributionGroupDelay(const std::vector<const Contribution*>& group)
+	{
+		assert(!group.empty());
+
+		RealType reference_delay = group.front()->delay;
+		for (const auto* c : group)
+			reference_delay = std::min(reference_delay, c->delay);
+
+		return reference_delay;
+	}
+
 	[[nodiscard]] PropagationPath aggregateContributionGroup(const std::vector<const Contribution*>& group,
-															 RealType carrier_freq_hz)
+															 RealType group_delay, RealType carrier_frequency)
 	{
 		assert(!group.empty());
 
@@ -161,21 +133,17 @@ namespace propagation::raytracing
 		// - The most direct path has the least delay. Use that as the reference path delay.
 		// - Coherently sum the other contributions, adjusting for the relative phase delay for coherence.
 
-		RealType reference_delay = group.front()->delay;
-		for (const auto* c : group)
-			reference_delay = std::min(reference_delay, c->delay);
-
 		ComplexType summed_voltage{};
 		for (const auto* c : group)
 		{
-			const RealType dt = c->delay - reference_delay;
-			const RealType angle = -2.0 * PI * carrier_freq_hz * dt;
+			const double dt = c->delay - group_delay;
+			const RealType angle = -2.0 * PI * carrier_frequency * dt;
 			const ComplexType v{double(c->voltage.re), double(c->voltage.im)};
 			summed_voltage += v * std::exp(ComplexType{0.0, angle});
 		}
 
 		PropagationPath path{};
-		path.delay = reference_delay;
+		path.delay = group_delay;
 		path.gain = summed_voltage;
 		path.path_id = group.front()->path_id;
 		return path;
@@ -236,17 +204,15 @@ namespace propagation::raytracing
 		job.world = _world;
 		job.times = times;
 
-		std::vector<RealType> carrier_frequencies_across_times;
-		carrier_frequencies_across_times.reserve(job.times.size());
-		for (auto _ : job.times)
-			carrier_frequencies_across_times.push_back(transmitter.getSignal()->getCarrier());
-
-		buildCarrierBuffers(carrier_frequencies_across_times, job.times.size(), 1, job);
+		CarrierModel<float> carrier;
+		carrier.kind = CarrierModelKind::Constant;
+		carrier.params.constant.frequency = float(transmitter.getSignal()->getCarrier());
+		job.carriers.push_back(carrier);
 
 		buildRadarBuffer(job.times, _antenna_id_to_index, std::span<const radar::Transmitter, 1>(&transmitter, 1),
-						 job.source_antennae);
+						 job.source_antennas);
 
-		buildRadarBuffer(job.times, _antenna_id_to_index, _world->getReceivers(), job.dest_antennae,
+		buildRadarBuffer(job.times, _antenna_id_to_index, _world->getReceivers(), job.dest_antennas,
 						 [&](auto& rx) -> const radar::Radar& { return *rx; });
 
 		buildRxFlags(_world, job);
@@ -259,11 +225,6 @@ namespace propagation::raytracing
 			paths_at_time[i].tx_time = job.times[i];
 		}
 
-		// There's only one transmitter, so `source_times_index` is just the time index and
-		// `source_count`/`tx_count` are both 1.
-		constexpr uint32_t source_count = 1;
-		constexpr uint32_t tx_count = 1;
-
 		const auto& receivers = _world->getReceivers();
 		for (const auto& [key, group] : groupContributions(contributions))
 		{
@@ -273,10 +234,10 @@ namespace propagation::raytracing
 			assert(time_idx < paths_at_time.size());
 			assert(dest_index < receivers.size());
 
-			const uint32_t tx_index = source_times_index % source_count;
-			const RealType carrier_freq_hz = carrier_frequencies_across_times[tx_index + time_idx * tx_count];
+			const RealType carrier_freq = transmitter.getSignal()->getCarrier();
 
-			auto path = aggregateContributionGroup(group, carrier_freq_hz);
+			auto group_delay = contributionGroupDelay(group);
+			auto path = aggregateContributionGroup(group, group_delay, carrier_freq);
 			path.source_index = 0; // Undefined for findTxToRxPaths, matching PointScatterModel
 			path.receiver = receivers[dest_index].get();
 			paths_at_time[time_idx].paths.push_back(path);
@@ -297,45 +258,32 @@ namespace propagation::raytracing
 		job.world = _world;
 		job.times = std::span(&times, 1);
 
-		std::vector<RealType> carrier_frequencies_across_times;
-		carrier_frequencies_across_times.reserve(job.times.size() * sources.size());
-		for (auto t : job.times)
-			for (const auto& src : sources)
-				// TODO_SHAUN improve? I don't think prop model should be handling the carrier dropping out itself.
-				// It's not designed to distinguish paths dropping out for different reasons.
-				// I think that should be accounted for later by the rest of FERS.
-				carrier_frequencies_across_times.push_back(src.transmitter->getSignal()
-															   ->getModulatedCarrier(t - src.segment_start)
-															   .value_or(src.transmitter->getSignal()->getCarrier()));
-
-		buildCarrierBuffers(carrier_frequencies_across_times, job.times.size(), sources.size(), job);
+		for (const auto& source : sources)
+		{
+			job.carriers.push_back(buildPropagationCarrier<float>(source));
+		}
 
 		buildRadarBuffer(job.times, _antenna_id_to_index, std::span<radar::Receiver, 1>(receiver, 1),
-						 job.source_antennae);
+						 job.source_antennas);
 
-		buildRadarBuffer(job.times, _antenna_id_to_index, sources, job.dest_antennae,
+		buildRadarBuffer(job.times, _antenna_id_to_index, sources, job.dest_antennas,
 						 [&](auto& src) -> const radar::Radar& { return *src.transmitter; });
 
 		buildRxFlags(_world, job);
 
 		auto contributions = _engine->trace(ctx, job);
 
-		constexpr uint32_t source_count = 1;
-		const auto tx_count = static_cast<uint32_t>(sources.size());
-
 		std::vector<PropagationPath> paths;
 		const auto groups = groupContributions(contributions);
 		paths.reserve(groups.size());
 		for (const auto& [key, group] : groups)
 		{
-			const auto source_times_index = static_cast<uint32_t>(key.coarse >> 32);
 			const auto tx_index = static_cast<uint32_t>(key.coarse);
 			assert(tx_index < sources.size());
 
-			const uint32_t time_idx = source_times_index / source_count;
-			const RealType carrier_freq_hz = carrier_frequencies_across_times[tx_index + time_idx * tx_count];
-
-			auto path = aggregateContributionGroup(group, carrier_freq_hz);
+			auto group_delay = contributionGroupDelay(group);
+			auto carrier_frequency = RealType(sampleCarrierFrequency(job.carriers[tx_index], rx_time - group_delay));
+			auto path = aggregateContributionGroup(group, group_delay, carrier_frequency);
 			path.source_index = tx_index;
 			path.receiver = receiver;
 			paths.push_back(path);

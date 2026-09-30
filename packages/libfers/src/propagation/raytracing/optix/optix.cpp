@@ -146,7 +146,7 @@ namespace propagation::raytracing::optix
 		_pipeline_comp_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
 		_pipeline_comp_options.pipelineLaunchParamsVariableName = "shader_params";
 
-		_pipeline_link_options.maxTraceDepth = 8;
+		_pipeline_link_options.maxTraceDepth = MAX_RAY_DEPTH;
 
 		createDevicePrograms();
 		processAssets(std::move(scene));
@@ -171,7 +171,7 @@ namespace propagation::raytracing::optix
 		OptixProgramGroupDesc pg_desc = {};
 		pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
 		pg_desc.raygen.module = _module;
-		pg_desc.raygen.entryFunctionName = "__raygen__antennaeOverTimes";
+		pg_desc.raygen.entryFunctionName = "__raygen__antennasOverTimes";
 
 		OPTIX_CHECK(
 			optixProgramGroupCreate(_optix_ctx.get(), &pg_desc, 1, &pg_opts, &log[0], &log_size, &_raygen_program));
@@ -226,7 +226,7 @@ namespace propagation::raytracing::optix
 		_material_indices = std::move(scene.mat_ids);
 		_materials.upload(scene.materials);
 
-		// ------------------------- Antennae ------------------------- //
+		// ------------------------- Antennas ------------------------- //
 
 		_antenna_models.upload(scene.antenna_models);
 		_antenna_gains.upload(scene.antenna_gains);
@@ -536,22 +536,20 @@ namespace propagation::raytracing::optix
 		if (ctx == nullptr)
 			throw std::runtime_error("OptixEngine::trace did not receive a valid OptixThreadContext.");
 
-		uint32_t rays_per_source = params::rtRaysPerSource();
+		const uint32_t rays_per_source = params::rtRaysPerSource();
 
-		uint32_t x_rays_per_source = rays_per_source;
-		uint32_t y_source_antennae = static_cast<uint32_t>(job.source_antennae.size());
-		uint32_t z_times = static_cast<uint32_t>(job.times.size());
+		const auto x_rays_per_source = rays_per_source;
+		const auto y_source_antennas = static_cast<uint32_t>(job.source_antennas.size());
+		const auto z_times = static_cast<uint32_t>(job.times.size());
 
-		DeviceBuffer<ActiveAntenna> source_antennae(_stream.get());
-		source_antennae.upload(job.source_antennae);
-		DeviceBuffer<ActiveAntenna> dest_antennae(_stream.get());
-		dest_antennae.upload(job.dest_antennae);
-		DeviceBuffer<ActiveCarriers> active_carriers(_stream.get());
-		active_carriers.upload(job.active_carrier_sets);
-		DeviceBuffer<uint32_t> tx_to_carrier_indices(_stream.get());
-		tx_to_carrier_indices.upload(job.tx_to_carrier_indices);
-		DeviceBuffer<float> carrier_ks(_stream.get());
-		carrier_ks.upload(job.carrier_ks);
+		DeviceBuffer<ActiveAntenna> source_antennas(_stream.get());
+		source_antennas.upload(job.source_antennas);
+		DeviceBuffer<ActiveAntenna> dest_antennas(_stream.get());
+		dest_antennas.upload(job.dest_antennas);
+		DeviceBuffer<double> times(_stream.get());
+		times.upload(job.times);
+		DeviceBuffer<CarrierModel<float>> carriers(_stream.get());
+		carriers.upload(job.carriers);
 		DeviceBuffer<RxFlags> rx_flags(_stream.get());
 		rx_flags.upload(job.rx_flags);
 
@@ -572,8 +570,8 @@ namespace propagation::raytracing::optix
 		//
 		// These `E[facet->dest is unshadowed] * E[steps before hitting nothing]` are estimated to be bound by
 		// `MAX_GO_STEPS/depreciation_factor`.
-		size_t depreciation_factor = 64;
-		ctx->contribs.reserve(source_antennae.size() * dest_antennae.size() * rays_per_source * MAX_GO_STEPS /
+		const size_t depreciation_factor = 64;
+		ctx->contribs.reserve(source_antennas.size() * dest_antennas.size() * rays_per_source * MAX_RAY_DEPTH /
 							  depreciation_factor);
 
 		ShaderParams params{.iass = ctx->iass.ptr_t(),
@@ -585,15 +583,14 @@ namespace propagation::raytracing::optix
 								.vertices = _vertices.ptr_t(),
 								.indices = _indeces.ptr_t(),
 								.materials = _materials.ptr_t(),
+								.times = times.ptr_t(),
+								.carrier_models = carriers.ptr_t(),
 								.antenna_models = _antenna_models.ptr_t(),
 								.antenna_gains = _antenna_gains.ptr_t(),
-								.source_antennae = source_antennae.ptr_t(),
-								.source_antenna_count = static_cast<uint32_t>(source_antennae.size()),
-								.dest_antennae = dest_antennae.ptr_t(),
-								.dest_antenna_count = static_cast<uint32_t>(dest_antennae.size()),
-								.carriers = active_carriers.ptr_t(),
-								.tx_to_carrier_indices = tx_to_carrier_indices.ptr_t(),
-								.carrier_ks = carrier_ks.ptr_t(),
+								.source_antennas = source_antennas.ptr_t(),
+								.source_antenna_count = static_cast<uint32_t>(source_antennas.size()),
+								.dest_antennas = dest_antennas.ptr_t(),
+								.dest_antenna_count = static_cast<uint32_t>(dest_antennas.size()),
 								.rx_flags = rx_flags.ptr_t(),
 								.rx_to_tx = job.type == TraceJobType::FindRxFromTx,
 								.contributions = ctx->contribs.ptr_t(),
@@ -605,7 +602,7 @@ namespace propagation::raytracing::optix
 								/*! parameters and SBT */
 								ctx->params.ptr(), ctx->params.size_bytes(), &_sbt,
 								/*! dimensions of the launch: */
-								x_rays_per_source, y_source_antennae, z_times));
+								x_rays_per_source, y_source_antennas, z_times));
 
 
 		// Read back the device-side contribution count, so we only download what was actually

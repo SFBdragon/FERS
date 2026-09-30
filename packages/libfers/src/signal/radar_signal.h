@@ -635,13 +635,6 @@ namespace fers_signal
 		[[nodiscard]] RealType getCarrier() const noexcept { return _carrierfreq; }
 
 		/**
-		 * @brief Gets the carrier frequency of the radar signal.
-		 *
-		 * @return The carrier frequency of the radar signal.
-		 */
-		[[nodiscard]] std::optional<RealType> getModulatedCarrier(RealType time_since_segment_start) const noexcept;
-
-		/**
 		 * @brief Gets the name of the radar signal.
 		 *
 		 * @return The name of the radar signal.

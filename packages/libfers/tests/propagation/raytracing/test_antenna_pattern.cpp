@@ -59,8 +59,10 @@ namespace
 	// buildAntennaModel's own baking convention exactly (see antenna_model.cpp's bakeGrid).
 	std::pair<RealType, RealType> gridPoint(uint32_t j, uint32_t i, uint32_t az_count, uint32_t el_count)
 	{
-		const RealType azimuth = (RealType(j) / RealType(az_count - 1)) * 2.0 * prop::PI - prop::PI;
-		const RealType elevation = (RealType(i) / RealType(el_count - 1)) * prop::PI - prop::PI / 2.0;
+		const RealType azimuth =
+			(RealType(j) / RealType(az_count - 1)) * 2.0 * prop::PI_V<RealType> - prop::PI_V<RealType>;
+		const RealType elevation =
+			(RealType(i) / RealType(el_count - 1)) * prop::PI_V<RealType> - prop::PI_V<RealType> / 2.0;
 		return {azimuth, elevation};
 	}
 }
@@ -73,7 +75,7 @@ TEST_CASE("buildAntennaModel captures Isotropic as a trivial model", "[raytracin
 	std::vector<float> gains_buffer;
 	const auto model = rt::buildAntennaModel(antenna, gains_buffer);
 	REQUIRE(model.kind == rt::AntennaKind::Isotropic);
-	REQUIRE_THAT(model.efficiency, WithinAbs(0.6, 1e-12));
+	REQUIRE_THAT(model.efficiency, WithinAbs(0.6, 1e-6));
 	REQUIRE_THAT(gpuGain(model, gains_buffer, 0.3, -0.2, 0.03), WithinRel(0.6, 1e-6));
 }
 
@@ -185,7 +187,7 @@ TEST_CASE("buildAntennaModel bakes an XmlAntenna into a Grid2D model matching it
 	REQUIRE(model.kind == rt::AntennaKind::Grid2D);
 	REQUIRE(model.params.grid_2d.grid.az_count == az_count);
 	REQUIRE(model.params.grid_2d.grid.el_count == el_count);
-	REQUIRE(gains_buffer.size() == az_count * el_count);
+	REQUIRE(gains_buffer.size() == static_cast<size_t>(az_count * el_count));
 
 	// Sampling exactly at a grid vertex incurs no bilinear interpolation, so it should reproduce
 	// the baked-in getGain() sample (mod float rounding) rather than merely approximating it.

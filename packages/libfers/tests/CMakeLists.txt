@@ -65,6 +65,7 @@ add_executable(libfers_tests
 			   simulation/test_channel_model_response.cpp
 			   simulation/test_channel_model_preview.cpp
 			   simulation/test_channel_model_streaming.cpp
+			   propagation/test_carrier_model.cpp
 			   propagation/pointscatter/test_pointscatter.cpp
 			   propagation/raytracing/test_sbr_math.cpp
 			   propagation/raytracing/test_antenna_pattern.cpp

@@ -9,6 +9,7 @@
 #include <cassert>
 #include <cstdint>
 
+#include "propagation/common_defs.h"
 #include "propagation/math.h"
 
 // This file defines shared definitions for types used by the SBR-like engine
@@ -20,8 +21,17 @@
 
 namespace propagation::raytracing
 {
-	constexpr uint32_t MAX_GO_STEPS = 8;
-	constexpr uint32_t MAX_CARRIERS = 32;
+	/// The number of recursive ray-casts allowed.
+	///
+	/// OptiX interpretation:
+	/// Zero means the ray-launch program can run, but can't cast any rays.
+	/// One means the ray-launch program can do direct shadow tests and single-step GO rays, but no PO shadow returns.
+	/// Two is the first functional option, direct shadow rays, single-step GO rays, and PO shadow returns (bistatic
+	/// paths).
+	///     This is the "single GO bounce" case. Thus ray depth is (go_bounces+1).
+	///
+	/// This number can be adjusted as needed. This caps the depth users can request.
+	constexpr uint32_t MAX_RAY_DEPTH = 6;
 
 	/// SBR engine triangle mesh view.
 	struct TriangleMeshView
@@ -51,13 +61,6 @@ namespace propagation::raytracing
 		///
 		/// Zero for dielectrics, infinity for perfect electric conductors.
 		float conductivity;
-	};
-
-	struct ActiveCarriers
-	{
-		uint32_t tx_to_carrier_buffer_offset;
-		uint32_t carrier_ks_buffer_offset;
-		uint32_t carrier_count;
 	};
 
 	/// SBR engine view of baked antenna gain pattern.
@@ -92,27 +95,27 @@ namespace propagation::raytracing
 	struct AntennaModel
 	{
 		AntennaKind kind = AntennaKind::Isotropic;
-		double efficiency = 1.0;
+		float efficiency = 1.0;
 		union
 		{
 			struct
 			{
-				double alpha, beta, gamma;
+				float alpha, beta, gamma;
 			} sinc;
 
 			struct
 			{
-				double azimuth_scale, elevation_scale;
+				float azimuth_scale, elevation_scale;
 			} gaussian;
 
 			struct
 			{
-				double dimension;
+				float dimension;
 			} square_horn;
 
 			struct
 			{
-				double diameter;
+				float diameter;
 			} parabolic;
 
 			struct
@@ -181,32 +184,28 @@ namespace propagation::raytracing
 		const Uint3* indices;
 		/// Materials buffer.
 		const Material* materials;
+		/// Per-index timestamp buffer.
+		const double* times;
+		/// Transmitting carrier model buffer.
+		/// Indexed by transmitter ID.
+		const CarrierModel<float>* carrier_models;
 		/// Antenna model buffer.
 		const AntennaModel* antenna_models;
 		/// Antenna gains buffer.
 		const float* antenna_gains;
 
-		/// Destination antennae positions and orientations.
+		/// Destination antennas positions and orientations.
 		/// This is `src_antenna_count * times` in length.
 		/// Indexed by `src_antennas[src_antenna_idx + src_antenna_count * time_idx]`.
-		const ActiveAntenna* source_antennae;
+		const ActiveAntenna* source_antennas;
 		/// The number of source antennas to trace from.
 		uint32_t source_antenna_count;
-		/// Destination antennae positions and orientations.
+		/// Destination antennas positions and orientations.
 		/// This is `src_antenna_count * times` in length.
 		/// Indexed by `src_antennas[src_antenna_idx + src_antenna_count * time_idx]`.
-		const ActiveAntenna* dest_antennae;
+		const ActiveAntenna* dest_antennas;
 		/// The number of destination antennas to trace to.
 		uint32_t dest_antenna_count;
-
-		/// Indexed by `time_index`.
-		const ActiveCarriers* carriers;
-		///
-		/// Indexed by [transmitter_antenna_index + time_index * transmitter_antenna_count]
-		uint32_t* tx_to_carrier_indices;
-		///
-		/// Indexed by `tx_to_carrier_indices`.
-		float* carrier_ks;
 
 		/// Receiver flags.
 		RxFlags* rx_flags;
@@ -230,7 +229,8 @@ namespace propagation::raytracing
 		// index which indexes into per-instance data here.
 		// Instance* instances;
 
-		// Output buffer of contributions. Indexing this is engine-specific.
+		// Output buffer of contributions.
+		// Indexing this safely device-side requires platform-specific atomic counters.
 		Contribution* contributions;
 	};
 
