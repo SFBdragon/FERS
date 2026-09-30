@@ -92,5 +92,10 @@ namespace propagation
 		[[nodiscard]] virtual std::vector<PropagationPath>
 		findRxFromTxPaths(ThreadContext* ctx, radar::Receiver* receiver,
 						  const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const = 0;
+
+		/// Conservative upper bound on the number of tx-to-rx path legs this model can produce for a
+		/// single path (direct = 1 leg, each additional bounce/reflection adds 1 leg). Used to bound
+		/// how long a stopped streaming source's propagation tail could still take to arrive.
+		[[nodiscard]] virtual unsigned int maxPropagationLegs() const noexcept = 0;
 	};
 }

@@ -44,7 +44,6 @@ namespace pool
 namespace radar
 {
 	class Receiver;
-	class Target;
 	class Transmitter;
 }
 
@@ -188,9 +187,14 @@ namespace core
 
 	private:
 		/// Calculates one streaming I/Q sample for the receiver at the specified time step.
+		///
+		/// Any source whose returned path still delivers in-window signal this sample has
+		/// its flag set in `source_live_this_sample` to prevent the more aggressive pruning
+		/// strategy by `pruneConfirmedDeadStreamingSources`.
 		[[nodiscard]] ComplexType calculateStreamingSample(radar::Receiver* rx, const RealType rx_time,
 														   const std::vector<ActiveStreamingSource>& streaming_sources,
-														   ReceiverTrackerCache& tracker_cache) const;
+														   ReceiverTrackerCache& tracker_cache,
+														   std::vector<bool>& source_live_this_sample) const;
 
 
 		/// Adds tracker storage for a newly active streaming source.
@@ -200,14 +204,32 @@ namespace core
 		/// Removes tracker storage for a streaming source that has ended.
 		void eraseStreamingTrackerSource(std::size_t source_index);
 
-		/// Removes ended streaming sources once no future receiver sample can observe their in-flight energy.
+		/// Conservative upper bound on the distance between any two platforms over the
+		/// simulation's whole time span.
+		///
+		/// Cached at construction and reused by `streamingSourceCoarseCleanupDeadline`.
+		[[nodiscard]] RealType computeWorldBoundingDiameter() const;
+
+		/// Coarse, cheap upper bound on the receive time at which an ended source's tail could still
+		/// arrive anywhere in the world. Used by `cleanupInactiveStreamingSources`.
+		[[nodiscard]] RealType streamingSourceCoarseCleanupDeadline(const ActiveStreamingSource& source) const;
+
+		/// True if some streaming-mode receiver's schedule could still open a listening window in
+		/// `[from_time, coarse_deadline)`.
+		[[nodiscard]] bool mightAnyReceiverStillObserve(RealType from_time, RealType coarse_deadline) const;
+
+		/// This uses a world bounding diameter and propagation model leg count to place an
+		/// upper bound on propagation path time. This method is course but cheap and analytic,
+		/// and handles the case where `pruneConfirmedDeadStreamingSources` can't quickly prove
+		/// all receivers are unreachable by a streaming source
+		/// (typically when a receiver off and not simulated).
 		void cleanupInactiveStreamingSources(RealType from_time);
 
-		/// Returns the next time at which ended streaming sources can be cleaned up.
-		[[nodiscard]] std::optional<RealType> nextStreamingCleanupDeadline(RealType from_time);
-
-		/// Returns the next streaming chunk boundary before the target event time.
-		[[nodiscard]] RealType streamingChunkEnd(RealType from_time, RealType event_time);
+		/// Removes ended streaming sources that delivered no in-window contribution to any
+		/// receiver this sample. Proof only applies when every streaming-mode receiver was actually
+		/// queried this sample (see appendActiveReceiverStreamingSamples). Thus it is not
+		/// called when there are inactive streaming-mode receivers.
+		void pruneConfirmedDeadStreamingSources(RealType t_step);
 
 		/// Returns true when cooperative cancellation should stop the current streaming chunk.
 		[[nodiscard]] bool shouldStopStreamingChunk(std::size_t sample_index, std::size_t chunk_start_index);
@@ -269,15 +291,6 @@ namespace core
 
 		/// Emits sink heartbeats on the continuous simulation clock up to the given time.
 		void emitContextHeartbeatsThrough(RealType simulation_time);
-
-		/// Returns the latest conservative receive time at which an ended source must still be retained.
-		[[nodiscard]] std::optional<RealType> streamingSourceCleanupDeadline(const ActiveStreamingSource& source,
-																			 RealType from_time) const;
-
-		/// Returns the latest conservative receive time at which one receiver may still observe a source.
-		[[nodiscard]] std::optional<RealType> receiverCleanupDeadline(const ActiveStreamingSource& source,
-																	  const radar::Receiver* rx,
-																	  RealType from_time) const;
 
 		/// Creates the CW phase-noise lookup if any active timing source needs it.
 		void ensureCwPhaseNoiseLookup();
@@ -367,6 +380,10 @@ namespace core
 		std::vector<std::shared_ptr<const OutputFileMetadata>>
 			_streaming_output_file_metadata; ///< Per-receiver metadata attached to sink blocks.
 		RealType _internal_stop_time = 0.0; ///< Physics stop time including IF over-render margin.
+
+		RealType _world_bounding_diameter = 0.0; ///< Cached once at construction; see computeWorldBoundingDiameter().
+		std::vector<bool>
+			_streaming_source_live_this_sample; ///< Tier-2 scratch: per-source "contributed this sample" flags.
 	};
 
 	/**
