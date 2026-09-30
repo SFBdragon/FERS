@@ -1020,15 +1020,23 @@ TEST_CASE("SimulationEngine cleanup preserves moving direct streaming tails", "[
 		REQUIRE(std::abs(sampleAt(sink, active_index)) > 0.0);
 		REQUIRE(fixture.world->getSimulationState().active_streaming_transmitters.size() == 1);
 
+		// Reactivate so cleanup can confirm the source is dead from real per-sample evidence rather
+		// than falling back to the coarse, deliberately loose safety net (which only guarantees
+		// cleanup by the time no receiver's schedule could possibly observe the source again).
+		engine.handleRxStreamingStart(fixture.rx);
 		fixture.world->getSimulationState().t_current = active_sample_time + 0.001;
 		engine.processStreamingPhysics(cleanup_time);
 		REQUIRE(fixture.world->getSimulationState().active_streaming_transmitters.empty());
 	};
 
+	// cleanup_time is chosen with margin past the true dead instant: cleanup now relies on a real
+	// sample landing strictly past that instant (exact-boundary timestamps are unreliable under
+	// floating point, and the receiver is deactivated between the two processStreamingPhysics calls
+	// above, so the exact per-sample check can only run once cleanup_time's own call processes one).
 	SECTION("linear receding transmitter")
 	{
 		run_case(math::Path::InterpType::INTERP_LINEAR,
-				 {{math::Vec3{-100.0, 0.0, 0.0}, 0.0}, {math::Vec3{-200.0, 0.0, 0.0}, 1.0}}, 0.325, 0.34);
+				 {{math::Vec3{-100.0, 0.0, 0.0}, 0.0}, {math::Vec3{-200.0, 0.0, 0.0}, 1.0}}, 0.325, 0.36);
 	}
 
 	SECTION("cubic nonmonotone transmitter")
@@ -1038,7 +1046,7 @@ TEST_CASE("SimulationEngine cleanup preserves moving direct streaming tails", "[
 				  {math::Vec3{-80.0, 0.0, 0.0}, 0.2},
 				  {math::Vec3{-200.0, 0.0, 0.0}, 0.4},
 				  {math::Vec3{-100.0, 0.0, 0.0}, 0.9}},
-				 0.35, 0.401);
+				 0.35, 0.421);
 	}
 }
 
@@ -1071,8 +1079,12 @@ TEST_CASE("SimulationEngine cleanup preserves reflected-only streaming tails", "
 	REQUIRE(std::abs(sampleAt(sink, 600)) > 0.0);
 	REQUIRE(fixture.world->getSimulationState().active_streaming_transmitters.size() == 1);
 
+	// Reactivate so cleanup can confirm the source is dead from real per-sample evidence (a small
+	// margin past the true dead instant, 0.7) rather than falling back to the coarse, deliberately
+	// loose safety net.
+	engine.handleRxStreamingStart(fixture.rx);
 	fixture.world->getSimulationState().t_current = 0.601;
-	engine.processStreamingPhysics(0.701);
+	engine.processStreamingPhysics(0.72);
 	REQUIRE(fixture.world->getSimulationState().active_streaming_transmitters.empty());
 }
 
@@ -1105,8 +1117,10 @@ TEST_CASE("SimulationEngine cleanup keeps sources through receiver gaps when tai
 	REQUIRE(fixture.world->getSimulationState().active_streaming_transmitters.size() == 1);
 	engine.handleRxStreamingStart(fixture.rx);
 
+	// A small margin past the true dead instant (0.3): cleanup needs a real sample landing strictly
+	// past it, not just an exact-boundary timestamp.
 	fixture.world->getSimulationState().t_current = 0.25;
-	engine.processStreamingPhysics(0.301);
+	engine.processStreamingPhysics(0.31);
 	engine.handleRxStreamingEnd(fixture.rx);
 	REQUIRE(std::abs(sampleAt(sink, 250)) > 0.0);
 	REQUIRE(fixture.world->getSimulationState().active_streaming_transmitters.empty());
@@ -1133,7 +1147,9 @@ TEST_CASE("SimulationEngine cleanup removes an old segment before a same-time ne
 	engine.handleTxStreamingEnd(fixture.tx);
 	REQUIRE(fixture.world->getSimulationState().active_streaming_transmitters.size() == 1);
 
-	engine.processStreamingPhysics(0.375);
+	// A small margin past the true dead instant (0.375): cleanup needs a real sample landing
+	// strictly past it, not just an exact-boundary timestamp.
+	engine.processStreamingPhysics(0.39);
 	REQUIRE(fixture.world->getSimulationState().active_streaming_transmitters.empty());
 
 	engine.handleTxStreamingStart(core::makeActiveSource(fixture.tx, 0.375, 0.625));

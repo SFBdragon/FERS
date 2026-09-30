@@ -147,6 +147,8 @@ namespace propagation::raytracing
 		findRxFromTxPaths(ThreadContext* ctx, radar::Receiver* receiver,
 						  const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const override;
 
+		[[nodiscard]] unsigned int maxPropagationLegs() const noexcept override;
+
 	private:
 		core::World* _world;
 

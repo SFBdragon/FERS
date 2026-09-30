@@ -68,6 +68,12 @@ namespace propagation::pointscatter
 		findRxFromTxPaths(ThreadContext* ctx, radar::Receiver* receiver,
 						  const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const override;
 
+		[[nodiscard]] unsigned int maxPropagationLegs() const noexcept override
+		{
+			// directPath (1 leg) and bistaticPath (2 legs)
+			return 2;
+		}
+
 	private:
 		core::World* _world;
 	};
