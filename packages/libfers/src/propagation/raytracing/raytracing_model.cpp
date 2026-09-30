@@ -294,9 +294,7 @@ namespace propagation::raytracing
 
 	unsigned int RayTracingModel::maxPropagationLegs() const noexcept
 	{
-		// A PO contribution is computed at each hit before the bounce-count limit is checked (see
-		// sbr_impl.h's facetIncidentRay), so up to rtGoStepLimit()+1 bounces, i.e. rtGoStepLimit()+2
-		// path legs, are reachable.
-		return params::rtGoStepLimit() + 2;
+		// There are at most `rtGoStepLimit()` GO legs, then one PO-based leg to destinations.
+		return params::rtGoStepLimit() + 1;
 	}
 }
