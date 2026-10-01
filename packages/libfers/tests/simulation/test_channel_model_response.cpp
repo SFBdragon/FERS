@@ -2,6 +2,7 @@
 // and that direct/reflected-path responses are generated and routed to the
 // correct receiver queue (pulsed inbox vs. streaming-mode interference log).
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <memory>
@@ -14,6 +15,7 @@
 #include "math/coord.h"
 #include "math/geometry_ops.h"
 #include "propagation/pointscatter/pointscatter.h"
+#include "propagation/propagation_model.h"
 #include "radar/platform.h"
 #include "radar/receiver.h"
 #include "radar/target.h"
@@ -37,6 +39,53 @@ namespace
 		ParamGuard(ParamGuard&&) = delete;
 		ParamGuard& operator=(ParamGuard&&) = delete;
 		~ParamGuard() { params::params = saved; }
+	};
+
+	// A propagation model that hands back a scripted, per-timestep-index path presence for a
+	// single path_id, ignoring actual geometry - used to test calculateResponses's own
+	// bookkeeping (splitting a path that drops out mid-pulse) in isolation from any real
+	// propagation model's behavior.
+	class ScriptedPropagationModel final : public propagation::PropagationModel
+	{
+	public:
+		ScriptedPropagationModel(std::vector<bool> present_at_index, const RealType delay, radar::Receiver* receiver) :
+			_present_at_index(std::move(present_at_index)), _delay(delay), _receiver(receiver)
+		{
+		}
+
+		[[nodiscard]] std::vector<propagation::PathsAtTime>
+		findTxToRxPaths(propagation::ThreadContext*, const radar::Transmitter&,
+						const std::vector<RealType>& times) const override
+		{
+			std::vector<propagation::PathsAtTime> result(times.size());
+			for (size_t i = 0; i < times.size(); ++i)
+			{
+				result[i].tx_time = times[i];
+				if (i < _present_at_index.size() && _present_at_index[i])
+				{
+					result[i].paths.push_back(propagation::PropagationPath{.delay = _delay,
+																			.gain = ComplexType{1.0, 0.0},
+																			.path_id = 1,
+																			.source_index = 0,
+																			.receiver = _receiver});
+				}
+			}
+			return result;
+		}
+
+		[[nodiscard]] std::vector<propagation::PropagationPath>
+		findRxFromTxPaths(propagation::ThreadContext*, radar::Receiver*,
+						  const std::vector<core::ActiveStreamingSource>&, RealType) const override
+		{
+			return {};
+		}
+
+		[[nodiscard]] unsigned int maxPropagationLegs() const noexcept override { return 1; }
+
+	private:
+		std::vector<bool> _present_at_index;
+		RealType _delay;
+		radar::Receiver* _receiver;
 	};
 
 	void setupPlatform(radar::Platform& plat, const math::Vec3& pos)
@@ -300,10 +349,10 @@ TEST_CASE("calculateResponses direct path produces a routed response with interp
 	auto inbox = rx_ptr->drainInbox();
 	REQUIRE(inbox.size() == 1);
 
-	// startTime() sits one control-point period before the true propagation delay
-	// (Response always pads its real points by controlPointEdgePeriod() on each side),
-	// so compare with a tolerance covering a couple of control-point periods rather
-	// than an exact match.
+	// This path is present at every sample from the transmission's first to its last, so its
+	// Response has no lead taper at all (left_interval is 0 at the transmission's true
+	// start) and startTime() equals the propagation delay itself. Still compare with a
+	// generous tolerance rather than an exact match, in case that ever changes.
 	const RealType expected_delay = 1000.0 / params::c();
 	const RealType edge = 1.0 / params::simSamplingRate();
 	REQUIRE_THAT(inbox[0]->startTime(), WithinAbs(expected_delay, 3.0 * edge));
@@ -416,8 +465,79 @@ TEST_CASE("calculateResponses direct path response spans approximately the signa
 	auto inbox = rx_ptr->drainInbox();
 	REQUIRE(inbox.size() == 1);
 
-	// Response length should be approximately the signal length (5ms), plus the lead/trail
-	// control-point padding Response always adds at each end (~1 edge period apiece).
+	// This path spans the whole transmission, so its Response has no taper padding at either
+	// end (both left_interval and right_interval are 0 at the transmission's true
+	// start/end) - length should track the signal length closely.
 	const RealType edge = 1.0 / params::simSamplingRate();
 	REQUIRE_THAT(inbox[0]->getRxDuration(), WithinAbs(5e-3, 4.0 * edge));
+}
+
+// =============================================================================
+// calculateResponses: a path_id dropping out mid-pulse splits into separate Responses
+// =============================================================================
+
+TEST_CASE("calculateResponses splits a path into separate Responses when it drops out mid-pulse",
+		  "[simulation][channel_model][response]")
+{
+	ParamGuard const guard;
+	params::params.reset();
+	params::setSimSamplingRate(1000.0); // sample_period = 1ms
+
+	core::World world;
+
+	auto tx_plat = std::make_unique<radar::Platform>("tx_plat");
+	setupPlatform(*tx_plat, math::Vec3{0.0, 0.0, 0.0});
+
+	auto rx_plat = std::make_unique<radar::Platform>("rx_plat");
+	setupPlatform(*rx_plat, math::Vec3{1000.0, 0.0, 0.0});
+
+	antenna::Isotropic iso_ant("iso");
+	auto timing = std::make_shared<timing::Timing>("clk", 42);
+
+	auto tx = std::make_unique<radar::Transmitter>(tx_plat.get(), "tx", radar::OperationMode::PULSED_MODE);
+	tx->setAntenna(&iso_ant);
+	tx->setTiming(timing);
+
+	// 6ms of samples at 1000Hz -> point_count = 6, times = {0, 1, 2, 3, 4, 5, 6} ms.
+	std::vector<ComplexType> samples(6, ComplexType{1.0, 0.0});
+	auto wave = makeSampledWave("sig", 1.0, 1e9, samples, 1000.0);
+	tx->setSignal(&wave);
+
+	auto rx = std::make_unique<radar::Receiver>(rx_plat.get(), "rx", 42, radar::OperationMode::PULSED_MODE);
+	rx->setAntenna(&iso_ant);
+	rx->setTiming(timing);
+	auto* rx_ptr = rx.get();
+	auto* tx_ptr = tx.get();
+
+	world.add(std::move(tx_plat));
+	world.add(std::move(rx_plat));
+	world.add(std::move(tx));
+	world.add(std::move(rx));
+
+	// Same path_id present at indices 0-2 and 4-6, missing at index 3 (momentary occlusion) -
+	// a fixed, geometry-independent delay keeps the expected timings exact (no Doppler).
+	constexpr RealType delay = 0.5e-3;
+	const ScriptedPropagationModel prop({true, true, true, false, true, true, true}, delay, rx_ptr);
+	simulation::calculateResponses(*tx_ptr, 0.0, prop, nullptr);
+
+	auto inbox = rx_ptr->drainInbox();
+	REQUIRE(inbox.size() == 2);
+
+	std::ranges::sort(inbox, {}, [](const auto& r) { return r->startTime(); });
+
+	constexpr RealType sample_period = 1.0e-3;
+
+	// First response: real points at t=0,1,2ms (+delay). left_interval=0 (index 0 is the
+	// transmission's true start), so startTime() lands exactly on the first real point.
+	REQUIRE_THAT(inbox[0]->startTime(), WithinAbs(delay, 1e-9));
+	// It's evicted when index 3 doesn't match, so its tail taper used the normal grid gap
+	// to index 3 (unrelated to the transmission's own end) - meeting the second response's
+	// lead taper exactly at index 3's own time, with no overlap or gap between them.
+	REQUIRE_THAT(inbox[0]->endTime(), WithinAbs(3 * sample_period + delay, 1e-9));
+
+	// Second response: real points at t=4,5,6ms (+delay).
+	REQUIRE_THAT(inbox[1]->startTime(), WithinAbs(3 * sample_period + delay, 1e-9));
+	// right_interval=0 at index 6 (the transmission's true end), so endTime() lands exactly
+	// on the last real point.
+	REQUIRE_THAT(inbox[1]->endTime(), WithinAbs(6 * sample_period + delay, 1e-9));
 }

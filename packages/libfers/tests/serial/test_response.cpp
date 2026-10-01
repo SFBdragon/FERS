@@ -54,25 +54,71 @@ TEST_CASE("Response start/end time always pad a single real point by controlPoin
 	REQUIRE_THAT(response.getRxDuration(), WithinAbs(2.0e-3, 1e-12));
 }
 
-TEST_CASE("Response taper width tracks the actual local rx_time spacing between real points", "[serial][response]")
+TEST_CASE("Response taper width and delay/phase extrapolate using the caller-supplied interval, "
+		  "Doppler-scaled by the observed rx/tx rate",
+		  "[serial][response]")
 {
 	ParamGuard const guard;
 	params::setOversampleRatio(1);
 	params::setSimSamplingRate(1000.0);
 
 	const auto wave = makeSampledRadarSignal("wave", 1.0, {ComplexType{0.0, 0.0}}, 1000.0);
-	serial::Response response(&wave, {.gain = 1.0, .rx_time = 0.0, .delay = 0.0, .phase_delay = 0.0});
-	response.addInterpPoint({.gain = 1.0, .rx_time = 1.0, .delay = 0.0, .phase_delay = 0.0});
 
-	// These two real points are spaced 1.0s apart, far more than controlPointEdgePeriod()
-	// (1e-3 here), e.g. because they're the endpoints of a response that was split from
-	// an adjacent one under heavy Doppler compression/stretching (a path_id change mid
-	// ray-trace, say). The taper must extrapolate using that same 1.0s step, not the
-	// nominal control-point width, or an adjacent response's own taper wouldn't meet this
-	// one's real data where it should, causing rendered energy to overlap or gap right
-	// at the seam between them. No finalise() call is needed.
-	REQUIRE_THAT(response.startTime(), WithinAbs(-1.0, 1e-9));
-	REQUIRE_THAT(response.endTime(), WithinAbs(2.0, 1e-9));
+	// p1: tx = rx_time - delay = 8.0. p2: tx = 8.5. tx_gap = 0.5, rx_gap = 1.0 - an
+	// exaggerated 2x local Doppler compression, chosen so "scaled by the supplied interval"
+	// is unambiguously distinct from "reuses the pair's own 0.5s tx_gap directly".
+	const interp::InterpPoint p1{.gain = 1.0, .rx_time = 10.0, .delay = 2.0, .phase_delay = 1.0};
+	const interp::InterpPoint p2{.gain = 1.0, .rx_time = 11.0, .delay = 2.5, .phase_delay = 1.6};
+
+	// The supplied interval (0.2 tx-seconds) comes from the true sample grid (see
+	// calculateResponses), not from this pair's own spacing - that's the whole point of the
+	// fix: two adjacent path_id channels sharing a short grid gap must each taper by that
+	// same short interval, not by whatever their own last two points happen to be spaced by,
+	// or their tapers overlap (double-count) or gap right at the seam between them.
+	serial::Response response(&wave, p1, /*left_interval=*/0.2, /*right_interval=*/0.2);
+	response.addInterpPoint(p2, /*right_interval=*/0.2);
+
+	const auto tapered = response.taperedPoints();
+	const auto lead = *tapered.begin();
+	auto tail_it = tapered.begin();
+	++tail_it; // real[0] = p1
+	++tail_it; // real[1] = p2
+	++tail_it; // tail
+	const auto tail = *tail_it;
+
+	// Local rate = (delay2-delay1)/tx_gap = 0.5/0.5 = 1.0 delay-second per tx-second.
+	// Extrapolating 0.2 more tx-seconds carries 0.2 more delay with it either direction.
+	REQUIRE_THAT(lead.gain, WithinAbs(0.0, 1e-12));
+	REQUIRE_THAT(lead.delay, WithinAbs(2.0 - 0.2, 1e-9));
+	REQUIRE_THAT(lead.phase_delay, WithinAbs(1.0 - 0.24, 1e-9));
+	REQUIRE_THAT(lead.rx_time, WithinAbs(10.0 - 0.4, 1e-9)); // rx_width = interval + delay_delta = 0.4
+
+	REQUIRE_THAT(tail.gain, WithinAbs(0.0, 1e-12));
+	REQUIRE_THAT(tail.delay, WithinAbs(2.5 + 0.2, 1e-9));
+	REQUIRE_THAT(tail.phase_delay, WithinAbs(1.6 + 0.24, 1e-9));
+	REQUIRE_THAT(tail.rx_time, WithinAbs(11.0 + 0.4, 1e-9));
+
+	REQUIRE_THAT(response.startTime(), WithinAbs(10.0 - 0.4, 1e-9));
+	REQUIRE_THAT(response.endTime(), WithinAbs(11.0 + 0.4, 1e-9));
+}
+
+TEST_CASE("Response taper degenerates to the real point when its interval is 0", "[serial][response]")
+{
+	ParamGuard const guard;
+	params::setOversampleRatio(1);
+	params::setSimSamplingRate(1000.0);
+
+	const auto wave = makeSampledRadarSignal("wave", 1.0, {ComplexType{0.0, 0.0}}, 1000.0);
+
+	// A 0 interval means this side sits at the transmission's actual start/end - nothing
+	// ever renders out there, so there's nothing meaningful to taper into.
+	serial::Response response(&wave, {.gain = 1.0, .rx_time = 5.0, .delay = 0.0, .phase_delay = 0.0},
+							  /*left_interval=*/0.0, /*right_interval=*/0.0);
+	response.addInterpPoint({.gain = 1.0, .rx_time = 5.001, .delay = 0.0, .phase_delay = 0.0},
+							/*right_interval=*/0.0);
+
+	REQUIRE_THAT(response.startTime(), WithinAbs(5.0, 1e-12));
+	REQUIRE_THAT(response.endTime(), WithinAbs(5.001, 1e-12));
 }
 
 TEST_CASE("Response renderSlice reproduces the source waveform at zero delay", "[serial][response]")

@@ -648,10 +648,38 @@ namespace simulation
 		// The timestepping is internal to allow for batching across timesteps.
 		const auto timesteps_paths = prop.findTxToRxPaths(ctx, tx, times);
 
-		std::unordered_map<uint64_t, std::pair<std::unique_ptr<serial::Response>, Receiver*>> responses;
-
-		for (const auto& timesteps : timesteps_paths)
+		struct OpenResponse
 		{
+			std::unique_ptr<serial::Response> response;
+			Receiver* receiver;
+			size_t last_index;
+		};
+		std::unordered_map<uint64_t, OpenResponse> responses;
+
+		for (size_t i = 0; i < timesteps_paths.size(); ++i)
+		{
+			// A response can only continue at the timestep immediately following its last
+			// one. Anything else means its path dropped out (e.g. momentary occlusion), so
+			// finalize and route it now rather than letting a later reappearance of the same
+			// path_id silently bridge the gap - see Response's tx-time-interval taper, which
+			// assumes each response's own points are contiguous on the sample grid.
+			for (auto it = responses.begin(); it != responses.end();)
+			{
+				if (it->second.last_index + 1 != i)
+				{
+					routeResponse(it->second.receiver, std::move(it->second.response));
+					it = responses.erase(it);
+				}
+				else
+				{
+					++it;
+				}
+			}
+
+			const auto& timesteps = timesteps_paths[i];
+			const RealType left_interval = i == 0 ? 0.0 : times[i] - times[i - 1];
+			const RealType right_interval = i == point_count ? 0.0 : times[i + 1] - times[i];
+
 			for (const auto& path : timesteps.paths)
 			{
 				auto phase_delay = -path.delay * 2.0 * PI * tx.getSignal()->getCarrier() + std::arg(path.gain);
@@ -661,20 +689,17 @@ namespace simulation
 												.delay = path.delay,
 												.phase_delay = phase_delay};
 
-				if (responses.contains(path.path_id))
+				if (const auto found = responses.find(path.path_id); found != responses.end())
 				{
-					// TODO_SHAUN Consider adding a maximum number of points after which we
-					// consider a separate response to be occuring?
-					// This handles the case of momentary occlusion.
-					// Currently, we assume that if we miss a point, it was just missed by
-					// the propagation model. Shaun expects this to be common with the ray tracer.
-					responses.at(path.path_id).first->addInterpPoint(point);
+					found->second.response->addInterpPoint(point, right_interval);
+					found->second.last_index = i;
 				}
 				else
 				{
 					responses.insert({
 						path.path_id,
-						{std::make_unique<serial::Response>(tx.getSignal(), point), path.receiver},
+						{std::make_unique<serial::Response>(tx.getSignal(), point, left_interval, right_interval),
+						 path.receiver, i},
 					});
 				}
 			}
@@ -682,7 +707,7 @@ namespace simulation
 
 		for (auto& [k, v] : responses)
 		{
-			routeResponse(v.second, std::move(v.first));
+			routeResponse(v.receiver, std::move(v.response));
 		}
 		responses.clear(); // To be explicit: the items are invalidated by the above.
 	}

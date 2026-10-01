@@ -76,7 +76,8 @@ namespace propagation::pointscatter
 		const auto e_tm = dot(tx_pol, basis.e_tm_in);
 
 		const auto sqrt_rcs = std::sqrt(rcs);
-		// Assume the FSA Jones scattering matrix for a PEC for now. TODO_SHAUN add polarimetric scattering matrices.
+		// Assume the FSA Jones scattering matrix for a PEC for now.
+		// TODO add polarimetric scattering matrices to fersxml targets.
 		const auto scatter = Real2x2<RealType>{{-sqrt_rcs, 0}, {0, sqrt_rcs}};
 		const auto e_scat = scatter * Complex2{e_te, e_tm};
 

@@ -22,7 +22,15 @@ using interp::InterpPoint;
 
 namespace serial
 {
-	void Response::addInterpPoint(const InterpPoint& point) { _points.push_back(point); }
+	void Response::addInterpPoint(const InterpPoint& point, const RealType right_interval)
+	{
+		if (point.rx_time < _points.back().rx_time)
+		{
+			throw std::logic_error("Attempted to add an InterpPoint earlier than the Response's last point");
+		}
+		_points.push_back(point);
+		_right_interval = right_interval;
+	}
 
 	std::vector<ComplexType> Response::render(const RealType fracWinDelay) const
 	{
