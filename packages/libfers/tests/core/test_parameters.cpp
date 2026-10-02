@@ -1,9 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <cmath>
 #include <string>
 
-#include "core/logging.h"
 #include "core/parameters.h"
 
 using Catch::Matchers::ContainsSubstring;
@@ -43,6 +43,37 @@ TEST_CASE("Parameters default values are consistent", "[core][parameters]")
 	REQUIRE(params::rotationAngleUnit() == params::RotationAngleUnit::Degrees);
 	REQUIRE(params::utmZone() == 0);
 	REQUIRE(params::utmNorthHemisphere());
+}
+
+TEST_CASE("RayTracingParameters derives ray counts and solid angles from boresight width and tube weights",
+		  "[core][parameters]")
+{
+	params::RayTracingParameters rt;
+	rt.boresight_width = PI / 2.0; // 90 degree full-width cone -> 45 degree half-angle.
+	rt.boresight_tube_solid_angle = 1e-3;
+	rt.off_boresight_tube_solid_angle = 1e-2;
+
+	const double expected_cone_sr = 2.0 * PI * (1.0 - std::cos(PI / 4.0));
+	REQUIRE_THAT(rt.boresightSolidAngle(), WithinAbs(expected_cone_sr, 1e-9));
+
+	const auto expected_boresight_rays = static_cast<unsigned>(std::llround(expected_cone_sr / 1e-3));
+	REQUIRE(rt.raysAtBoresightCap() == expected_boresight_rays);
+
+	const double expected_off_sr = 4.0 * PI - expected_cone_sr;
+	const auto expected_off_rays = static_cast<unsigned>(std::llround(expected_off_sr / 1e-2));
+	REQUIRE(rt.offBoresightRays() == expected_off_rays);
+
+	REQUIRE(rt.raysPerSource() == expected_boresight_rays + expected_off_rays);
+}
+
+TEST_CASE("RayTracingParameters treats a full-turn boresight width as covering the whole sphere", "[core][parameters]")
+{
+	params::RayTracingParameters rt;
+	rt.boresight_width = 2.0 * PI;
+	rt.boresight_tube_solid_angle = 1e-3;
+
+	REQUIRE_THAT(rt.boresightSolidAngle(), WithinAbs(4.0 * PI, 1e-9));
+	REQUIRE(rt.offBoresightRays() == 0u);
 }
 
 TEST_CASE("Parameters setters update getters", "[core][parameters]")

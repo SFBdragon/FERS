@@ -69,7 +69,7 @@ add_executable(libfers_tests
 			   propagation/pointscatter/test_pointscatter.cpp
 			   propagation/raytracing/test_sbr_math.cpp
 			   propagation/raytracing/test_antenna_pattern.cpp
-			   propagation/raytracing/test_facet_incident_ray.cpp
+			   propagation/raytracing/test_facet_hit.cpp
 			   propagation/raytracing/test_raytracing_aggregation.cpp
 )
 

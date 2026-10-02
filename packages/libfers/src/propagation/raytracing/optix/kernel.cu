@@ -150,7 +150,7 @@ namespace propagation::raytracing::optix
 		auto ias = shader_params.iass[path->time_index];
 
 		auto should_reflect = facetHit(
-			shader_params.shared, path, hit, [ias](Float3 origin, Float3 seg) { return shadowTest(origin, seg, ias); },
+			shader_params.sbr, path, hit, [ias](Float3 origin, Float3 seg) { return shadowTest(origin, seg, ias); },
 			contributionIndex);
 
 		if (!should_reflect)
@@ -199,16 +199,15 @@ namespace propagation::raytracing::optix
 
 		// Zero-bounce direct-path check, piggybacked on spare X-lanes (dest_antenna_count is tiny).
 		// Looped, not `if`, so it stays correct even if rays_per_source < dest_antenna_count.
-		for (uint32_t d = path_index; d < shader_params.shared.dest_antenna_count;
-			 d += shader_params.shared.rays_per_source)
+		for (uint32_t d = path_index; d < shader_params.sbr.dest_antenna_count; d += shader_params.sbr.rays_per_source)
 		{
 			directPath(
-				shader_params.shared, antenna_index, d, t_index,
+				shader_params.sbr, antenna_index, d, t_index,
 				[ias](Float3 origin, Float3 seg) { return shadowTest(origin, seg, ias); }, contributionIndex);
 		}
 
 		PathState path{};
-		initIndirectPath(shader_params.shared, path_index, antenna_index, t_index, path);
+		initIndirectPath(shader_params.sbr, path_index, antenna_index, t_index, path);
 
 		unsigned int hi{}, lo{};
 		packPointer(&path, &hi, &lo);

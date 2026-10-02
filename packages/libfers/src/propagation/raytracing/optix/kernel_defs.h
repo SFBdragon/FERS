@@ -28,6 +28,6 @@ namespace propagation::raytracing::optix
 		uint32_t contribution_capacity;
 
 		/// The simulation engine's parameters.
-		SbrParams shared;
+		SbrParams sbr;
 	};
 }

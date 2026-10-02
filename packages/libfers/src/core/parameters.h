@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <expected>
 #include <optional>
@@ -47,15 +48,58 @@ namespace params
 	/**
 	 * @enum PropagationModelKind
 	 * @brief Selects which propagation model the simulation uses.
-	 *
-	 * Mirrors `propagation::PropagationModelType` (`propagation/propagation_model.h`) by name and
-	 * value; kept as a separate enum here rather than reusing that one directly so `core/` doesn't
-	 * need to depend on `propagation/`.
 	 */
 	enum class PropagationModelKind : std::uint8_t
 	{
 		RcsPointScatter = 1, ///< Analytic point-target RCS/radar-equation model (default).
 		GoRayTracing = 2, ///< GPU GO+PO ray-tracing model against target meshes.
+	};
+
+	/// Simulation parameters for running the ray tracing propagation model.
+	///
+	/// Ray directions are sampled with two uniform densities: a finer one within a cone around
+	/// each source antenna's boresight, and a coarser one over the rest of the sphere. Pick each
+	/// density (`*_tube_solid_angle`) from the smallest facet area `A_facet` that needs resolving
+	/// in that regime, at the shortest expected range `R` and most oblique incidence angle `theta`
+	/// targets in that regime will be seen at: `S <= A_facet * cos(theta) / R^2`, where `S` is the
+	/// ray tube's solid angle. A ray tube whose footprint (`R^2 * S / cos(theta)`) exceeds a hit
+	/// facet's area is not fully resolving that facet.
+	struct RayTracingParameters
+	{
+		/// Maximum number of bounces/scattering events per path. Max ray depth is scatter_limit+1.
+		unsigned scatter_limit = 4;
+
+		/// Full angular width (radians) of the boresight sampling cone, centered on each source
+		/// antenna's boresight direction. The cone's half-angle is `boresight_width / 2`.
+		RealType boresight_width = 0.3;
+		/// Desired ray-tube solid angle (steradians) for rays sampled within the boresight cone.
+		RealType boresight_tube_solid_angle = 2e-8;
+		/// Desired ray-tube solid angle (steradians) for rays sampled outside the boresight cone.
+		RealType off_boresight_tube_solid_angle = 1e-5;
+
+		/// Solid angle (steradians) of the boresight sampling cone, derived from `boresight_width`.
+		[[nodiscard]] RealType boresightSolidAngle() const noexcept
+		{
+			return 2.0 * PI * (1.0 - std::cos(boresight_width / 2.0));
+		}
+
+		/// Number of rays dedicated to the boresight cone, derived from `boresightSolidAngle()`
+		/// and `boresight_tube_solid_angle`.
+		[[nodiscard]] unsigned raysAtBoresightCap() const noexcept
+		{
+			return static_cast<unsigned>(std::llround(boresightSolidAngle() / boresight_tube_solid_angle));
+		}
+
+		/// Number of rays dedicated to outside the boresight cone, derived from the remaining
+		/// solid angle and `off_boresight_tube_solid_angle`.
+		[[nodiscard]] unsigned offBoresightRays() const noexcept
+		{
+			const RealType off_solid_angle = 4.0 * PI - boresightSolidAngle();
+			return static_cast<unsigned>(std::llround(off_solid_angle / off_boresight_tube_solid_angle));
+		}
+
+		/// Total number of rays to launch per source antenna.
+		[[nodiscard]] unsigned raysPerSource() const noexcept { return raysAtBoresightCap() + offBoresightRays(); }
 	};
 
 	/**
@@ -89,8 +133,7 @@ namespace params
 		unsigned oversample_ratio = 1; ///< Oversampling ratio.
 
 		PropagationModelKind propagation_model = PropagationModelKind::RcsPointScatter; ///< Active propagation model.
-		unsigned rt_go_step_limit = 10; ///< Ray-tracing model: max GO bounce count per ray tube.
-		unsigned rt_rays_per_source = 10'000'000; ///< Ray-tracing model: ray tubes launched per source.
+		RayTracingParameters rt_model_params{}; ///< Ray-tracing model parameters.
 
 		/**
 		 * @brief Resets the parameters to their default-constructed state.
@@ -175,16 +218,10 @@ namespace params
 	inline PropagationModelKind propagationModel() noexcept { return params.propagation_model; }
 
 	/**
-	 * @brief Get the ray-tracing model's GO bounce limit.
-	 * @return Maximum number of GO bounces per ray tube.
+	 * @brief Get the ray-tracing model's parameters.
+	 * @return The ray-tracing model parameters.
 	 */
-	inline unsigned rtGoStepLimit() noexcept { return params.rt_go_step_limit; }
-
-	/**
-	 * @brief Get the ray-tracing model's ray count.
-	 * @return Number of ray tubes launched per source.
-	 */
-	inline unsigned rtRaysPerSource() noexcept { return params.rt_rays_per_source; }
+	inline const RayTracingParameters& rtModelParams() noexcept { return params.rt_model_params; }
 
 	/**
 	 * @brief Gets the maximum supported oversampling ratio.

@@ -19,19 +19,6 @@ namespace radar
 }
 namespace propagation
 {
-	enum class PropagationModelType : uint8_t
-	{
-		/// Applies the radar range equation to point-target approximations
-		/// using Radar Cross-Section (RCS). Optimized for very-long-range,
-		/// low-clutter scenarios. Low compute intensity.
-		RcsPointScatter = 1,
-
-		/// Applies Geometric Optics (GO) ray tracing against target meshes.
-		/// Supports multi-bounce, occlusion, transmission, and dense clutter.
-		/// High compute intensity.
-		GoRayTracing = 2,
-	};
-
 	/**
 	 * @struct PropagationPath
 	 * @brief Data type containing a valid radar path identified by the path finder.

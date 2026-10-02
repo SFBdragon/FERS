@@ -74,6 +74,7 @@ Optional children, in order:
 | `<rotationangleunit>` | `deg` or `rad` | `deg` | Unit used by platform rotation values. |
 | `<origin>` | attributes | built-in KML default | Geodetic reference used only by ENU KML/geospatial export. It does not affect signal simulation geometry. |
 | `<coordinatesystem>` | attributes | `ENU` | Coordinate frame used when converting platform coordinates to geodetic coordinates for KML/geospatial export. It does not transform positions during simulation. |
+| `<propagation>` | attributes | `pointscatter` model | Selects the propagation model and, for `raytracing`, its ray-sampling parameters. |
 
 ### `<origin>`
 
@@ -118,6 +119,25 @@ Frames:
 | `ECEF` | KML export treats platform `x`, `y`, and `altitude` as Earth-centered, Earth-fixed Cartesian coordinates in meters. In this frame, the XML element name `altitude` represents ECEF Z, not geodetic altitude. |
 
 FERS does not accept platform latitude/longitude waypoints. Latitude and longitude appear only in `<origin>`, where they define the geodetic reference used by ENU KML export.
+
+### `<propagation>`
+
+```xml
+<propagation model="raytracing" scatter_limit="4" boresight_width="10"
+             boresight_tube_solid_angle="2e-8" off_boresight_tube_solid_angle="1e-5"/>
+```
+
+| Attribute | Required | Unit | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `model` | Yes | `pointscatter` or `raytracing` | n/a | Selects the propagation model. The attributes below are ignored when `model="pointscatter"`. |
+| `scatter_limit` | No | integer bounces | `4` | Maximum number of GO bounces per ray path (max ray depth is `scatter_limit + 1`). |
+| `boresight_width` | No | `<rotationangleunit>` | `0.3` rad (~17.2°) | Full angular width of the ray-sampling cone centered on each source antenna's boresight. The cone's half-angle is `boresight_width / 2`. Must be less than a full turn (360°/2π rad). |
+| `boresight_tube_solid_angle` | No | steradians | `2e-8` | Target ray-tube solid angle for rays sampled within the boresight cone. |
+| `off_boresight_tube_solid_angle` | No | steradians | `1e-5` | Target ray-tube solid angle for rays sampled outside the boresight cone. |
+
+The `raytracing` model only accepts `model="raytracing"` with the attributes above; `rays_per_source` and the cone's ray count are not set directly - they're derived from `boresight_width` and the two tube-solid-angle attributes and logged at the start of the simulation.
+
+Each ray tube's footprint on a hit facet is approximately `R^2 * S / cos(theta)`, where `R` is the range to the facet, `S` is the tube's solid angle, and `theta` is the incidence angle off the facet normal. A tube whose footprint exceeds a facet's area does not fully resolve that facet. To choose `boresight_tube_solid_angle` or `off_boresight_tube_solid_angle`, pick the smallest facet area `A_facet` that regime needs to resolve, and the shortest range and most oblique incidence angle targets in that regime will be seen at, then solve for the tube solid angle: `S <= A_facet * cos(theta) / R^2`. A smaller `S` resolves finer detail at the cost of more rays (and compute).
 
 ## `<waveform>`
 

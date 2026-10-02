@@ -253,14 +253,19 @@ TEST_CASE("parseParameters extracts the raytracing propagation model and its sub
 		  "[serial][xml_parser_utils]")
 {
 	ParamGuard const guard;
-	const auto p = parseParametersXml("<parameters>"
-									  "  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
-									  "  <propagation model=\"raytracing\" go_step_limit=\"5\" rays_per_source=\"250000\"/>"
-									  "</parameters>");
+	const auto p = parseParametersXml(
+		"<parameters>"
+		"  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
+		"  <propagation model=\"raytracing\" scatter_limit=\"5\" boresight_width=\"20\" "
+		"boresight_tube_solid_angle=\"1e-6\" off_boresight_tube_solid_angle=\"1e-3\"/>"
+		"</parameters>");
 
 	REQUIRE(p.propagation_model == params::PropagationModelKind::GoRayTracing);
-	REQUIRE(p.rt_go_step_limit == 5);
-	REQUIRE(p.rt_rays_per_source == 250000);
+	REQUIRE(p.rt_model_params.scatter_limit == 5);
+	// Default rotation_angle_unit is degrees, so boresight_width="20" is 20 degrees.
+	REQUIRE_THAT(p.rt_model_params.boresight_width, WithinAbs(20.0 * PI / 180.0, 1e-9));
+	REQUIRE_THAT(p.rt_model_params.boresight_tube_solid_angle, WithinAbs(1e-6, 1e-12));
+	REQUIRE_THAT(p.rt_model_params.off_boresight_tube_solid_angle, WithinAbs(1e-3, 1e-12));
 }
 
 TEST_CASE("parseParameters keeps ray-tracing sub-parameter defaults when omitted", "[serial][xml_parser_utils]")
@@ -273,8 +278,22 @@ TEST_CASE("parseParameters keeps ray-tracing sub-parameter defaults when omitted
 									  "</parameters>");
 
 	REQUIRE(p.propagation_model == params::PropagationModelKind::GoRayTracing);
-	REQUIRE(p.rt_go_step_limit == defaults.rt_go_step_limit);
-	REQUIRE(p.rt_rays_per_source == defaults.rt_rays_per_source);
+	REQUIRE(p.rt_model_params.scatter_limit == defaults.rt_model_params.scatter_limit);
+	REQUIRE_THAT(p.rt_model_params.boresight_width, WithinAbs(defaults.rt_model_params.boresight_width, 1e-12));
+	REQUIRE_THAT(p.rt_model_params.boresight_tube_solid_angle,
+				 WithinAbs(defaults.rt_model_params.boresight_tube_solid_angle, 1e-18));
+	REQUIRE_THAT(p.rt_model_params.off_boresight_tube_solid_angle,
+				 WithinAbs(defaults.rt_model_params.off_boresight_tube_solid_angle, 1e-15));
+}
+
+TEST_CASE("parseParameters rejects a boresight_width of a full turn or more", "[serial][xml_parser_utils]")
+{
+	ParamGuard const guard;
+	REQUIRE_THROWS_AS(parseInvalidParametersXml("<parameters>"
+												"  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
+												"  <propagation model=\"raytracing\" boresight_width=\"360\"/>"
+												"</parameters>"),
+					  std::exception);
 }
 
 TEST_CASE("parseParameters rejects an unknown propagation model", "[serial][xml_parser_utils]")

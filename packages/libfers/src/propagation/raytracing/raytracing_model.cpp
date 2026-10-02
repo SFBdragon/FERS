@@ -21,6 +21,7 @@
 
 #include "core/assets.h"
 #include "core/config.h"
+#include "core/parameters.h"
 #include "core/sim_id.h"
 #include "core/simulation_state.h"
 #include "core/world.h"
@@ -294,7 +295,8 @@ namespace propagation::raytracing
 
 	unsigned int RayTracingModel::maxPropagationLegs() const noexcept
 	{
-		// There are at most `rtGoStepLimit()` GO legs, then one PO-based leg to destinations.
-		return params::rtGoStepLimit() + 1;
+		// For bouncing off of N scatterers, there are N+1 propagation legs.
+		// e.g. 1 scatterer = bistatic path = 2 legs
+		return params::rtModelParams().scatter_limit + 1;
 	}
 }

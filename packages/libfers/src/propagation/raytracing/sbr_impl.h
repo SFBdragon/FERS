@@ -245,23 +245,57 @@ namespace propagation::raytracing
 	}
 
 	/**
-	 * @brief Isotropic direction sampling using the Fibonacci/Vogel spiral point set.
-	 * In local coordinates; `path_idx=0` lands near local (1,0,0), sweeping to near (-1,0,0)
-	 * as `path_idx` approaches `num_rays-1`.
-	 *
-	 * This is the isotropic MVP sampler, to be replaced by gain-weighted importance sampling.
+	 * @brief Direction sampling using the Fibonacci/Vogel spiral point set.
+	 * In local coordinates; `i=0` lands near local (1,0,0), sweeping to near (-1,0,0)
+	 * as `i` approaches `n`.
 	 */
-	[[nodiscard]] HC_FN Float3 sampleIsotropicDirection(uint32_t path_idx, uint32_t num_rays)
+	[[nodiscard]] HC_FN Float3 sampleFibonacciSpiral(float i, float n)
 	{
 		// Golden angle = pi * (3 - sqrt(5)), the standard Fibonacci/Vogel-spiral spacing constant.
 		const float phi = PI_V<float> * (3.0f - std::sqrt(5.0f));
 
-		const float n = static_cast<float>(num_rays);
-		const float i = static_cast<float>(path_idx);
 		const float x = 1.0f - (2.0f * i) / n; // x from 1 to -1
 		const float r = std::sqrt(1.0f - x * x); // radius at x
 		const float theta = phi * i;
 		return Float3{x, r * std::cos(theta), r * std::sin(theta)};
+	}
+
+	// /**
+	//  * @brief Isotropic direction sampling using the Fibonacci/Vogel spiral point set.
+	//  */
+	// [[nodiscard]] HC_FN Float3 isotropicWeightedSample(const SbrParams& params, uint32_t path_idx, float& weight_out)
+	// {
+	// 	weight_out = 4 * PI_V<float> / float(params.rays_per_source);
+	// 	return sampleFibonacciSpiral(float(path_idx), float(params.rays_per_source));
+	// }
+
+
+	/**
+	 * @brief Dual-weighted sphere sampling.
+	 * A (higher) weight around the boresight and a lower weight outsight that.
+	 */
+	[[nodiscard]] HC_FN Float3 boresightWeightedSample(const SbrParams& params, uint32_t path_idx, float& weight_out)
+	{
+		if (path_idx < params.boresight_rays)
+		{
+			// We're within the boresight regime.
+
+			weight_out = 4 * PI_V<float> * params.boresight_fraction / float(params.boresight_rays);
+
+			const float spiral_fraction =
+				(float(path_idx) + 0.5f) / float(params.boresight_rays) * params.boresight_fraction;
+			return sampleFibonacciSpiral(spiral_fraction, 1.0);
+		}
+
+		// We're outside the boresight regime.
+
+		// `off_boresight_rays = 0` never occurs as `path_idx < params.boresight_rays` would always be true.
+		const auto off_boresight_rays = float(params.rays_per_source - params.boresight_rays);
+		weight_out = 4 * PI_V<float> * (1 - params.boresight_fraction) / off_boresight_rays;
+
+		const float spiral_fraction = params.boresight_fraction +
+			(1 - params.boresight_fraction) * (float(path_idx - params.boresight_rays) + 0.5f) / off_boresight_rays;
+		return sampleFibonacciSpiral(spiral_fraction, 1.0);
 	}
 
 
@@ -270,13 +304,12 @@ namespace propagation::raytracing
 	{
 		const ActiveAntenna& antenna = params.source_antennas[source_idx + time_idx * params.source_antenna_count];
 
-		const Float3 local_dir = sampleIsotropicDirection(path_idx, params.rays_per_source);
+		const Float3 local_dir = boresightWeightedSample(params, path_idx, path_out.weight);
 		const Float3 world_dir = rotateLocalToWorld(antenna.direction, local_dir);
 
 		path_out.ray_count = 0;
 		path_out.source_index = source_idx;
 		path_out.time_index = time_idx;
-		path_out.weight = 4.0f * PI_V<float> / float(params.rays_per_source);
 		path_out.local_emmission_direction = local_dir;
 		path_out.path_vertices[0] = antenna.position;
 		path_out.trace_directions[0] = world_dir;
@@ -670,8 +703,8 @@ namespace propagation::raytracing
 			}
 		}
 
-		return path->ray_count < params.go_step_limit;
-	} // facetIncidentRay
+		return path->ray_count < params.scatter_limit;
+	} // facetHit
 
 	template <typename ShadowTest, typename ContribIndex>
 	HC_FN void directPath(const SbrParams& params, uint32_t src_idx, uint32_t dst_idx, uint32_t time_idx,

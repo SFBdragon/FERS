@@ -95,7 +95,10 @@
         </xs:complexType>
     </xs:element>
 
-    <!-- Selects the propagation model. The raytracing sub-parameters are ignored when model="pointscatter". -->
+    <!-- Selects the propagation model. The raytracing sub-parameters are ignored when model="pointscatter".
+         Ray directions are sampled at two densities: `boresight_tube_solid_angle` within a cone of
+         `boresight_width` centered on each source antenna's boresight, and `off_boresight_tube_solid_angle`
+         over the rest of the sphere.  -->
     <xs:element name="propagation">
         <xs:complexType>
             <xs:attribute name="model" use="required">
@@ -106,8 +109,10 @@
                     </xs:restriction>
                 </xs:simpleType>
             </xs:attribute>
-            <xs:attribute name="go_step_limit" type="xs:unsignedInt"/>
-            <xs:attribute name="rays_per_source" type="xs:unsignedInt"/>
+            <xs:attribute name="scatter_limit" type="xs:unsignedInt"/>
+            <xs:attribute name="boresight_width" type="xs:double"/>
+            <xs:attribute name="boresight_tube_solid_angle" type="xs:double"/>
+            <xs:attribute name="off_boresight_tube_solid_angle" type="xs:double"/>
         </xs:complexType>
     </xs:element>
 

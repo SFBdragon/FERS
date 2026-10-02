@@ -96,7 +96,7 @@ TEST_CASE("sampleAntennaPattern clamps queries outside the grid's range", "[rayt
 	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, 100.0f, 100.0f), WithinAbs(30.0, 1e-6));
 }
 
-TEST_CASE("sampleIsotropicDirection produces unit vectors spanning the sphere", "[raytracing][math]")
+TEST_CASE("sampleFibonacciSpiral produces unit vectors spanning the sphere", "[raytracing][math]")
 {
 	constexpr uint32_t num_rays = 2000;
 	prop::Double3 sum{0.0, 0.0, 0.0};
@@ -104,7 +104,7 @@ TEST_CASE("sampleIsotropicDirection produces unit vectors spanning the sphere", 
 
 	for (uint32_t i = 0; i < num_rays; ++i)
 	{
-		const auto dir = prop::Double3{rt::sampleIsotropicDirection(i, num_rays)};
+		const auto dir = prop::Double3{rt::sampleFibonacciSpiral(float(i), float(num_rays))};
 		const double len = std::sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
 		// dir is float-precision, so 1e-9 is unachievable; float32 gives ~1e-7 relative.
 		REQUIRE_THAT(len, WithinAbs(1.0, 1e-6));
@@ -126,13 +126,57 @@ TEST_CASE("sampleIsotropicDirection produces unit vectors spanning the sphere", 
 	REQUIRE(max_z > 0.99);
 }
 
-TEST_CASE("sampleIsotropicDirection is deterministic", "[raytracing][math]")
+TEST_CASE("sampleFibonacciSpiral is deterministic", "[raytracing][math]")
 {
-	const auto a = rt::sampleIsotropicDirection(17, 500);
-	const auto b = rt::sampleIsotropicDirection(17, 500);
+	const auto a = rt::sampleFibonacciSpiral(17.0f, 500.0f);
+	const auto b = rt::sampleFibonacciSpiral(17.0f, 500.0f);
 	REQUIRE_THAT(a.x, WithinAbs(b.x, 1e-15));
 	REQUIRE_THAT(a.y, WithinAbs(b.y, 1e-15));
 	REQUIRE_THAT(a.z, WithinAbs(b.z, 1e-15));
+}
+
+TEST_CASE("boresightWeightedSample assigns per-regime weights that sum to 4*pi", "[raytracing][math]")
+{
+	rt::SbrParams params{};
+	params.rays_per_source = 1000;
+	params.boresight_rays = 200;
+	params.boresight_fraction = 0.1f;
+
+	double total_weight = 0.0;
+	for (uint32_t i = 0; i < params.rays_per_source; ++i)
+	{
+		float weight = 0.0f;
+		const auto dir = rt::boresightWeightedSample(params, i, weight);
+		const double len = std::sqrt(double(dir.x) * dir.x + double(dir.y) * dir.y + double(dir.z) * dir.z);
+		REQUIRE_THAT(len, WithinAbs(1.0, 1e-6));
+		REQUIRE(weight > 0.0f);
+		total_weight += weight;
+	}
+
+	REQUIRE_THAT(total_weight, WithinAbs(4.0 * double(prop::PI_V<float>), 1e-3));
+}
+
+TEST_CASE("boresightWeightedSample gives the denser (boresight) regime a smaller per-ray weight",
+		  "[raytracing][math]")
+{
+	rt::SbrParams params{};
+	params.rays_per_source = 1000;
+	params.boresight_rays = 200;
+	params.boresight_fraction = 0.1f; // 10% of the sphere's solid angle holds 20% of the rays.
+
+	float boresight_weight = 0.0f;
+	float off_boresight_weight = 0.0f;
+	(void)rt::boresightWeightedSample(params, 0, boresight_weight);
+	(void)rt::boresightWeightedSample(params, params.boresight_rays, off_boresight_weight);
+
+	const float expected_boresight_weight =
+		4.0f * prop::PI_V<float> * params.boresight_fraction / float(params.boresight_rays);
+	const float expected_off_boresight_weight = 4.0f * prop::PI_V<float> * (1.0f - params.boresight_fraction) /
+		float(params.rays_per_source - params.boresight_rays);
+
+	REQUIRE_THAT(boresight_weight, WithinAbs(expected_boresight_weight, 1e-9));
+	REQUIRE_THAT(off_boresight_weight, WithinAbs(expected_off_boresight_weight, 1e-9));
+	REQUIRE(boresight_weight < off_boresight_weight);
 }
 
 namespace

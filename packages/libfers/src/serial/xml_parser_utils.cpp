@@ -429,6 +429,19 @@ namespace serial::xml_parser_utils
 		return static_cast<unsigned>(floored_value);
 	}
 
+	RealType parsePositiveRealParameter(const std::string_view param_name, const RealType raw_value)
+	{
+		if (!std::isfinite(raw_value))
+		{
+			throw XmlException(std::format("Parameter '{}' must be finite.", param_name));
+		}
+		if (raw_value <= 0.0)
+		{
+			throw XmlException(std::format("Parameter '{}' must be positive.", param_name));
+		}
+		return raw_value;
+	}
+
 	template <typename Setter>
 	void setOptionalRealParameter(const XmlElement& parameters, const std::string& param_name,
 								  const RealType default_value, Setter setter)
@@ -643,13 +656,48 @@ namespace serial::xml_parser_utils
 		}
 		LOG(logging::Level::INFO, "Propagation model set to: {}", model_str);
 
-		if (const auto go_step_limit = XmlElement::getOptionalAttribute(prop_element, "go_step_limit"))
+		auto& rt = params_out.rt_model_params;
+
+		if (const auto scatter_limit = XmlElement::getOptionalAttribute(prop_element, "scatter_limit"))
 		{
-			params_out.rt_go_step_limit = parseUnsignedParameter("go_step_limit", std::stod(*go_step_limit));
+			rt.scatter_limit = parseUnsignedParameter("scatter_limit", std::stod(*scatter_limit));
 		}
-		if (const auto rays_per_source = XmlElement::getOptionalAttribute(prop_element, "rays_per_source"))
+		if (const auto boresight_width = XmlElement::getOptionalAttribute(prop_element, "boresight_width"))
 		{
-			params_out.rt_rays_per_source = parseUnsignedParameter("rays_per_source", std::stod(*rays_per_source));
+			const RealType width = rotation_angle_utils::unit_to_radians(
+				parsePositiveRealParameter("boresight_width", std::stod(*boresight_width)), params_out.rotation_angle_unit);
+			if (width >= 2.0 * PI)
+			{
+				throw XmlException("Parameter 'boresight_width' must be less than a full turn (360 degrees).");
+			}
+			rt.boresight_width = width;
+		}
+		if (const auto boresight_tube_solid_angle =
+				XmlElement::getOptionalAttribute(prop_element, "boresight_tube_solid_angle"))
+		{
+			rt.boresight_tube_solid_angle =
+				parsePositiveRealParameter("boresight_tube_solid_angle", std::stod(*boresight_tube_solid_angle));
+		}
+		if (const auto off_boresight_tube_solid_angle =
+				XmlElement::getOptionalAttribute(prop_element, "off_boresight_tube_solid_angle"))
+		{
+			rt.off_boresight_tube_solid_angle = parsePositiveRealParameter(
+				"off_boresight_tube_solid_angle", std::stod(*off_boresight_tube_solid_angle));
+		}
+
+		if (params_out.propagation_model == params::PropagationModelKind::GoRayTracing)
+		{
+			LOG(logging::Level::INFO,
+				"Ray-tracing model: scatter_limit={}, boresight_width={:.4f} rad ({:.2f} deg), "
+				"boresight_tube_solid_angle={:.6g} sr, off_boresight_tube_solid_angle={:.6g} sr",
+				rt.scatter_limit, rt.boresight_width,
+				rotation_angle_utils::radians_to_unit(rt.boresight_width, params::RotationAngleUnit::Degrees),
+				rt.boresight_tube_solid_angle, rt.off_boresight_tube_solid_angle);
+			LOG(logging::Level::INFO,
+				"Ray-tracing derived sampling: boresight cone={:.6g} sr ({} rays), off-boresight={:.6g} sr ({} "
+				"rays), total rays per source={}",
+				rt.boresightSolidAngle(), rt.raysAtBoresightCap(), 4.0 * PI - rt.boresightSolidAngle(),
+				rt.offBoresightRays(), rt.raysPerSource());
 		}
 	}
 

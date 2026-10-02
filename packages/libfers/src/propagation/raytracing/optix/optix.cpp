@@ -535,8 +535,7 @@ namespace propagation::raytracing::optix
 		if (ctx == nullptr)
 			throw std::runtime_error("OptixEngine::trace did not receive a valid OptixThreadContext.");
 
-		const uint32_t rays_per_source = params::rtRaysPerSource();
-
+		const auto rays_per_source = params::rtModelParams().raysPerSource();
 		const auto x_rays_per_source = rays_per_source;
 		const auto y_source_antennas = static_cast<uint32_t>(job.source_antennas.size());
 		const auto z_times = static_cast<uint32_t>(job.times.size());
@@ -576,9 +575,11 @@ namespace propagation::raytracing::optix
 		ShaderParams params{.iass = ctx->iass.ptr_t(),
 							.contribution_count = 0,
 							.contribution_capacity = static_cast<uint32_t>(ctx->contribs.capacity()),
-							.shared{
-								.go_step_limit = params::rtGoStepLimit(),
+							.sbr{
+								.scatter_limit = params::rtModelParams().scatter_limit,
 								.rays_per_source = rays_per_source,
+								.boresight_rays = params::rtModelParams().raysAtBoresightCap(),
+								.boresight_fraction = float(params::rtModelParams().boresightSolidAngle() / (4.0 * PI)),
 								.vertices = _vertices.ptr_t(),
 								.indices = _indeces.ptr_t(),
 								.materials = _materials.ptr_t(),

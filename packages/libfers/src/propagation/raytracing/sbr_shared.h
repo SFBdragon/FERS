@@ -166,12 +166,16 @@ namespace propagation::raytracing
 		///
 		/// Note that PO is performed at each hit point, so zero GO bounces
 		/// still means that radar effectively bounces once.
-		uint32_t go_step_limit;
+		uint32_t scatter_limit;
 
-		/// Number of ray tubes launched per source antenna (the launch's X dimension). `genRay` needs
-		/// this to compute each tube's solid angle (dOmega = 4*pi / rays_per_source for the isotropic
-		/// MVP sampler).
+		/// Number of ray tubes launched per source antenna (the launch's X dimension).
 		uint32_t rays_per_source;
+		/// The number of rays dedicated to the boresight fraction of the sphere.
+		/// This should be less than or equal to `rays_per_source`.
+		uint32_t boresight_rays;
+		/// The ratio of the area or solid angle of the boresight cap to the launch sphere.
+		/// This is `boresight_solid_angle / 4pi`.
+		float boresight_fraction;
 
 		/// Triangle mesh vertex buffer.
 		const Float3* vertices;

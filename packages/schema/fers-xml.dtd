@@ -45,12 +45,17 @@
                 zone       CDATA          #IMPLIED
                 hemisphere (N|S)          #IMPLIED
                 >
-        <!-- Selects the propagation model. `raytracing` sub-parameters are ignored when model="pointscatter". -->
+        <!-- Selects the propagation model. `raytracing` sub-parameters are ignored when model="pointscatter".
+             Ray directions are sampled at two densities: `boresight_tube_solid_angle` within a cone of
+             `boresight_width` centered on each source antenna's boresight, and `off_boresight_tube_solid_angle`
+             over the rest of the sphere. -->
         <!ELEMENT propagation EMPTY>
         <!ATTLIST propagation
-                model           (pointscatter|raytracing) #REQUIRED
-                go_step_limit   CDATA                     #IMPLIED
-                rays_per_source CDATA                     #IMPLIED
+                model                          (pointscatter|raytracing) #REQUIRED
+                scatter_limit                  CDATA                     #IMPLIED
+                boresight_width                CDATA                     #IMPLIED
+                boresight_tube_solid_angle     CDATA                     #IMPLIED
+                off_boresight_tube_solid_angle CDATA                     #IMPLIED
                 >
 
         <!-- Waveform definition -->

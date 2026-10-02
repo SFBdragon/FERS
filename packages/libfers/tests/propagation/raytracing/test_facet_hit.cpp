@@ -110,8 +110,8 @@ namespace
 	auto unoccluded = [](prop::Float3, prop::Float3) { return INFINITY; };
 }
 
-TEST_CASE("facetIncidentRay computes delay as the full source-to-hit-to-destination distance",
-		  "[raytracing][facet_hit]")
+TEST_CASE("facetHit computes delay as the full source-to-hit-to-destination distance",
+		  "[raytracing][hit_facet]")
 {
 	const TestScene scene;
 	const auto hit = scene.hitAtCentroid();
@@ -133,8 +133,8 @@ TEST_CASE("facetIncidentRay computes delay as the full source-to-hit-to-destinat
 	REQUIRE_THAT(contribs[0].delay, WithinAbs(105.0 / prop::C<double>, 1e-15));
 }
 
-TEST_CASE("facetIncidentRay's contribution scales linearly with ray weight in the sub-triangle regime",
-		  "[raytracing][facet_hit]")
+TEST_CASE("facetHit's contribution scales linearly with ray weight in the sub-triangle regime",
+		  "[raytracing][hit_facet]")
 {
 	const TestScene scene;
 	const auto hit = scene.hitAtCentroid();
@@ -163,8 +163,8 @@ TEST_CASE("facetIncidentRay's contribution scales linearly with ray weight in th
 	REQUIRE_THAT(mag2 / mag1, WithinAbs(2.0, 1e-6));
 }
 
-TEST_CASE("facetIncidentRay's contribution saturates once the tube footprint exceeds the triangle",
-		  "[raytracing][facet_hit]")
+TEST_CASE("facetHit's contribution saturates once the tube footprint exceeds the triangle",
+		  "[raytracing][hit_facet]")
 {
 	const TestScene scene;
 	const auto hit = scene.hitAtCentroid();
@@ -195,7 +195,7 @@ TEST_CASE("facetIncidentRay's contribution saturates once the tube footprint exc
 namespace
 {
 	// A two-facet scene exercising the on-demand radiation cache's extension path across
-	// sequential facetIncidentRay calls on the same PathState:
+	// sequential facetHit calls on the same PathState:
 	//
 	// Facet A: the z=0 triangle above, hit by a ray from (1/3,1/3,5) travelling straight down;
 	//   reflects it straight back up.
@@ -238,8 +238,8 @@ namespace
 	};
 }
 
-TEST_CASE("facetIncidentRay extends the radiation cache across a second bounce without throwing",
-		  "[raytracing][facet_hit]")
+TEST_CASE("facetHit extends the radiation cache across a second bounce without throwing",
+		  "[raytracing][hit_facet]")
 {
 	const TwoBounceScene scene;
 	const auto carriers = makeCarriers();
