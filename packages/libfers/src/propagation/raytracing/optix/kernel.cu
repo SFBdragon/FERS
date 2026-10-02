@@ -121,7 +121,7 @@ namespace propagation::raytracing::optix
 	// -------------------------------------------------------------------------------- //
 
 	/// The Geometric Optics (GO) closest hit program.
-	extern "C" __global__ void __closesthit__go()
+	extern "C" __global__ void __closesthit__indirect()
 	{
 		const uint32_t material_index = optixGetInstanceId();
 		const uint32_t triangle_index = optixGetPrimitiveIndex();
@@ -149,7 +149,7 @@ namespace propagation::raytracing::optix
 
 		auto ias = shader_params.iass[path->time_index];
 
-		auto should_reflect = facetIncidentRay(
+		auto should_reflect = facetHit(
 			shader_params.shared, path, hit, [ias](Float3 origin, Float3 seg) { return shadowTest(origin, seg, ias); },
 			contributionIndex);
 
@@ -164,28 +164,28 @@ namespace propagation::raytracing::optix
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask
 				   OPTIX_RAY_FLAG_DISABLE_ANYHIT, // rayFlags
-				   RAY_TYPE_GO, // SBT offset
+				   RAY_TYPE_INDIRECT, // SBT offset
 				   RAY_TYPE_COUNT, // SBT stride
-				   RAY_TYPE_GO, // missSBTIndex
+				   RAY_TYPE_INDIRECT, // missSBTIndex
 				   hi, lo // payload; up to 32 unsigned ints
 		);
 	}
 
 	/// This is the Geometric Optics (GO) any-hit program.
 	/// This does nothing because we only care about the closest hit.
-	/// Any-hit checks get disabled in a number of places.
-	extern "C" __global__ void __anyhit__go() {}
+	/// Any-hit checks get disabled where applicable.
+	extern "C" __global__ void __anyhit__indirect() {}
 
-	/// This is going to be the Geometric Optics (GO) miss program.
-	/// The radar energy has zoomed off into space. Goodbye energy. Stop tracing.
-	extern "C" __global__ void __miss__go() {}
+	/// This is the indirect path ray miss program.
+	/// The radar energy has zoomed off into space. Goodbye energy. Do nothing. Stop tracing.
+	extern "C" __global__ void __miss__indirect() {}
 
 
 	/// This function is where we're going to for each radar "source"
 	/// (transmitter or receiver antenna, depending on findTxToRxPaths or findRxFromTxPaths)
 	/// and each time step and generate lots of rays to trace through the scene and
 	/// determine contributions to each of the "sinks" (receivers or transmitters, respectively).
-	extern "C" __global__ void __raygen__antennasOverTimes()
+	extern "C" __global__ void __raygen__paths()
 	{
 		uint3 idx = optixGetLaunchIndex();
 		/// The ray/path index to launch.
@@ -208,7 +208,7 @@ namespace propagation::raytracing::optix
 		}
 
 		PathState path{};
-		initPath(shader_params.shared, path_index, antenna_index, t_index, path);
+		initIndirectPath(shader_params.shared, path_index, antenna_index, t_index, path);
 
 		unsigned int hi{}, lo{};
 		packPointer(&path, &hi, &lo);
@@ -220,9 +220,9 @@ namespace propagation::raytracing::optix
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask
 				   OPTIX_RAY_FLAG_DISABLE_ANYHIT, // rayFlags
-				   RAY_TYPE_GO, // SBT offset
+				   RAY_TYPE_INDIRECT, // SBT offset
 				   RAY_TYPE_COUNT, // SBT stride
-				   RAY_TYPE_GO, // missSBTIndex
+				   RAY_TYPE_INDIRECT, // missSBTIndex
 				   hi, lo // payload; up to 32 unsigned ints
 		);
 	}

@@ -256,6 +256,11 @@ namespace propagation
 		return Complex3{-v.x, -v.y, -v.z};
 	}
 	template <typename Real>
+	HC_FN constexpr Complex3<Real> operator-(Complex3<Real> a, Complex3<Real> b)
+	{
+		return Complex3{a.x - b.x, a.y - b.y, a.z - b.z};
+	}
+	template <typename Real>
 	HC_FN constexpr Complex3<Real> operator*(const Real3<Real>& r, Complex<Real> c)
 	{
 		return Complex3{r.x * c, r.y * c, r.z * c};

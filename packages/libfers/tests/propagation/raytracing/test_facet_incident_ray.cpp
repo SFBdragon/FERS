@@ -126,7 +126,7 @@ TEST_CASE("facetIncidentRay computes delay as the full source-to-hit-to-destinat
 	uint32_t next_idx = 0;
 	auto get_idx = [&next_idx] { return next_idx++; };
 
-	(void)rt::facetIncidentRay(params, &ray, hit, unoccluded, get_idx);
+	(void)rt::facetHit(params, &ray, hit, unoccluded, get_idx);
 
 	REQUIRE(next_idx == 1);
 	// go_dist (source to hit) = 5, po_dist (hit to destination) = 100, converted to a time delay.
@@ -152,7 +152,7 @@ TEST_CASE("facetIncidentRay's contribution scales linearly with ray weight in th
 		auto ray = makeIncidentRay(weight);
 		uint32_t idx = 0;
 		auto get_idx = [&idx] { return idx++; };
-		(void)rt::facetIncidentRay(params, &ray, hit, unoccluded, get_idx);
+		(void)rt::facetHit(params, &ray, hit, unoccluded, get_idx);
 		return prop::cabs(contribs[0].voltage);
 	};
 
@@ -182,7 +182,7 @@ TEST_CASE("facetIncidentRay's contribution saturates once the tube footprint exc
 		auto ray = makeIncidentRay(weight);
 		uint32_t idx = 0;
 		auto get_idx = [&idx] { return idx++; };
-		(void)rt::facetIncidentRay(params, &ray, hit, unoccluded, get_idx);
+		(void)rt::facetHit(params, &ray, hit, unoccluded, get_idx);
 		return prop::cabs(contribs[0].voltage);
 	};
 
@@ -272,11 +272,11 @@ TEST_CASE("facetIncidentRay extends the radiation cache across a second bounce w
 	auto get_idx = [&next_idx] { return next_idx++; };
 
 	bool should_continue = false;
-	REQUIRE_NOTHROW(should_continue = rt::facetIncidentRay(params, &ray, scene.hitAt(0), unoccluded, get_idx));
+	REQUIRE_NOTHROW(should_continue = rt::facetHit(params, &ray, scene.hitAt(0), unoccluded, get_idx));
 	REQUIRE(should_continue);
 	REQUIRE(next_idx == 0); // facet A doesn't face the destination - no contribution yet.
 
-	REQUIRE_NOTHROW(rt::facetIncidentRay(params, &ray, scene.hitAt(1), unoccluded, get_idx));
+	REQUIRE_NOTHROW(rt::facetHit(params, &ray, scene.hitAt(1), unoccluded, get_idx));
 	REQUIRE(next_idx == 1);
 
 	// source->A (5) + A->B (10) + B->dest (60) = 75 units.

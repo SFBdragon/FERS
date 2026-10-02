@@ -65,21 +65,26 @@ namespace propagation::raytracing
 		/// Note that the units here are a bit interesting.
 		/// far-field E(r-hat, R) = sqrt(Z0/4/pi * power) * sqrt(gain) * unit-polarisation(r-hat) * e^(-jkR) / R
 		/// The radiation vector consist only of this   :   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-		/// `sqrt(power)`: Signal power is applied later by FERS.
-		/// `e^(-jkR)`: The bulk phase term (after down-converting) is computed later by FERS.
-		/// `1/R`: The spherical spreading term is applied at the end of the path. See `facetIncidentRay`
-		/// at conversion to voltage at end of path.
-		/// `sqrt(Z0/4/pi)` cancels out? TODO_SHAUN CHECK THIS
+		/// The sqrt(gain) is more of an opportunistic scalar factor here instead of storing it seperately.
+		/// Think of this as the transformed unit-polarisation.
 		///
-		/// The units of this quantity is therefore dimensionless.
 		/// The point of it is to pick up all the voltage attenuation and phase effects
 		/// of the path while being proportional to the electric field.
 		/// All geometric optics and physical optics physics performed is linear with
-		/// respect to the electric field, and thus the results remain physical. std::array<CFloat3, MAX_CARRIERS>
-		CFloat3 radiation{};
-		/// Similar to the above, this is actually unit-less.
-		/// TODO_SHAUN describe
-		CFloat3 surface_current{};
+		/// respect to the electric field, and thus the results remain physical.
+		CFloat3 electric_unit_reflected{};
+		/// This is the sum of the reflected and incident electric polarisations.
+		/// Same units as `electric_unit_reflected`.
+		CFloat3 electric_unit_total{};
+		/// This is the
+		/// `norm x ((u_inc x e_i) + (u_refl x e_r))`
+		/// which is
+		/// `norm x (Z0 * magnetic_unit_total)`
+		/// which is the surface current (unit-ified) multiplied by Z0.
+		///
+		/// This remains in units of `electric_unit_reflected`.
+		CFloat3 n_cross_magnetic_unit_total{};
+
 		/// The carrier frequency for which the cached radiation and surface current are valid.
 		float carrier_frequency = -1.0f;
 		/// The depth for which the cached radiation and surface current were computed for.
@@ -260,8 +265,8 @@ namespace propagation::raytracing
 	}
 
 
-	HC_FN void initPath(const SbrParams& params, uint32_t path_idx, uint32_t source_idx, uint32_t time_idx,
-						PathState& path_out)
+	HC_FN void initIndirectPath(const SbrParams& params, uint32_t path_idx, uint32_t source_idx, uint32_t time_idx,
+								PathState& path_out)
 	{
 		const ActiveAntenna& antenna = params.source_antennas[source_idx + time_idx * params.source_antenna_count];
 
@@ -335,8 +340,8 @@ namespace propagation::raytracing
 		HC_FN float sinc(float x, float tol = 1e-5f) { return fabsf(x) < tol ? 1.0f : sinf(x) / x; }
 
 		/// Gordon's formula for computing the Physical Optics phase integral.
-		HC_FN CFloat scaledPhaseIntegral(const TubePatch& patch, const Float3& norm, const Float3& u_inc,
-										 const Float3& u_scat, float wavenumber)
+		HC_FN CFloat phaseIntegral(const TubePatch& patch, const Float3& norm, const Float3& u_inc,
+								   const Float3& u_scat, float wavenumber)
 		{
 			/// Scattering vector, representing phase difference across patch.
 			Float3 scatter = wavenumber * (u_inc - u_scat);
@@ -362,17 +367,21 @@ namespace propagation::raytracing
 				acc = acc + re * cexp_i(dot(scatter, mid_vs.at(i)));
 			}
 
-			// [j k0 / 4 / pi] * [j k0 / |w_t|^2] = -k0^2 / |w_t|^2 / 4 / pi
-			float scalars = -wavenumber * wavenumber / scatter_inplane2 * (1.0f / 4.0f / PI_V<float>);
-			return acc * scalars;
+			return acc / scatter_inplane2;
 		}
 
 		HC_FN CFloat3 facetScatteredRadiation(const TubePatch& patch, const Float3& u_norm, const Float3& u_inc,
-											  const Float3& u_scat, const CFloat3& surface_current,
-											  const float wavenumber)
+											  const Float3& u_scat, const RadiationCache& cache, const float wavenumber)
 		{
-			const CFloat scaled_phase_integral = scaledPhaseIntegral(patch, u_norm, u_inc, u_scat, wavenumber);
-			return cross(u_scat, cross(u_scat, surface_current)) * scaled_phase_integral;
+			const CFloat phase_integral = phaseIntegral(patch, u_norm, u_inc, u_scat, wavenumber);
+			// [-jk/4/pi] * [j (for phase integral)] = k/4/pi
+			const CFloat constants = (1.0f / 4.0f / PI_V<float>)*wavenumber;
+
+			const CFloat3 e_total = cache.electric_unit_total;
+			const CFloat3 n_x_m_total = cache.n_cross_magnetic_unit_total;
+			const CFloat3 field_vector = cross(u_scat, cross(u_norm, e_total) - cross(u_scat, n_x_m_total));
+
+			return constants * phase_integral * field_vector;
 		}
 	} // namespace po
 
@@ -388,8 +397,8 @@ namespace propagation::raytracing
 			const float sin2_theta_i = 1 - cos_theta_i * cos_theta_i;
 			const CFloat cos_theta_t = csqrt(1.0f - (N1 / n2) * sin2_theta_i);
 
-			gamma_tm_out = (n2 * cos_theta_t - N1 * cos_theta_i) / (n2 * cos_theta_t + N1 * cos_theta_i);
-			gamma_te_out = (n2 * cos_theta_i - N1 * cos_theta_t) / (n2 * cos_theta_i + N1 * cos_theta_t);
+			gamma_tm_out = (N1 * cos_theta_t - n2 * cos_theta_i) / (N1 * cos_theta_t + n2 * cos_theta_i);
+			gamma_te_out = (N1 * cos_theta_i - n2 * cos_theta_t) / (N1 * cos_theta_i + n2 * cos_theta_t);
 		}
 
 		/// Determine the complex index of refraction of a Material at a given carrier frequency.
@@ -458,8 +467,7 @@ namespace propagation::raytracing
 			// TODO: Consider whether a tolerance on the wavenumber matching is acceptable, rather than exact-match.
 
 
-			CFloat3 radiation = path->cache.radiation;
-			CFloat3 surface_current = path->cache.surface_current;
+			CFloat3 radiation = path->cache.electric_unit_reflected;
 			uint32_t ray_index = path->cache.depth;
 
 			if (path->cache.carrier_frequency != frequency)
@@ -485,17 +493,12 @@ namespace propagation::raytracing
 				ray_index = 0;
 			}
 
+			CFloat3 electric_inc;
 			for (; ray_index < path->ray_count; ray_index++)
 			{
-				const auto k_inc = path->trace_directions.at(ray_index);
-
 				if (ray_index + 1 == path->ray_count)
 				{
-					// Js ~ normal x (h_inc + h_refl)
-					// h_inc = k_inc x e_inc
-					// The incident magnetic field isn't the surface current. The correction is applied afterwards.
-					const CFloat3 magnetic_inc = cross(k_inc, radiation);
-					surface_current = magnetic_inc;
+					electric_inc = radiation;
 				}
 
 				fresnelGoReflection(radiation, path->surface_normals.at(ray_index),
@@ -506,15 +509,17 @@ namespace propagation::raytracing
 			// If the radiation vector was updated for any reason, we need to recompute the surface current.
 			if (path->cache.carrier_frequency != frequency || path->cache.depth != path->ray_count)
 			{
-				// Js ~ normal x (h_inc + h_refl)
-				// h_refl = k_refl x e_refl
-				const CFloat3 magnetic_refl = cross(path->trace_directions.at(ray_index), radiation);
-				// surface_current holds the incident magnetic radiation vector at the moment, as overwritten above.
-				surface_current = surface_current + magnetic_refl;
-				surface_current = cross(path->surface_normals.at(ray_index - 1), surface_current);
+				const CFloat3 electric_unit_total = electric_inc + radiation;
 
-				path->cache.surface_current = surface_current;
-				path->cache.radiation = radiation;
+				// Js ~ normal x (h_inc + h_refl)
+				// h = k x e
+				const CFloat3 magnetic_inc = cross(path->trace_directions.at(ray_index - 1), electric_inc);
+				const CFloat3 magnetic_refl = cross(path->trace_directions.at(ray_index), radiation);
+				const CFloat3 js_z0_unit = cross(path->surface_normals.at(ray_index - 1), magnetic_inc + magnetic_refl);
+
+				path->cache.electric_unit_reflected = radiation;
+				path->cache.electric_unit_total = electric_unit_total;
+				path->cache.n_cross_magnetic_unit_total = js_z0_unit;
 				path->cache.depth = path->ray_count;
 				path->cache.carrier_frequency = frequency;
 			}
@@ -530,8 +535,8 @@ namespace propagation::raytracing
 	 * @param contrib_index Engine-supplied next contribution index. `uint32_t()`
 	 */
 	template <typename ShadowTest, typename ContribIndex>
-	[[nodiscard]] HC_FN bool facetIncidentRay(const SbrParams& params, PathState* path, const HitInfo& hit,
-											  ShadowTest shadow_test, ContribIndex get_contrib_index)
+	[[nodiscard]] HC_FN bool facetHit(const SbrParams& params, PathState* path, const HitInfo& hit,
+									  ShadowTest shadow_test, ContribIndex get_contrib_index)
 	{
 		// Local geometry computations in 32-bit precision in object space.
 
@@ -626,7 +631,7 @@ namespace propagation::raytracing
 				// The scattering vector `w = k (u_inc - u_scat)` computation is identical between
 				// (u_inc, u_scat) and (-u_scat, -u_inc) so we just pass in the trace directions here.
 				const CFloat3 radiation =
-					po::facetScatteredRadiation(patch, u_norm, u_inc, u_scat, path->cache.surface_current, wavenumber);
+					po::facetScatteredRadiation(patch, u_norm, u_inc, u_scat, path->cache, wavenumber);
 
 				// Weight by the destination antenna's gain towards this facet.
 				const AntennaModel& dst_model = params.antenna_models[dst.antenna_model_index];

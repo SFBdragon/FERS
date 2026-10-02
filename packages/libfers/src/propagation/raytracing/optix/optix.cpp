@@ -171,7 +171,7 @@ namespace propagation::raytracing::optix
 		OptixProgramGroupDesc pg_desc = {};
 		pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
 		pg_desc.raygen.module = _module;
-		pg_desc.raygen.entryFunctionName = "__raygen__antennasOverTimes";
+		pg_desc.raygen.entryFunctionName = "__raygen__paths";
 
 		OPTIX_CHECK(
 			optixProgramGroupCreate(_optix_ctx.get(), &pg_desc, 1, &pg_opts, &log[0], &log_size, &_raygen_program));
@@ -185,11 +185,11 @@ namespace propagation::raytracing::optix
 		pg_desc.hitgroup.moduleCH = _module;
 		pg_desc.hitgroup.moduleAH = _module;
 
-		// GO rays
-		pg_desc.hitgroup.entryFunctionNameCH = "__closesthit__go";
-		pg_desc.hitgroup.entryFunctionNameAH = "__anyhit__go";
+		// Indirect path rays
+		pg_desc.hitgroup.entryFunctionNameCH = "__closesthit__indirect";
+		pg_desc.hitgroup.entryFunctionNameAH = "__anyhit__indirect";
 		OPTIX_CHECK(optixProgramGroupCreate(_optix_ctx.get(), &pg_desc, 1, &pg_opts, &log[0], &log_size,
-											&_hitgroup_programs[RAY_TYPE_GO]));
+											&_hitgroup_programs[RAY_TYPE_INDIRECT]));
 		OPTIX_LOG(log, log_size);
 
 		// Shadow rays
@@ -206,10 +206,10 @@ namespace propagation::raytracing::optix
 		pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
 		pg_desc.miss.module = _module;
 
-		// GO rays
-		pg_desc.miss.entryFunctionName = "__miss__go";
+		// Indirect path rays
+		pg_desc.miss.entryFunctionName = "__miss__indirect";
 		OPTIX_CHECK(optixProgramGroupCreate(_optix_ctx.get(), &pg_desc, 1, &pg_opts, &log[0], &log_size,
-											&_miss_programs[RAY_TYPE_GO]));
+											&_miss_programs[RAY_TYPE_INDIRECT]));
 		OPTIX_LOG(log, log_size);
 
 		// Shadow rays
@@ -463,10 +463,9 @@ namespace propagation::raytracing::optix
 			const auto mat_idx = _material_indices.at(geom->material->id);
 
 			OptixInstance inst{};
-			// instanceId doubles as the material index already — see __closesthit__go in kernel.cu,
-			// which reads optixGetInstanceId() straight into shader_params.materials. A real
-			// per-instance-properties buffer (with instanceId as an index into it) is future work
-			// once there's actually per-instance data to store (see common.h's ShaderParams).
+			// instanceId currently corresponds to the material index of the object.
+			// Once there's more per-instance data to track, this should be converted to an index
+			// into an instance data buffer (containing the material).
 			inst.instanceId = mat_idx;
 			inst.sbtOffset = mesh_idx * RAY_TYPE_COUNT;
 			inst.visibilityMask = 0xFF;

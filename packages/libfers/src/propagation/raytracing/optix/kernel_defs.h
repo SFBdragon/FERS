@@ -16,7 +16,7 @@
 namespace propagation::raytracing::optix
 {
 	constexpr unsigned int RAY_TYPE_COUNT = 2;
-	constexpr unsigned int RAY_TYPE_GO = 0;
+	constexpr unsigned int RAY_TYPE_INDIRECT = 0;
 	constexpr unsigned int RAY_TYPE_SHADOW = 1;
 
 	struct ShaderParams
