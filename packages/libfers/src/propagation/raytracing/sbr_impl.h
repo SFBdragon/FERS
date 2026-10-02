@@ -33,6 +33,7 @@
 // For example, the difference of a facet 1cm wide verses 2cm is important, even 200km away.
 //
 // A number of bounding facts are considered in the approach used:
+// - GPU FLOPS differs greatly between single and double-precision on consumer cards. Typically 1:32 or 1:64.
 // - Double-precision is valuable for cases where a very big number and a very small number are added together,
 //      and the small number must retain a high degree of precision.
 // - OptiX and similar engines trace against 32-bit precision geometry (local mesh space).
@@ -41,8 +42,7 @@
 // - This means that global spacial data and geometry must be in double-precision.
 // - However, normals often don't need to be in double-precision - they're unit-magnitude.
 // - Complex math operations (e.g. sqrt, trig) on GPUs have significant performance gains at 32-bit precision.
-// - Similarly, most physical constants are only known up to roughly single-precision (~11d.p.)
-//      e.g. Z0, E0, material properties, and C by definition.
+// - Similarly, most physical material properties are only known to within single-precision.
 // - The carrier frequencies in use are often narrowband approximations to far worse accuracy than 32-bit precision.
 // - Antenna gains are linear, often between 0-1, and are often approximated by interpolation anyway.
 //

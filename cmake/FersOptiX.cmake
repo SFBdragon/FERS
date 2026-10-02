@@ -57,7 +57,6 @@ add_custom_command(
 		${_fers_optix_dir}/utils.h
 		${CMAKE_CURRENT_SOURCE_DIR}/src/propagation/raytracing/sbr_shared.h
 		${CMAKE_CURRENT_SOURCE_DIR}/src/propagation/math.h
-		${CMAKE_CURRENT_SOURCE_DIR}/src/propagation/linalg.h
 	COMMENT "Compiling kernel.cu to PTX with nvcc"
 	VERBATIM
 )

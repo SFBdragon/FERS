@@ -6,7 +6,8 @@
 
 #pragma once
 
-#include "linalg.h"
+#include <cmath>
+#include <cstdint>
 
 #ifndef HC_FN
 #if defined(__CUDACC__) || defined(__HIPCC__)
@@ -43,72 +44,115 @@ namespace propagation
 	// They use double3/float2/uint4 etc.
 	// We'll use PascalCase versions to distinguish our own types, inline with FERS naming convention.
 
-	using Uint3 = linalg::aliases::uint3;
+	template <typename T>
+	struct Vec2
+	{
+		T x, y;
+		HC_FN constexpr Vec2() : x(), y() {}
+		HC_FN constexpr Vec2(T x_, T y_) : x(x_), y(y_) {}
+	};
+
+	template <typename T>
+	struct Vec3
+	{
+		T x, y, z;
+		HC_FN constexpr Vec3() : x(), y(), z() {}
+		HC_FN constexpr Vec3(T x_, T y_, T z_) : x(x_), y(y_), z(z_) {}
+
+		/// Elementwise converting constructor, e.g. for narrowing a `Double3` to a `Float3`.
+		template <typename U>
+		HC_FN constexpr explicit Vec3(const Vec3<U>& v) :
+			x(static_cast<T>(v.x)), y(static_cast<T>(v.y)), z(static_cast<T>(v.z))
+		{
+		}
+	};
+
+	template <typename T>
+	HC_FN constexpr Vec3<T> operator+(const Vec3<T>& a, const Vec3<T>& b)
+	{
+		return Vec3<T>{a.x + b.x, a.y + b.y, a.z + b.z};
+	}
+	template <typename T>
+	HC_FN constexpr Vec3<T> operator-(const Vec3<T>& a, const Vec3<T>& b)
+	{
+		return Vec3<T>{a.x - b.x, a.y - b.y, a.z - b.z};
+	}
+	template <typename T>
+	HC_FN constexpr Vec3<T> operator-(const Vec3<T>& a)
+	{
+		return Vec3<T>{-a.x, -a.y, -a.z};
+	}
+	template <typename T>
+	HC_FN constexpr Vec3<T> operator*(const Vec3<T>& a, T s)
+	{
+		return Vec3<T>{a.x * s, a.y * s, a.z * s};
+	}
+	template <typename T>
+	HC_FN constexpr Vec3<T> operator*(T s, const Vec3<T>& a)
+	{
+		return a * s;
+	}
+	template <typename T>
+	HC_FN constexpr Vec3<T> operator/(const Vec3<T>& a, T s)
+	{
+		return Vec3<T>{a.x / s, a.y / s, a.z / s};
+	}
+	template <typename T>
+	HC_FN constexpr T dot(const Vec3<T>& a, const Vec3<T>& b)
+	{
+		return a.x * b.x + a.y * b.y + a.z * b.z;
+	}
+	template <typename T>
+	HC_FN constexpr Vec3<T> cross(const Vec3<T>& a, const Vec3<T>& b)
+	{
+		return Vec3<T>{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+	}
+	template <typename T>
+	HC_FN constexpr T length2(const Vec3<T>& a)
+	{
+		return dot(a, a);
+	}
+	template <typename T>
+	HC_FN T length(const Vec3<T>& a)
+	{
+		return std::sqrt(length2(a));
+	}
+	template <typename T>
+	HC_FN Vec3<T> normalize(const Vec3<T>& a)
+	{
+		return a / length(a);
+	}
+
+	using Uint3 = Vec3<uint32_t>;
 
 	template <typename Real>
-	using Real2 = linalg::vec<Real, 2>;
+	using Real2 = Vec2<Real>;
 
 	template <typename Real>
-	using Real3 = linalg::vec<Real, 3>;
+	using Real3 = Vec3<Real>;
 	using Float3 = Real3<float>;
 	using Double3 = Real3<double>;
 
-	template <typename Real>
-	using Real2x2 = linalg::mat<Real, 2, 2>;
-
-	using Float3x4 = linalg::aliases::float3x4;
-
-	/**
-	 * @brief A pure azimuth/elevation orientation (no roll).
-	 *
-	 * Follows the same convention as `Vec3(SVec3)`: azimuth=0, elevation=0 means
-	 * local +X; `rotateLocalToWorld(AzEl{0,0}, ...)`'s boresight direction is
-	 * `(cos(az)cos(el), sin(az)cos(el), sin(el))`, i.e. `Vec3(SVec3(1, az, el))`.
-	 */
-	template <typename Real>
-	struct AzEl
+	/// A 2x2 matrix, stored as two column vectors.
+	template <typename T>
+	struct Mat2x2
 	{
-		Real azimuth{};
-		Real elevation{};
+		Vec2<T> x, y;
 	};
 
-	using FloatAzEl = AzEl<float>;
-	using DoubleAzEl = AzEl<double>;
-
-	/**
-	 * @brief Rotates a local direction (in the same az/el spherical convention as `SVec3` - see
-	 * `AzEl`) into world space, given the frame's own world-space orientation `rot`.
-	 *
-	 * Equivalent to constructing the rotation matrix R = Rz(rot.azimuth) * Ry(-rot.elevation) (the
-	 * "yaw then pitch, no roll" rotation that carries local +X to
-	 * `Vec3(SVec3(1, rot.azimuth, rot.elevation))`) and applying it to `local_dir`.
-	 */
 	template <typename Real>
-	HC_FN Real3<Real> rotateLocalToWorld(const AzEl<Real>& rot, const Real3<Real>& local_dir)
+	using Real2x2 = Mat2x2<Real>;
+
+	/// A 3x4 matrix, stored as four column vectors.
+	///
+	/// Used for affine (rotation + translation) local<->world transforms. See `amul`/`amuld`.
+	template <typename T>
+	struct Mat3x4
 	{
-		const Real caz = std::cos(rot.azimuth), saz = std::sin(rot.azimuth);
-		const Real cel = std::cos(rot.elevation), sel = std::sin(rot.elevation);
+		Vec3<T> x, y, z, w;
+	};
 
-		return Real3<Real>{caz * cel * local_dir.x - saz * local_dir.y - caz * sel * local_dir.z,
-						   saz * cel * local_dir.x + caz * local_dir.y - saz * sel * local_dir.z,
-						   sel * local_dir.x + cel * local_dir.z};
-	}
-
-	/**
-	 * @brief Inverse of `rotateLocalToWorld`: expresses a world-space direction in the frame's local
-	 * coordinates. Since the rotation is orthonormal, this is just its transpose applied to
-	 * `world_dir`.
-	 */
-	template <typename Real>
-	HC_FN Real3<Real> rotateWorldToLocal(const AzEl<Real>& rot, const Real3<Real>& world_dir)
-	{
-		const Real caz = std::cos(rot.azimuth), saz = std::sin(rot.azimuth);
-		const Real cel = std::cos(rot.elevation), sel = std::sin(rot.elevation);
-
-		return Real3<Real>{caz * cel * world_dir.x + saz * cel * world_dir.y + sel * world_dir.z,
-						   -saz * world_dir.x + caz * world_dir.y,
-						   -caz * sel * world_dir.x - saz * sel * world_dir.y + cel * world_dir.z};
-	}
+	using Float3x4 = Mat3x4<float>;
 
 	template <typename Real>
 	struct Complex
@@ -311,26 +355,68 @@ namespace propagation
 	using CDouble3 = Complex3<double>;
 
 
-	// --- Affine local<->global space geometry transforms ------------------------------------------- //
+	// --- Angles and Rotations --------------------------------------------------------------------- //
 
-	/// Applies a 3x4 affine matrix to a 3-vector.
-	/// Result = A * v + t
-	template <class T>
-	HC_FN Float3 amul(const Float3x4& m, const Float3& v) noexcept
+	/**
+	 * @brief A pure azimuth/elevation orientation (no roll).
+	 *
+	 * Follows the same convention as `Vec3(SVec3)`: azimuth=0, elevation=0 means
+	 * local +X; `rotateLocalToWorld(AzEl{0,0}, ...)`'s boresight direction is
+	 * `(cos(az)cos(el), sin(az)cos(el), sin(el))`, i.e. `Vec3(SVec3(1, az, el))`.
+	 */
+	template <typename Real>
+	struct AzEl
 	{
-		using std::fma;
-		T x = fma(m.x.x, v.x, fma(m.y.x, v.y, fma(m.z.x, v.z, m.w.x)));
-		T y = fma(m.x.y, v.x, fma(m.y.y, v.y, fma(m.z.y, v.z, m.w.y)));
-		T z = fma(m.x.z, v.x, fma(m.y.z, v.y, fma(m.z.z, v.z, m.w.z)));
-		return {x, y, z};
+		Real azimuth{};
+		Real elevation{};
+	};
+
+	using FloatAzEl = AzEl<float>;
+	using DoubleAzEl = AzEl<double>;
+
+	/**
+	 * @brief Rotates a local direction (in the same az/el spherical convention as `SVec3` - see
+	 * `AzEl`) into world space, given the frame's own world-space orientation `rot`.
+	 *
+	 * Equivalent to constructing the rotation matrix R = Rz(rot.azimuth) * Ry(-rot.elevation) (the
+	 * "yaw then pitch, no roll" rotation that carries local +X to
+	 * `Vec3(SVec3(1, rot.azimuth, rot.elevation))`) and applying it to `local_dir`.
+	 */
+	template <typename Real>
+	HC_FN Real3<Real> rotateLocalToWorld(const AzEl<Real>& rot, const Real3<Real>& local_dir)
+	{
+		const Real caz = std::cos(rot.azimuth), saz = std::sin(rot.azimuth);
+		const Real cel = std::cos(rot.elevation), sel = std::sin(rot.elevation);
+
+		return Real3<Real>{caz * cel * local_dir.x - saz * local_dir.y - caz * sel * local_dir.z,
+						   saz * cel * local_dir.x + caz * local_dir.y - saz * sel * local_dir.z,
+						   sel * local_dir.x + cel * local_dir.z};
 	}
+
+	/**
+	 * @brief Inverse of `rotateLocalToWorld`: expresses a world-space direction in the frame's local
+	 * coordinates. Since the rotation is orthonormal, this is just its transpose applied to
+	 * `world_dir`.
+	 */
+	template <typename Real>
+	HC_FN Real3<Real> rotateWorldToLocal(const AzEl<Real>& rot, const Real3<Real>& world_dir)
+	{
+		const Real caz = std::cos(rot.azimuth), saz = std::sin(rot.azimuth);
+		const Real cel = std::cos(rot.elevation), sel = std::sin(rot.elevation);
+
+		return Real3<Real>{caz * cel * world_dir.x + saz * cel * world_dir.y + sel * world_dir.z,
+						   -saz * world_dir.x + caz * world_dir.y,
+						   -caz * sel * world_dir.x - saz * sel * world_dir.y + cel * world_dir.z};
+	}
+
+	// --- Affine local<->global space geometry transforms ------------------------------------------- //
 
 	/// Applies a 3x4 affine matrix to a 3-vector.
 	/// Result = A * v + t
 	///
 	/// This takes floats, converts to doubles, and outputs doubles.
-	/// This is designed for converting from 32-bit precision local space to
-	/// 64-bit precision world space.
+	/// This is designed for converting from single-precision local space to
+	/// double-precision world space.
 	HC_FN Double3 amuld(const Float3x4& m, const Float3& v) noexcept
 	{
 		const double vx = static_cast<double>(v.x), vy = static_cast<double>(v.y), vz = static_cast<double>(v.z);

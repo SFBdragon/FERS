@@ -32,7 +32,6 @@ set(LIBFERS_PRIVATE_HEADERS
 	${CMAKE_CURRENT_LIST_DIR}/propagation/pointscatter/pointscatter.h
 	${CMAKE_CURRENT_LIST_DIR}/propagation/common.h
 	${CMAKE_CURRENT_LIST_DIR}/propagation/common_defs.h
-	${CMAKE_CURRENT_LIST_DIR}/propagation/linalg.h
 	${CMAKE_CURRENT_LIST_DIR}/propagation/math.h
 	${CMAKE_CURRENT_LIST_DIR}/propagation/utils.h
 	${CMAKE_CURRENT_LIST_DIR}/propagation/raytracing/mesh_importer.h

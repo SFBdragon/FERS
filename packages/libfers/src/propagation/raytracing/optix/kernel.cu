@@ -49,7 +49,7 @@ namespace propagation::raytracing::optix
 	static constexpr inline __device__ float3 asF32(Float3& v) { return float3{v.x, v.y, v.z}; }
 
 	/**
-	 * @brief Build a linalg.h affine 3x4 transform from an OptiX transform float array.
+	 * @brief Build an affine 3x4 transform from an OptiX transform float array.
 	 */
 	static constexpr inline __device__ Float3x4 fromOptixTransform(const float t[12])
 	{
