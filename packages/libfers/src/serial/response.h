@@ -18,7 +18,6 @@
 #include <vector>
 
 #include "core/config.h"
-#include "core/parameters.h"
 #include "interpolation/interpolation_point.h"
 #include "signal/radar_signal.h"
 
@@ -36,8 +35,6 @@ namespace radar
 
 namespace serial
 {
-	inline RealType controlPointEdgePeriod() noexcept { return 1.0 / params::simSamplingRate(); }
-
 	/**
 	 * @class Response
 	 * @brief Manages radar signal responses from a transmitter.
@@ -49,16 +46,14 @@ namespace serial
 		 * @brief Constructor for the `Response` class.
 		 *
 		 * @param signal Pointer to the radar signal object.
-		 * @param first_point The response's first real point.
-		 * @param left_interval The true tx-time gap immediately before `first_point` (0 if
-		 * `first_point` sits at the transmission's actual start - see `taperEdges()`).
-		 * Defaults to `controlPointEdgePeriod()` for callers that don't track a sample grid.
-		 * @param right_interval This response's assumed tx-time gap after `first_point`,
-		 * used only if no further point is ever added (see `addInterpPoint()`).
+		 * @param first_point The response's first sample.
+		 * @param left_interval The tx-time sampling gap immediately before `first_point`
+		 * (0 if `first_point` sits at the transmission's start).
+		 * @param right_interval This response's tx-time sampling gap after `first_point`,
+		 * used only if no further point is ever added.
 		 */
 		Response(const fers_signal::RadarSignal* signal, const interp::InterpPoint first_point,
-				const RealType left_interval = controlPointEdgePeriod(),
-				const RealType right_interval = controlPointEdgePeriod()) :
+				 const RealType left_interval, const RealType right_interval) :
 			_signal(signal), _left_interval(left_interval), _right_interval(right_interval)
 		{
 			if (!signal->isPulsed())
@@ -68,6 +63,9 @@ namespace serial
 			}
 
 			_wave = signal->getPulseWaveform();
+
+			// This ensures Response never has zero points by construction.
+			// A Response should never have no points.
 			_points.push_back(first_point);
 		}
 
@@ -79,32 +77,27 @@ namespace serial
 
 		/**
 		 * @brief Retrieves the start time of the response, including its leading fade-in taper.
-		 * Coincides with the first real point's own time when `left_interval` is 0 (the
-		 * response's first point sits at the transmission's actual start - see `taperEdges()`).
-		 *
-		 * @return Start time as a `RealType`. Returns 0.0 if no points are present.
+		 * Coincides with the first simulation sample's tx time when `left_interval` is 0 (the
+		 * response's first point is at the transmission's start).
 		 */
-		[[nodiscard]] RealType startTime() const noexcept { return _points.empty() ? 0.0 : taperEdges().lead.rx_time; }
+		[[nodiscard]] RealType startTime() const noexcept { return taperEdges().lead.rx_time; }
 
 		/**
 		 * @brief Retrieves the end time of the response, including its trailing fade-out taper.
-		 * Coincides with the last real point's own time when `right_interval` is 0 (the
-		 * response's last point sits at the transmission's actual end - see `taperEdges()`).
-		 *
-		 * @return End time as a `RealType`. Returns 0.0 if no points are present.
+		 * Coincides with the last simulation sample's tx time when `right_interval` is 0 (the
+		 * response's last point is at the transmission's end).
 		 */
-		[[nodiscard]] RealType endTime() const noexcept { return _points.empty() ? 0.0 : taperEdges().tail.rx_time; }
+		[[nodiscard]] RealType endTime() const noexcept { return taperEdges().tail.rx_time; }
 
 		/**
 		 * @brief Adds an interpolation point to the response.
 		 *
 		 * @param point The interpolation point to be added.
-		 * @param right_interval This response's assumed tx-time gap after `point`, used only
-		 * if no further point is ever added (see `taperEdges()`). Defaults to
-		 * `controlPointEdgePeriod()` for callers that don't track a sample grid.
+		 * @param right_interval This response's tx-time gap after `point`, used when no
+		 * further point is detected and added.
 		 * @throws std::logic_error If the new point has a time earlier than the last point.
 		 */
-		void addInterpPoint(const interp::InterpPoint& point, RealType right_interval = controlPointEdgePeriod());
+		void addInterpPoint(const interp::InterpPoint& point, RealType right_interval);
 
 		/**
 		 * @brief Renders the response in binary format.
@@ -225,8 +218,7 @@ namespace serial
 			std::size_t _real_count;
 		};
 
-		/// Returns a view over this response's real points bracketed by its synthetic
-		/// lead/tail taper points (see taperEdges()).
+		/// Returns a view over this response's samples bracketed by synthetic taper points.
 		[[nodiscard]] TaperedPoints taperedPoints() const
 		{
 			const auto [lead, tail] = taperEdges();
@@ -241,32 +233,34 @@ namespace serial
 		};
 
 		/**
-		 * @brief Extrapolates one taper point (lead or tail) `interval` tx-seconds beyond `edge`,
-		 * using the Doppler rate observed between `edge` and `neighbor` (the next real point in
-		 * toward the response's interior).
-		 *
-		 * `interval` is a tx-time duration (see `_left_interval`/`_right_interval`). The
-		 * corresponding rx-time width isn't `interval` itself unless delay is constant: if delay
-		 * is changing at the locally-observed rate `(neighbor.delay - edge.delay) / tx_gap`
-		 * (`tx_gap` being `neighbor`/`edge`'s own tx-time separation, recovered as
-		 * `rx_time - delay`), extrapolating `interval` more tx-seconds carries that same rate's
-		 * worth of extra delay with it. So the rx-time width is `interval + extrapolated_delay`,
-		 * not `interval` - equivalently `interval * (rx_gap/tx_gap)`.
+		 * @brief Extrapolates a taper point by a Doppler-adjusted tx-time `interval` in seconds
+		 * beyond `edge`, using the Doppler rate observed between `edge` and `neighbor`
+		 * (the next interp point toward the response's interior).
 		 */
-		[[nodiscard]] static interp::InterpPoint extrapolateTaperPoint(const interp::InterpPoint& edge,
-																	   const interp::InterpPoint& neighbor,
-																	   const RealType interval, const bool forward)
+		[[nodiscard]] static inline interp::InterpPoint extrapolateTaperPoint(const interp::InterpPoint& edge,
+																			  const interp::InterpPoint& neighbor,
+																			  const RealType interval,
+																			  const bool forward)
 		{
 			interp::InterpPoint point = edge;
+
+			// Because the response was not detected at the previous/next sample, we know the taper
+			// point should have zero gain here.
 			point.gain = 0.0;
 
+
+			// `interval` is a tx-time duration.
+			// The corresponding rx-time interval is affected by Doppler rate.
+			// Doppler rate is estimated by the edge and neighbour's delays over their own
+			// transmission gap. This rate is linearly extrapolated to determine the taper's
+			// own delay and phase delay.
 			const RealType tx_gap = (neighbor.rx_time - neighbor.delay) - (edge.rx_time - edge.delay);
 			const RealType scale = interval / tx_gap;
 			const RealType delay_delta = (neighbor.delay - edge.delay) * scale;
 			const RealType phase_delta = (neighbor.phase_delay - edge.phase_delay) * scale;
 			const RealType rx_width = interval + delay_delta;
 
-			const RealType sign = forward ? RealType(1.0) : RealType(-1.0);
+			const RealType sign = forward ? 1.0 : -1.0;
 			point.rx_time += sign * rx_width;
 			point.delay += sign * delay_delta;
 			point.phase_delay += sign * phase_delta;
@@ -274,18 +268,13 @@ namespace serial
 		}
 
 		/**
-		 * @brief Computes this response's synthetic zero-gain lead and tail points.
+		 * @brief Computes this response's synthetic zero-gain lead and tail points. (Triangular tapering.)
 		 *
-		 * `_left_interval`/`_right_interval` (supplied by the caller building this response -
-		 * see the constructor and `addInterpPoint()`) are the true tx-time gaps to whatever lies
-		 * immediately outside the response's first/last real point: 0 if that side is the
-		 * transmission's actual start/end (untapered - nothing renders out there), otherwise the
-		 * real local sample-grid gap. With at least two real points, that interval is
-		 * Doppler-extrapolated per `extrapolateTaperPoint()` so two responses covering the same
-		 * continuous physical path but split by a path_id change (as ray tracing can do) still
-		 * meet exactly where their real data does, rather than overlapping (double-counting) or
-		 * gapping. With only one real point there's no rate to extrapolate, so the interval is
-		 * used as a plain rx-time offset with delay/phase_delay unchanged.
+		 * `_left_interval`/`_right_interval` are the tx-time sampling intervals
+		 * on either side at which no response was detected (response is thus goes to zero there).
+		 * If the first or last point was the first or last sample of the transmission,
+		 * then no extrapolation should occur and the intervals have been set to zero.
+		 * Extrapolation methods is defined by `extrapolateTaperPoint()`.
 		 */
 		[[nodiscard]] TaperEdges taperEdges() const
 		{

@@ -171,14 +171,16 @@ namespace
 		const auto* wave_ptr = wave.get();
 		wave_store.push_back(std::move(wave));
 
+		const RealType edge = 1.0 / sample_rate;
 		const interp::InterpPoint first{.gain = 1.0, .rx_time = start_time, .delay = 0.0, .phase_delay = 0.0};
-		auto response = std::make_unique<serial::Response>(wave_ptr, first);
+		auto response = std::make_unique<serial::Response>(wave_ptr, first, edge, edge);
 		for (std::size_t i = 1; i < samples.size(); ++i)
 		{
 			response->addInterpPoint({.gain = 1.0,
 									  .rx_time = start_time + static_cast<RealType>(i) / sample_rate,
 									  .delay = 0.0,
-									  .phase_delay = 0.0});
+									  .phase_delay = 0.0},
+									 edge);
 		}
 		return response;
 	}

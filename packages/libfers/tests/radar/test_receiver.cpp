@@ -43,7 +43,8 @@ namespace
 		const auto* wave_ptr = wave.get();
 		wave_store.push_back(std::move(wave));
 		return std::make_unique<serial::Response>(
-			wave_ptr, interp::InterpPoint{.gain = 1.0, .rx_time = 0.0, .delay = 0.0, .phase_delay = 0.0});
+			wave_ptr, interp::InterpPoint{.gain = 1.0, .rx_time = 0.0, .delay = 0.0, .phase_delay = 0.0},
+			/*left_interval=*/0.0, /*right_interval=*/0.0);
 	}
 
 	void requireComplexVectorsNear(const std::vector<ComplexType>& actual, const std::vector<ComplexType>& expected,

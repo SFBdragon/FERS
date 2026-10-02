@@ -32,7 +32,7 @@ namespace
 	}
 }
 
-TEST_CASE("Response start/end time always pad a single real point by controlPointEdgePeriod on both sides",
+TEST_CASE("Response start/end time always pad a single real point by the caller-supplied interval on both sides",
 		  "[serial][response]")
 {
 	ParamGuard const guard;
@@ -41,11 +41,12 @@ TEST_CASE("Response start/end time always pad a single real point by controlPoin
 
 	const auto wave = makeSampledRadarSignal("wave", 1.0, {ComplexType{0.0, 0.0}}, 1000.0);
 	const interp::InterpPoint first{.gain = 1.0, .rx_time = 0.5, .delay = 0.0, .phase_delay = 0.0};
-	serial::Response const response(&wave, first);
+	const RealType edge = 1.0 / params::simSamplingRate();
+	serial::Response const response(&wave, first, edge, edge);
 
 	// Response does not materialize a synthetic lead point at construction, and no
 	// finalise() call is needed to add a trailing one. startTime()/endTime() report the
-	// real point's range padded by one controlPointEdgePeriod() on each side, computed
+	// real point's range padded by the caller-supplied interval on each side, computed
 	// fresh on every call. This holds even for a single-sample response, the common case
 	// for responses built from ephemeral ray-traced paths rather than a whole transmitted
 	// pulse.
@@ -137,7 +138,11 @@ TEST_CASE("Response renderSlice reproduces the source waveform at zero delay", "
 	const auto wave = makeSampledRadarSignal("wave", 1.0, samples, rate);
 
 	const interp::InterpPoint first{.gain = 1.0, .rx_time = 0.0, .delay = 0.0, .phase_delay = 0.0};
-	serial::Response response(&wave, first);
+	// The interval must be nonzero: a 0-width lead/tail segment collapses onto the
+	// adjacent real point's own rx_time, leaving the render loop's boundary sample with a
+	// degenerate zero-length interpolation span instead of a well-defined one.
+	const RealType edge = 1.0 / rate;
+	serial::Response response(&wave, first, edge, edge);
 	// One real control point per native sample (matching how the point-scatter model
 	// covers a whole pulse) keeps gain == 1 across the entire buffer under test; a
 	// single real point would only hold full gain exactly at that one point; the very
@@ -145,7 +150,7 @@ TEST_CASE("Response renderSlice reproduces the source waveform at zero delay", "
 	for (std::size_t i = 1; i < samples.size(); ++i)
 	{
 		response.addInterpPoint(
-			{.gain = 1.0, .rx_time = static_cast<RealType>(i) / rate, .delay = 0.0, .phase_delay = 0.0});
+			{.gain = 1.0, .rx_time = static_cast<RealType>(i) / rate, .delay = 0.0, .phase_delay = 0.0}, edge);
 	}
 
 	// At exactly zero fractional delay the render filter is an exact identity (its

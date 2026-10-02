@@ -82,14 +82,16 @@ namespace
 		const auto* wave_ptr = wave.get();
 		wave_store.push_back(std::move(wave));
 
+		const RealType edge = 1.0 / sample_rate;
 		const interp::InterpPoint first{.gain = 1.0, .rx_time = start_time, .delay = 0.0, .phase_delay = 0.0};
-		auto response = std::make_unique<serial::Response>(wave_ptr, first);
+		auto response = std::make_unique<serial::Response>(wave_ptr, first, edge, edge);
 		for (std::size_t i = 1; i < samples.size(); ++i)
 		{
 			response->addInterpPoint({.gain = 1.0,
 									  .rx_time = start_time + static_cast<RealType>(i) / sample_rate,
 									  .delay = 0.0,
-									  .phase_delay = 0.0});
+									  .phase_delay = 0.0},
+									 edge);
 		}
 		return response;
 	}
@@ -210,7 +212,7 @@ TEST_CASE("applyPulsedInterference clips rendered pulses to LO-active sample spa
 												 params::rate(), 0.2));
 
 	// Rendered pulse (via makeFixedResponse, see comment above): [0, 1, 2, 3, 4, 5],
-	// starting at response->startTime() == 0.2 - controlPointEdgePeriod() == 0.1, placed
+	// starting at response->startTime() == 0.2 - edge == 0.1 (edge == 1/rate == 0.1), placed
 	// at buffer index round(0.1 * 10) = 1, i.e. occupying [1, 7). Index 3 of the buffer ->
 	// rendered index 2 == 2.0 (a real sample, not the taper stub); index 6 -> rendered
 	// index 5 == 5.0.

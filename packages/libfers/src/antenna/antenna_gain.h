@@ -126,9 +126,7 @@ namespace antenna::gain
 		return result;
 	}
 
-	/// J1(x)/x, with the x=0 singularity resolved to its limit, 1/2 (NOT 1 - see antenna_factory.cpp
-	/// history: the pre-refactor `j1C` helper returned 1 at x=0, a bug causing a 4x peak-gain error
-	/// for `Parabolic` right at boresight).
+	/// J1(x)/x, with the x=0 singularity resolved to its limit, 1/2.
 	template <typename Real>
 	constexpr Real besselJ1OverX(const Real x) noexcept
 	{

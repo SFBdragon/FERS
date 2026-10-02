@@ -397,8 +397,10 @@ TEST_CASE("World enforces unique ids for assets", "[core][world]")
 
 	SECTION("Material ids are unique")
 	{
-		world.add(core::MaterialAsset{.id = 222, .name = "Material-1", .relative_permittivity = 0.9, .conductivity = 0.0});
-		REQUIRE_THROWS_AS(world.add(core::MaterialAsset{.id = 222, .name = "Material-2", .relative_permittivity = 0.8, .conductivity = 0.0}),
+		world.add(
+			core::MaterialAsset{.id = 222, .name = "Material-1", .relative_permittivity = 0.9f, .conductivity = 0.0f});
+		REQUIRE_THROWS_AS(world.add(core::MaterialAsset{
+							  .id = 222, .name = "Material-2", .relative_permittivity = 0.8f, .conductivity = 0.0f}),
 						  std::runtime_error);
 	}
 }

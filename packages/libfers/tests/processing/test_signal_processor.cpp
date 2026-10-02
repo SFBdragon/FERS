@@ -36,8 +36,9 @@ namespace
 	std::unique_ptr<serial::Response> makeSingleSampleResponse(const fers_signal::RadarSignal& wave,
 															   const RealType rx_time)
 	{
+		const RealType edge = 1.0 / params::simSamplingRate();
 		return std::make_unique<serial::Response>(
-			&wave, interp::InterpPoint{.gain = 1.0, .rx_time = rx_time, .delay = 0.0, .phase_delay = 0.0});
+			&wave, interp::InterpPoint{.gain = 1.0, .rx_time = rx_time, .delay = 0.0, .phase_delay = 0.0}, edge, edge);
 	}
 
 	RealType meanOfChannel(const std::vector<ComplexType>& window, bool realChannel)
