@@ -143,14 +143,10 @@ namespace propagation::raytracing::optix
 		}
 	};
 
-	class OptixEngine : RayTracingEngine
+	class OptixEngine : public RayTracingEngine
 	{
 	public:
-		// The engine is memory-safe via RAII and lock-less and thread safe through immutability.
-		static std::unique_ptr<RayTracingEngine> Create(SceneData scene)
-		{
-			return std::unique_ptr<RayTracingEngine>(new OptixEngine(std::move(scene)));
-		}
+		OptixEngine(SceneData scene);
 
 		OptixEngine(const OptixEngine&) = delete;
 		OptixEngine& operator=(const OptixEngine&) = delete;
@@ -164,7 +160,6 @@ namespace propagation::raytracing::optix
 		std::vector<Contribution> trace(ThreadContext* thread_context, TraceJob& job) override;
 
 	private:
-		OptixEngine(SceneData scene);
 		void createDevicePrograms();
 		void processAssets(SceneData scene);
 		void createSbt();

@@ -120,14 +120,10 @@ namespace propagation::raytracing
 	public:
 		virtual ~RayTracingEngine() = default;
 
-		/**
-		 * @brief Create a worker thread's mutable state object.
-		 */
+		/// Create a worker thread's mutable state object.
 		[[nodiscard]] virtual std::unique_ptr<ThreadContext> makeThreadContext() = 0;
 
-		/**
-		 * @brief Execute the ray tracing batch job.
-		 */
+		/// Execute the ray tracing batch job.
 		[[nodiscard]] virtual std::vector<Contribution> trace(ThreadContext*, TraceJob&) = 0;
 	};
 
@@ -135,8 +131,6 @@ namespace propagation::raytracing
 	class RayTracingModel : public PropagationModel
 	{
 	public:
-		RayTracingModel(core::World* world, RayTracingBackend backend);
-
 		[[nodiscard]] std::unique_ptr<ThreadContext> makeThreadContext() const override;
 
 		[[nodiscard]] std::vector<PathsAtTime> findTxToRxPaths(ThreadContext* ctx,

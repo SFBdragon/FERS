@@ -622,28 +622,28 @@ namespace propagation::raytracing
 		{
 			const ActiveAntenna& dst = params.dest_antennas[dst_idx + params.dest_antenna_count * path->time_index];
 
-			// While this is in world-space, this segment is never used where double-precision is useful.
-			const Float3 po_seg = Float3{dst.position - pos};
+			// The scattered field direction from the hit point to destination.
+			const Float3 u_scat = Float3{normalize(dst.position - pos)};
 
 			// Does the triangle face the destination?
-			if (dot(po_seg, u_norm) <= 0)
+			if (dot(u_scat, u_norm) <= 0)
 				continue;
 
 			// Cast shadow ray from pos in direction po_seg.
 			// OptiX/Embree use floating-point precision here. Conversion is required.
-			const float t_shadow = shadow_test(Float3{pos}, po_seg);
+			const float t_shadow = shadow_test(Float3{pos}, u_scat);
+			const double po_len = length(dst.position - pos);
 
-			// t_shadow is scaled by |po_seg|, so if it's greater than one, the
+			// If t_shadow is less that the scaled by |po_seg|, so if it's greater than one, the
 			// nearest object is over |po_seg| away, in which case the
 			// destination isn't occuded.
-			if (t_shadow >= 1.0f)
+			if (t_shadow >= float(po_len))
 			{
 				// Perform the PO computation for the scattered field from the facet, over the ray
 				// tube's patch (clipped to the triangle - see above), not the whole triangle.
 
-				const double path_len = go_path_len + length(dst.position - pos);
+				const double path_len = go_path_len + po_len;
 				const double prop_time = path_len / C<double>;
-				const Float3 u_scat = normalize(po_seg);
 
 				// We have a full path now.
 				// Therefore we know the transmitter, TX time, and thus also the carrier.
@@ -721,9 +721,9 @@ namespace propagation::raytracing
 
 		const auto& src_antenna = params.source_antennas[src_idx];
 		const auto& dst_antenna = params.dest_antennas[dst_idx];
-		const Float3 path = Float3{dst_antenna.position - src_antenna.position};
 		const double path_len = length(dst_antenna.position - src_antenna.position);
 		const double prop_time = path_len / C<double>;
+		const Float3 u_dir = Float3{normalize(src_antenna.position - dst_antenna.position)};
 
 		if (path_len < 1e-2)
 		{
@@ -732,9 +732,9 @@ namespace propagation::raytracing
 			return;
 		}
 
-		const float hitlen = shadow_test(Float3{src_antenna.position}, path);
+		const float hitlen = shadow_test(Float3{src_antenna.position}, u_dir);
 
-		if (hitlen < 1.0f)
+		if (hitlen < float(path_len))
 		{
 			// Direct path is occluded. Skip.
 			return;
@@ -748,7 +748,6 @@ namespace propagation::raytracing
 		const float wavelength = C<float> / frequency;
 
 		// Compute the antenna gains.
-		const Float3 u_dir = path / float(path_len);
 		const AntennaModel& src_model = params.antenna_models[src_antenna.antenna_model_index];
 		const AntennaModel& dst_model = params.antenna_models[dst_antenna.antenna_model_index];
 

@@ -655,7 +655,7 @@ namespace serial::xml_parser_utils
 			return;
 		}
 
-		params_out.propagation_model = params::PropagationModelKind::GoRayTracing;
+		params_out.propagation_model = params::PropagationModelKind::SbrRayTracing;
 		LOG(logging::Level::INFO, "Propagation model set to: raytracing");
 
 		auto& rt = params_out.rt_model_params;

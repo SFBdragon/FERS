@@ -238,7 +238,7 @@ TEST_CASE("fersxml round-trips mesh, material (including PEC), geometry, and ray
 	std::mt19937 seeder2(42);
 	REQUIRE_NOTHROW(serial::parseSimulationFromString(roundtripped, &world2, true, seeder2));
 
-	REQUIRE(params::params.propagation_model == params::PropagationModelKind::GoRayTracing);
+	REQUIRE(params::params.propagation_model == params::PropagationModelKind::SbrRayTracing);
 	REQUIRE(params::params.rt_model_params.scatter_limit == 7);
 	REQUIRE_THAT(params::params.rt_model_params.boresight_width, WithinAbs(12.5 * PI / 180.0, 1e-9));
 	REQUIRE_THAT(params::params.rt_model_params.boresight_tube_solid_angle, WithinAbs(3e-7, 1e-13));

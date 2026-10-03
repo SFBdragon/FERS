@@ -33,6 +33,12 @@ namespace propagation::raytracing
 	/// This number can be adjusted as needed. This caps the depth users can request.
 	constexpr uint32_t MAX_RAY_DEPTH = 6;
 
+	/// This bounds the minimim distance a ray may travel before a valid hit.
+	///
+	/// This guards against spurious hits against the surface that we're tracing away from.
+	/// 0.1mm is likely smaller than scene geometry scales.
+	constexpr float MIN_RAY_DISTANCE = 1e-4f;
+
 	/// SBR engine triangle mesh view.
 	struct TriangleMeshView
 	{

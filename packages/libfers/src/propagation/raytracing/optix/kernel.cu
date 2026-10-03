@@ -88,17 +88,17 @@ namespace propagation::raytracing::optix
 	extern "C" __global__ void __miss__shadow() {}
 
 
-	static __device__ inline float shadowTest(Float3 origin, Float3 segment, OptixTraversableHandle ias)
+	static __device__ inline float shadowTest(Float3 origin, Float3 direction, OptixTraversableHandle ias)
 	{
-		// Default to unoccluded. Occluded results in this value ending up <1.
+		// Default to unoccluded. Upon hit, this is updated.
 		float shadow_t = INFINITY;
 
 		unsigned int hi{}, lo{};
 		packPointer(&shadow_t, &hi, &lo);
 		optixTrace(ias, // AS handle
 				   float3{origin.x, origin.y, origin.z}, // rayOrigin
-				   float3{segment.x, segment.y, segment.z}, // rayDirection
-				   1e-3f, // tmin
+				   float3{direction.x, direction.y, direction.z}, // rayDirection
+				   MIN_RAY_DISTANCE, // tmin
 				   INFINITY, // tmax
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask TODO?
@@ -159,7 +159,7 @@ namespace propagation::raytracing::optix
 		optixTrace(ias, // AS handle
 				   asF32(path->path_vertices[path->ray_count]), // rayOrigin
 				   asF32(path->trace_directions[path->ray_count]), // rayDirection
-				   1e-3f, // tmin TODO?
+				   MIN_RAY_DISTANCE, // tmin
 				   INFINITY, // tmax
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask
@@ -214,7 +214,7 @@ namespace propagation::raytracing::optix
 		optixTrace(ias, // AS handle
 				   asF32(path.path_vertices[0]), // rayOrigin
 				   asF32(path.trace_directions[0]), // rayDirection
-				   1e-3f, // tmin
+				   MIN_RAY_DISTANCE, // tmin
 				   INFINITY, // tmax
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask

@@ -396,9 +396,8 @@ namespace propagation::raytracing::optix
 											  2 * 1024,
 											  /* [in] The continuation stack requirement. */
 											  2 * 1024,
-											  /* [in] The maximum depth of a traversable graph
-												 passed to trace. */
-											  8));
+											  /* [in] The maximum depth of a traversable graph passed to trace. */
+											  MAX_RAY_DEPTH));
 		OPTIX_LOG(log, log_size);
 
 		return ctx;

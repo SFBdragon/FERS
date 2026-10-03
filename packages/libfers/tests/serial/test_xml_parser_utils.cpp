@@ -260,7 +260,7 @@ TEST_CASE("parseParameters extracts the raytracing propagation model and its sub
 		"boresight_tube_solid_angle=\"1e-6\" off_boresight_tube_solid_angle=\"1e-3\"/></propagation>"
 		"</parameters>");
 
-	REQUIRE(p.propagation_model == params::PropagationModelKind::GoRayTracing);
+	REQUIRE(p.propagation_model == params::PropagationModelKind::SbrRayTracing);
 	REQUIRE(p.rt_model_params.scatter_limit == 5);
 	// Default rotation_angle_unit is degrees, so boresight_width="20" is 20 degrees.
 	REQUIRE_THAT(p.rt_model_params.boresight_width, WithinAbs(20.0 * PI / 180.0, 1e-9));
@@ -277,7 +277,7 @@ TEST_CASE("parseParameters keeps ray-tracing sub-parameter defaults when omitted
 									  "  <propagation><raytracing/></propagation>"
 									  "</parameters>");
 
-	REQUIRE(p.propagation_model == params::PropagationModelKind::GoRayTracing);
+	REQUIRE(p.propagation_model == params::PropagationModelKind::SbrRayTracing);
 	REQUIRE(p.rt_model_params.scatter_limit == defaults.rt_model_params.scatter_limit);
 	REQUIRE_THAT(p.rt_model_params.boresight_width, WithinAbs(defaults.rt_model_params.boresight_width, 1e-12));
 	REQUIRE_THAT(p.rt_model_params.boresight_tube_solid_angle,

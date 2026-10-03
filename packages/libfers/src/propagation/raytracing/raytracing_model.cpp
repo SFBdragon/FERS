@@ -187,7 +187,7 @@ namespace propagation::raytracing
 		{
 		case RayTracingBackend::OptiX:
 #ifdef FERS_ENABLE_OPTIX
-			_engine = optix::OptixEngine::Create(std::move(scene));
+			_engine = std::unique_ptr<RayTracingEngine>(new optix::OptixEngine(std::move(scene)));
 			break;
 #else
 			throw std::runtime_error("FERS was not built with OptiX support enabled.");

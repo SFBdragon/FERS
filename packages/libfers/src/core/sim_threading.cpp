@@ -73,7 +73,7 @@ namespace core
 		{
 			switch (params::propagationModel())
 			{
-			case params::PropagationModelKind::GoRayTracing:
+			case params::PropagationModelKind::SbrRayTracing:
 				return std::make_shared<propagation::raytracing::RayTracingModel>(
 					world, propagation::raytracing::RayTracingBackend::OptiX);
 			case params::PropagationModelKind::RcsPointScatter:

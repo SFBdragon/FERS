@@ -52,7 +52,7 @@ namespace params
 	enum class PropagationModelKind : std::uint8_t
 	{
 		RcsPointScatter = 1, ///< Analytic point-target RCS/radar-equation model (default).
-		GoRayTracing = 2, ///< GPU GO+PO ray-tracing model against target meshes.
+		SbrRayTracing = 2, ///< GO+PO ray-tracing model against target meshes.
 	};
 
 	/// Simulation parameters for running the ray tracing propagation model.

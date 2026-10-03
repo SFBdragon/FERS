@@ -104,7 +104,7 @@ namespace serial::xml_serializer_utils
 			break;
 		}
 
-		if (p.propagation_model == params::PropagationModelKind::GoRayTracing)
+		if (p.propagation_model == params::PropagationModelKind::SbrRayTracing)
 		{
 			const XmlElement prop_elem = parent.addChild("propagation");
 			const XmlElement rt_elem = prop_elem.addChild("raytracing");
