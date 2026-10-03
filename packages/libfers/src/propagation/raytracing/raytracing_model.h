@@ -131,6 +131,8 @@ namespace propagation::raytracing
 	class RayTracingModel : public PropagationModel
 	{
 	public:
+		RayTracingModel(core::World* world, RayTracingBackend backend);
+
 		[[nodiscard]] std::unique_ptr<ThreadContext> makeThreadContext() const override;
 
 		[[nodiscard]] std::vector<PathsAtTime> findTxToRxPaths(ThreadContext* ctx,
