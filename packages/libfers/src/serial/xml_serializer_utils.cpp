@@ -9,6 +9,7 @@
 #include <cmath>
 
 #include "antenna/antenna_factory.h"
+#include "core/assets.h"
 #include "core/world.h"
 #include "math/coord.h"
 #include "math/path.h"
@@ -102,6 +103,45 @@ namespace serial::xml_serializer_utils
 			cs.setAttribute("frame", "ECEF");
 			break;
 		}
+
+		if (p.propagation_model == params::PropagationModelKind::GoRayTracing)
+		{
+			const XmlElement prop_elem = parent.addChild("propagation");
+			const XmlElement rt_elem = prop_elem.addChild("raytracing");
+			const auto& rt = p.rt_model_params;
+			const params::RayTracingParameters defaults;
+
+			if (rt.scatter_limit != defaults.scatter_limit)
+			{
+				setAttributeFromNumber(rt_elem, "scatter_limit", rt.scatter_limit);
+			}
+			if (rt.boresight_width != defaults.boresight_width)
+			{
+				setAttributeFromNumber(rt_elem, "boresight_width",
+										rotation_angle_utils::radians_to_unit(rt.boresight_width, p.rotation_angle_unit));
+			}
+			if (rt.boresight_tube_solid_angle != defaults.boresight_tube_solid_angle)
+			{
+				setAttributeFromNumber(rt_elem, "boresight_tube_solid_angle", rt.boresight_tube_solid_angle);
+			}
+			if (rt.off_boresight_tube_solid_angle != defaults.off_boresight_tube_solid_angle)
+			{
+				setAttributeFromNumber(rt_elem, "off_boresight_tube_solid_angle", rt.off_boresight_tube_solid_angle);
+			}
+		}
+	}
+
+	void serializeMesh(const core::MeshAsset& mesh, const XmlElement& parent)
+	{
+		parent.setAttribute("name", mesh.name);
+		parent.setAttribute("filename", mesh.filename);
+	}
+
+	void serializeMaterial(const core::MaterialAsset& material, const XmlElement& parent)
+	{
+		parent.setAttribute("name", material.name);
+		addChildWithNumber(parent, "relative_permittivity", material.relative_permittivity);
+		addChildWithNumber(parent, "conductivity", material.conductivity);
 	}
 
 	void serializeWaveform(const fers_signal::RadarSignal& waveform, const XmlElement& parent)
@@ -512,6 +552,13 @@ namespace serial::xml_serializer_utils
 				model_elem.setAttribute("type", "chisquare");
 				addChildWithNumber(model_elem, "k", chi->getK());
 			}
+		}
+
+		if (const auto& geometry = target.getGeometry())
+		{
+			const XmlElement geometry_elem = target_elem.addChild("geometry");
+			geometry_elem.setAttribute("mesh", geometry->mesh->name);
+			geometry_elem.setAttribute("material", geometry->material->name);
 		}
 	}
 

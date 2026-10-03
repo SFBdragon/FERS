@@ -256,8 +256,8 @@ TEST_CASE("parseParameters extracts the raytracing propagation model and its sub
 	const auto p = parseParametersXml(
 		"<parameters>"
 		"  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
-		"  <propagation model=\"raytracing\" scatter_limit=\"5\" boresight_width=\"20\" "
-		"boresight_tube_solid_angle=\"1e-6\" off_boresight_tube_solid_angle=\"1e-3\"/>"
+		"  <propagation><raytracing scatter_limit=\"5\" boresight_width=\"20\" "
+		"boresight_tube_solid_angle=\"1e-6\" off_boresight_tube_solid_angle=\"1e-3\"/></propagation>"
 		"</parameters>");
 
 	REQUIRE(p.propagation_model == params::PropagationModelKind::GoRayTracing);
@@ -274,7 +274,7 @@ TEST_CASE("parseParameters keeps ray-tracing sub-parameter defaults when omitted
 	const params::Parameters defaults;
 	const auto p = parseParametersXml("<parameters>"
 									  "  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
-									  "  <propagation model=\"raytracing\"/>"
+									  "  <propagation><raytracing/></propagation>"
 									  "</parameters>");
 
 	REQUIRE(p.propagation_model == params::PropagationModelKind::GoRayTracing);
@@ -291,17 +291,38 @@ TEST_CASE("parseParameters rejects a boresight_width of a full turn or more", "[
 	ParamGuard const guard;
 	REQUIRE_THROWS_AS(parseInvalidParametersXml("<parameters>"
 												"  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
-												"  <propagation model=\"raytracing\" boresight_width=\"360\"/>"
+												"  <propagation><raytracing boresight_width=\"360\"/></propagation>"
 												"</parameters>"),
 					  std::exception);
 }
 
-TEST_CASE("parseParameters rejects an unknown propagation model", "[serial][xml_parser_utils]")
+TEST_CASE("parseParameters selects the pointscatter propagation model", "[serial][xml_parser_utils]")
+{
+	ParamGuard const guard;
+	const auto p = parseParametersXml("<parameters>"
+									  "  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
+									  "  <propagation><pointscatter/></propagation>"
+									  "</parameters>");
+
+	REQUIRE(p.propagation_model == params::PropagationModelKind::RcsPointScatter);
+}
+
+TEST_CASE("parseParameters rejects <propagation> with neither sub-element", "[serial][xml_parser_utils]")
 {
 	ParamGuard const guard;
 	REQUIRE_THROWS_AS(parseInvalidParametersXml("<parameters>"
 												"  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
-												"  <propagation model=\"quantum\"/>"
+												"  <propagation/>"
+												"</parameters>"),
+					  XmlException);
+}
+
+TEST_CASE("parseParameters rejects <propagation> with both sub-elements", "[serial][xml_parser_utils]")
+{
+	ParamGuard const guard;
+	REQUIRE_THROWS_AS(parseInvalidParametersXml("<parameters>"
+												"  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
+												"  <propagation><pointscatter/><raytracing/></propagation>"
 												"</parameters>"),
 					  XmlException);
 }

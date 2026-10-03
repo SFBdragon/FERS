@@ -32,6 +32,11 @@ namespace core
 		SimId id; ///< Unique ID for this mesh asset.
 		std::string name; ///< The name used by `<geometry mesh="...">` references.
 		std::filesystem::path path; ///< Fully resolved filesystem path to the mesh file.
+
+		/// The original `<mesh filename="...">` attribute, relative to the scenario's "meshes"
+		/// directory. Kept alongside the resolved `path` so the XML writer can round-trip it
+		/// without needing to know the scenario's base directory.
+		std::string filename;
 	};
 
 	/**

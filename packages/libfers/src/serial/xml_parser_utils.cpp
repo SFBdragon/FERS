@@ -641,28 +641,30 @@ namespace serial::xml_parser_utils
 			return;
 		}
 
-		const std::string model_str = XmlElement::getSafeAttribute(prop_element, "model");
-		if (model_str == "raytracing")
+		const XmlElement pointscatter_element = prop_element.childElement("pointscatter", 0);
+		const XmlElement raytracing_element = prop_element.childElement("raytracing", 0);
+		if (pointscatter_element.isValid() == raytracing_element.isValid())
 		{
-			params_out.propagation_model = params::PropagationModelKind::GoRayTracing;
+			throw XmlException("<propagation> must specify exactly one of <pointscatter> or <raytracing>.");
 		}
-		else if (model_str == "pointscatter")
+
+		if (!raytracing_element.isValid())
 		{
 			params_out.propagation_model = params::PropagationModelKind::RcsPointScatter;
+			LOG(logging::Level::INFO, "Propagation model set to: pointscatter");
+			return;
 		}
-		else
-		{
-			throw XmlException("Unsupported propagation model '" + model_str + "'.");
-		}
-		LOG(logging::Level::INFO, "Propagation model set to: {}", model_str);
+
+		params_out.propagation_model = params::PropagationModelKind::GoRayTracing;
+		LOG(logging::Level::INFO, "Propagation model set to: raytracing");
 
 		auto& rt = params_out.rt_model_params;
 
-		if (const auto scatter_limit = XmlElement::getOptionalAttribute(prop_element, "scatter_limit"))
+		if (const auto scatter_limit = XmlElement::getOptionalAttribute(raytracing_element, "scatter_limit"))
 		{
 			rt.scatter_limit = parseUnsignedParameter("scatter_limit", std::stod(*scatter_limit));
 		}
-		if (const auto boresight_width = XmlElement::getOptionalAttribute(prop_element, "boresight_width"))
+		if (const auto boresight_width = XmlElement::getOptionalAttribute(raytracing_element, "boresight_width"))
 		{
 			const RealType width = rotation_angle_utils::unit_to_radians(
 				parsePositiveRealParameter("boresight_width", std::stod(*boresight_width)), params_out.rotation_angle_unit);
@@ -673,32 +675,29 @@ namespace serial::xml_parser_utils
 			rt.boresight_width = width;
 		}
 		if (const auto boresight_tube_solid_angle =
-				XmlElement::getOptionalAttribute(prop_element, "boresight_tube_solid_angle"))
+				XmlElement::getOptionalAttribute(raytracing_element, "boresight_tube_solid_angle"))
 		{
 			rt.boresight_tube_solid_angle =
 				parsePositiveRealParameter("boresight_tube_solid_angle", std::stod(*boresight_tube_solid_angle));
 		}
 		if (const auto off_boresight_tube_solid_angle =
-				XmlElement::getOptionalAttribute(prop_element, "off_boresight_tube_solid_angle"))
+				XmlElement::getOptionalAttribute(raytracing_element, "off_boresight_tube_solid_angle"))
 		{
 			rt.off_boresight_tube_solid_angle = parsePositiveRealParameter(
 				"off_boresight_tube_solid_angle", std::stod(*off_boresight_tube_solid_angle));
 		}
 
-		if (params_out.propagation_model == params::PropagationModelKind::GoRayTracing)
-		{
-			LOG(logging::Level::INFO,
-				"Ray-tracing model: scatter_limit={}, boresight_width={:.4f} rad ({:.2f} deg), "
-				"boresight_tube_solid_angle={:.6g} sr, off_boresight_tube_solid_angle={:.6g} sr",
-				rt.scatter_limit, rt.boresight_width,
-				rotation_angle_utils::radians_to_unit(rt.boresight_width, params::RotationAngleUnit::Degrees),
-				rt.boresight_tube_solid_angle, rt.off_boresight_tube_solid_angle);
-			LOG(logging::Level::INFO,
-				"Ray-tracing derived sampling: boresight cone={:.6g} sr ({} rays), off-boresight={:.6g} sr ({} "
-				"rays), total rays per source={}",
-				rt.boresightSolidAngle(), rt.raysAtBoresightCap(), 4.0 * PI - rt.boresightSolidAngle(),
-				rt.offBoresightRays(), rt.raysPerSource());
-		}
+		LOG(logging::Level::INFO,
+			"Ray-tracing model: scatter_limit={}, boresight_width={:.4f} rad ({:.2f} deg), "
+			"boresight_tube_solid_angle={:.6g} sr, off_boresight_tube_solid_angle={:.6g} sr",
+			rt.scatter_limit, rt.boresight_width,
+			rotation_angle_utils::radians_to_unit(rt.boresight_width, params::RotationAngleUnit::Degrees),
+			rt.boresight_tube_solid_angle, rt.off_boresight_tube_solid_angle);
+		LOG(logging::Level::INFO,
+			"Ray-tracing derived sampling: boresight cone={:.6g} sr ({} rays), off-boresight={:.6g} sr ({} "
+			"rays), total rays per source={}",
+			rt.boresightSolidAngle(), rt.raysAtBoresightCap(), 4.0 * PI - rt.boresightSolidAngle(),
+			rt.offBoresightRays(), rt.raysPerSource());
 	}
 
 	void parseParameters(const XmlElement& parameters, params::Parameters& params_out)
@@ -1028,7 +1027,8 @@ namespace serial::xml_parser_utils
 		const std::string filename = XmlElement::getSafeAttribute(mesh, "filename");
 
 		LOG(logging::Level::DEBUG, "Adding mesh '{}' from 'meshes/{}'", name, filename);
-		ctx.world->add(core::MeshAsset{.id = id, .name = name, .path = ctx.base_dir / "meshes" / filename});
+		ctx.world->add(
+			core::MeshAsset{.id = id, .name = name, .path = ctx.base_dir / "meshes" / filename, .filename = filename});
 	}
 
 	void parseMaterial(const XmlElement& material, ParserContext& ctx)

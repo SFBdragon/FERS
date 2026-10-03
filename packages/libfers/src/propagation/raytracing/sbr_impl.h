@@ -34,12 +34,12 @@
 //
 // A number of bounding facts are considered in the approach used:
 // - GPU FLOPS differs greatly between single and double-precision on consumer cards. Typically 1:32 or 1:64.
-// - Double-precision is valuable for cases where a very big number and a very small number are added together,
-//      and the small number must retain a high degree of precision.
 // - OptiX and similar engines trace against 32-bit precision geometry (local mesh space).
-// - This geometry remains in local space (centered at its local origin), so this precision issue is minimal.
 // - FERS may be used for very long-distance radar, e.g. ground-to-space, i.e. 100s of kilometers between objects.
 // - This means that global spacial data and geometry must be in double-precision.
+// - Double-precision is valuable for cases where a very big number and a very small number are added together,
+//      and the small number must retain a high degree of precision.
+// - This geometry remains in local space (centered at its local origin), so this precision issue is minimal.
 // - However, normals often don't need to be in double-precision - they're unit-magnitude.
 // - Complex math operations (e.g. sqrt, trig) on GPUs have significant performance gains at 32-bit precision.
 // - Similarly, most physical material properties are only known to within single-precision.
@@ -280,6 +280,7 @@ namespace propagation::raytracing
 		{
 			// We're within the boresight regime.
 
+			// `params.boresight_rays == 0` is never true as the above check would fail
 			weight_out = 4 * PI_V<float> * params.boresight_fraction / float(params.boresight_rays);
 
 			const float spiral_fraction =
@@ -289,7 +290,7 @@ namespace propagation::raytracing
 
 		// We're outside the boresight regime.
 
-		// `off_boresight_rays = 0` never occurs as `path_idx < params.boresight_rays` would always be true.
+		// `off_boresight_rays == 0` never occurs as `path_idx < params.boresight_rays` would always be true.
 		const auto off_boresight_rays = float(params.rays_per_source - params.boresight_rays);
 		weight_out = 4 * PI_V<float> * (1 - params.boresight_fraction) / off_boresight_rays;
 

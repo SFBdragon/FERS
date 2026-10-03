@@ -45,17 +45,15 @@
                 zone       CDATA          #IMPLIED
                 hemisphere (N|S)          #IMPLIED
                 >
-        <!-- Selects the propagation model. `raytracing` sub-parameters are ignored when model="pointscatter".
-             Ray directions are sampled at two densities: `boresight_tube_solid_angle` within a cone of
-             `boresight_width` centered on each source antenna's boresight, and `off_boresight_tube_solid_angle`
-             over the rest of the sphere. -->
-        <!ELEMENT propagation EMPTY>
-        <!ATTLIST propagation
-                model                          (pointscatter|raytracing) #REQUIRED
-                scatter_limit                  CDATA                     #IMPLIED
-                boresight_width                CDATA                     #IMPLIED
-                boresight_tube_solid_angle     CDATA                     #IMPLIED
-                off_boresight_tube_solid_angle CDATA                     #IMPLIED
+        <!-- Selects the propagation model and sets model-specific parameters. -->
+        <!ELEMENT propagation (pointscatter|raytracing)>
+        <!ELEMENT pointscatter EMPTY>
+        <!ELEMENT raytracing EMPTY>
+        <!ATTLIST raytracing
+                scatter_limit                  CDATA #IMPLIED
+                boresight_width                CDATA #IMPLIED
+                boresight_tube_solid_angle     CDATA #IMPLIED
+                off_boresight_tube_solid_angle CDATA #IMPLIED
                 >
 
         <!-- Waveform definition -->
@@ -153,19 +151,13 @@
                 name CDATA #REQUIRED
                 filename CDATA #REQUIRED>
 
-        <!-- Material Asset: a reusable surface material for ray-tracing propagation, giving its
-             reflectivity as a complex per-polarization gamma_tm/gamma_te pair for the PO/GO model. -->
-        <!ELEMENT material (gamma_tm,gamma_te)>
+        <!-- Material Asset: a reusable surface material for ray-tracing propagation. Conductivity
+             may be "inf" to specify a perfect electric conductor. -->
+        <!ELEMENT material (relative_permittivity,conductivity)>
         <!ATTLIST material
                 name CDATA #REQUIRED>
-        <!ELEMENT gamma_tm EMPTY>
-        <!ATTLIST gamma_tm
-                re CDATA #REQUIRED
-                im CDATA "0">
-        <!ELEMENT gamma_te EMPTY>
-        <!ATTLIST gamma_te
-                re CDATA #REQUIRED
-                im CDATA "0">
+        <!ELEMENT relative_permittivity (#PCDATA)>
+        <!ELEMENT conductivity (#PCDATA)>
 
         <!-- Platform -->
         <!ELEMENT platform (motionpath,(rotationpath|fixedrotation),(monostatic|transmitter|receiver|target)*)>

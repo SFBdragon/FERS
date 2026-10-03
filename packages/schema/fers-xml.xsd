@@ -95,24 +95,22 @@
         </xs:complexType>
     </xs:element>
 
-    <!-- Selects the propagation model. The raytracing sub-parameters are ignored when model="pointscatter".
-         Ray directions are sampled at two densities: `boresight_tube_solid_angle` within a cone of
-         `boresight_width` centered on each source antenna's boresight, and `off_boresight_tube_solid_angle`
-         over the rest of the sphere.  -->
+    <!-- Selects the propagation model and sets model-specific parameters. -->
     <xs:element name="propagation">
         <xs:complexType>
-            <xs:attribute name="model" use="required">
-                <xs:simpleType>
-                    <xs:restriction base="xs:token">
-                        <xs:enumeration value="pointscatter"/>
-                        <xs:enumeration value="raytracing"/>
-                    </xs:restriction>
-                </xs:simpleType>
-            </xs:attribute>
-            <xs:attribute name="scatter_limit" type="xs:unsignedInt"/>
-            <xs:attribute name="boresight_width" type="xs:double"/>
-            <xs:attribute name="boresight_tube_solid_angle" type="xs:double"/>
-            <xs:attribute name="off_boresight_tube_solid_angle" type="xs:double"/>
+            <xs:choice>
+                <xs:element name="pointscatter">
+                    <xs:complexType/>
+                </xs:element>
+                <xs:element name="raytracing">
+                    <xs:complexType>
+                        <xs:attribute name="scatter_limit" type="xs:unsignedInt"/>
+                        <xs:attribute name="boresight_width" type="xs:double"/>
+                        <xs:attribute name="boresight_tube_solid_angle" type="xs:double"/>
+                        <xs:attribute name="off_boresight_tube_solid_angle" type="xs:double"/>
+                    </xs:complexType>
+                </xs:element>
+            </xs:choice>
         </xs:complexType>
     </xs:element>
 
@@ -267,28 +265,17 @@
     </xs:element>
 
     <!-- Material Asset -->
-    <!-- A reusable surface material for ray-tracing propagation, giving its reflectivity as a
-         complex per-polarization <gamma_tm>/<gamma_te> pair for the PO/GO model. -->
+    <!-- A reusable surface material for ray-tracing propagation. The PO/GO model derives its
+         per-polarization reflection coefficients from these at each hit, as a function of
+         incidence angle and carrier frequency. `conductivity` may be "inf" to specify a perfect
+         electric conductor. -->
     <xs:element name="material">
         <xs:complexType>
             <xs:sequence>
-                <xs:element ref="gamma_tm"/>
-                <xs:element ref="gamma_te"/>
+                <xs:element name="relative_permittivity" type="xs:string"/>
+                <xs:element name="conductivity" type="xs:string"/>
             </xs:sequence>
             <xs:attribute name="name" use="required"/>
-        </xs:complexType>
-    </xs:element>
-
-    <xs:element name="gamma_tm">
-        <xs:complexType>
-            <xs:attribute name="re" type="xs:double" use="required"/>
-            <xs:attribute name="im" type="xs:double" default="0"/>
-        </xs:complexType>
-    </xs:element>
-    <xs:element name="gamma_te">
-        <xs:complexType>
-            <xs:attribute name="re" type="xs:double" use="required"/>
-            <xs:attribute name="im" type="xs:double" default="0"/>
         </xs:complexType>
     </xs:element>
 

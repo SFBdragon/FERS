@@ -4,12 +4,14 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <random>
 #include <string>
 #include <vector>
 
 #include "antenna/antenna_factory.h"
+#include "core/assets.h"
 #include "core/parameters.h"
 #include "core/world.h"
 #include "math/path.h"
@@ -134,6 +136,88 @@ TEST_CASE("serializeParameters creates correct tags across frames", "[serial][xm
 		REQUIRE_THAT(s, !ContainsSubstring("<adc_bits>"));
 		REQUIRE_THAT(s, !ContainsSubstring("<oversample>"));
 		REQUIRE_THAT(s, !ContainsSubstring("<rotationangleunit>"));
+		REQUIRE_THAT(s, !ContainsSubstring("<propagation>"));
+	}
+}
+
+TEST_CASE("serializeParameters writes raytracing propagation as a nested element", "[serial][xml_serializer]")
+{
+	XmlDocument const doc;
+	XmlElement const root = XmlElement::create("root");
+	doc.setRootElement(root);
+
+	params::Parameters p;
+	p.start = 0.0;
+	p.end = 1.0;
+	p.rate = 1000.0;
+
+	SECTION("pointscatter model emits no <propagation> element")
+	{
+		p.propagation_model = params::PropagationModelKind::RcsPointScatter;
+		serial::xml_serializer_utils::serializeParameters(root, p);
+		std::string s = dumpElement(root);
+		REQUIRE_THAT(s, !ContainsSubstring("<propagation>"));
+	}
+
+	SECTION("raytracing model writes a nested <raytracing> with non-default attributes")
+	{
+		p.propagation_model = params::PropagationModelKind::GoRayTracing;
+		p.rt_model_params.scatter_limit = 7;
+		p.rt_model_params.boresight_width = 20.0 * PI / 180.0;
+		p.rt_model_params.boresight_tube_solid_angle = 1e-6;
+		p.rt_model_params.off_boresight_tube_solid_angle = 1e-3;
+
+		serial::xml_serializer_utils::serializeParameters(root, p);
+		std::string s = dumpElement(root);
+		REQUIRE_THAT(s, ContainsSubstring("<propagation><raytracing"));
+		REQUIRE_THAT(s, ContainsSubstring("scatter_limit=\"7\""));
+		REQUIRE_THAT(s, ContainsSubstring("boresight_width=\"20\""));
+		REQUIRE_THAT(s, ContainsSubstring("boresight_tube_solid_angle=\"1e-06\""));
+		REQUIRE_THAT(s, ContainsSubstring("off_boresight_tube_solid_angle=\"0.001\""));
+	}
+
+	SECTION("raytracing model with all-default sub-parameters omits the attributes")
+	{
+		p.propagation_model = params::PropagationModelKind::GoRayTracing;
+		serial::xml_serializer_utils::serializeParameters(root, p);
+		std::string s = dumpElement(root);
+		REQUIRE_THAT(s, ContainsSubstring("<raytracing/>"));
+	}
+}
+
+TEST_CASE("serializeMesh and serializeMaterial write asset attributes/children", "[serial][xml_serializer]")
+{
+	XmlDocument const doc;
+	XmlElement const root = XmlElement::create("root");
+	doc.setRootElement(root);
+
+	SECTION("Mesh")
+	{
+		const core::MeshAsset mesh{.id = 1, .name = "Cube", .path = "/scenario/meshes/cube.obj", .filename = "cube.obj"};
+		serial::xml_serializer_utils::serializeMesh(mesh, root);
+		std::string s = dumpElement(root);
+		REQUIRE_THAT(s, ContainsSubstring("name=\"Cube\""));
+		REQUIRE_THAT(s, ContainsSubstring("filename=\"cube.obj\""));
+	}
+
+	SECTION("Material")
+	{
+		const core::MaterialAsset material{
+			.id = 2, .name = "Aluminium", .relative_permittivity = 0.9F, .conductivity = 0.1F};
+		serial::xml_serializer_utils::serializeMaterial(material, root);
+		std::string s = dumpElement(root);
+		REQUIRE_THAT(s, ContainsSubstring("name=\"Aluminium\""));
+		REQUIRE_THAT(s, ContainsSubstring("<relative_permittivity>0.9</relative_permittivity>"));
+		REQUIRE_THAT(s, ContainsSubstring("<conductivity>0.1</conductivity>"));
+	}
+
+	SECTION("Material with infinite conductivity (PEC) is written as \"inf\"")
+	{
+		const core::MaterialAsset pec{
+			.id = 3, .name = "PEC", .relative_permittivity = 1.0F, .conductivity = std::numeric_limits<float>::infinity()};
+		serial::xml_serializer_utils::serializeMaterial(pec, root);
+		std::string s = dumpElement(root);
+		REQUIRE_THAT(s, ContainsSubstring("<conductivity>inf</conductivity>"));
 	}
 }
 
@@ -551,6 +635,27 @@ TEST_CASE("serializeTarget models", "[serial][xml_serializer]")
 		serial::xml_serializer_utils::serializeTarget(*t, root);
 		std::string s = dumpElement(root);
 		REQUIRE_THAT(s, ContainsSubstring("<model type=\"chisquare\"><k>2</k></model>"));
+	}
+
+	SECTION("Geometry is written when present")
+	{
+		const core::MeshAsset mesh{.id = 10, .name = "Cube", .path = "/scenario/meshes/cube.obj", .filename = "cube.obj"};
+		const core::MaterialAsset material{
+			.id = 20, .name = "Aluminium", .relative_permittivity = 1.0F, .conductivity = 0.0F};
+
+		auto t = radar::createIsoTarget(&plat, "tgt3", 10.0, 42);
+		t->setGeometry(&mesh, &material);
+		serial::xml_serializer_utils::serializeTarget(*t, root);
+		std::string s = dumpElement(root);
+		REQUIRE_THAT(s, ContainsSubstring("<geometry mesh=\"Cube\" material=\"Aluminium\"/>"));
+	}
+
+	SECTION("Geometry is omitted when absent")
+	{
+		auto t = radar::createIsoTarget(&plat, "tgt4", 10.0, 42);
+		serial::xml_serializer_utils::serializeTarget(*t, root);
+		std::string s = dumpElement(root);
+		REQUIRE_THAT(s, !ContainsSubstring("<geometry"));
 	}
 
 	// TODO: Missing Coverage for `FileTarget` due to inability to mock generic external valid file loads cleanly

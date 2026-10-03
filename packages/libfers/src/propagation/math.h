@@ -37,88 +37,88 @@ namespace propagation
 	/// Speed of light in a vacuum. Meters per second.
 	/// https://physics.nist.gov/cgi-bin/cuu/Value?c
 	/// Accessed 2026-09-15
-	template <typename T>
-	constexpr T C = T(299792458);
+	template <typename Real>
+	constexpr Real C = Real(299792458);
 
 	// Don't use HLSL/CUDA/HIP naming convention to mitigate naming clashes and confusion.
 	// They use double3/float2/uint4 etc.
 	// We'll use PascalCase versions to distinguish our own types, inline with FERS naming convention.
 
-	template <typename T>
+	template <typename Real>
 	struct Vec2
 	{
-		T x, y;
+		Real x, y;
 		HC_FN constexpr Vec2() : x(), y() {}
-		HC_FN constexpr Vec2(T x_, T y_) : x(x_), y(y_) {}
+		HC_FN constexpr Vec2(Real x_, Real y_) : x(x_), y(y_) {}
 	};
 
-	template <typename T>
+	template <typename Real>
 	struct Vec3
 	{
-		T x, y, z;
+		Real x, y, z;
 		HC_FN constexpr Vec3() : x(), y(), z() {}
-		HC_FN constexpr Vec3(T x_, T y_, T z_) : x(x_), y(y_), z(z_) {}
+		HC_FN constexpr Vec3(Real x_, Real y_, Real z_) : x(x_), y(y_), z(z_) {}
 
 		/// Elementwise converting constructor, e.g. for narrowing a `Double3` to a `Float3`.
 		template <typename U>
 		HC_FN constexpr explicit Vec3(const Vec3<U>& v) :
-			x(static_cast<T>(v.x)), y(static_cast<T>(v.y)), z(static_cast<T>(v.z))
+			x(static_cast<Real>(v.x)), y(static_cast<Real>(v.y)), z(static_cast<Real>(v.z))
 		{
 		}
 	};
 
-	template <typename T>
-	HC_FN constexpr Vec3<T> operator+(const Vec3<T>& a, const Vec3<T>& b)
+	template <typename Real>
+	HC_FN constexpr Vec3<Real> operator+(const Vec3<Real>& a, const Vec3<Real>& b)
 	{
-		return Vec3<T>{a.x + b.x, a.y + b.y, a.z + b.z};
+		return Vec3<Real>{a.x + b.x, a.y + b.y, a.z + b.z};
 	}
-	template <typename T>
-	HC_FN constexpr Vec3<T> operator-(const Vec3<T>& a, const Vec3<T>& b)
+	template <typename Real>
+	HC_FN constexpr Vec3<Real> operator-(const Vec3<Real>& a, const Vec3<Real>& b)
 	{
-		return Vec3<T>{a.x - b.x, a.y - b.y, a.z - b.z};
+		return Vec3<Real>{a.x - b.x, a.y - b.y, a.z - b.z};
 	}
-	template <typename T>
-	HC_FN constexpr Vec3<T> operator-(const Vec3<T>& a)
+	template <typename Real>
+	HC_FN constexpr Vec3<Real> operator-(const Vec3<Real>& a)
 	{
-		return Vec3<T>{-a.x, -a.y, -a.z};
+		return Vec3<Real>{-a.x, -a.y, -a.z};
 	}
-	template <typename T>
-	HC_FN constexpr Vec3<T> operator*(const Vec3<T>& a, T s)
+	template <typename Real>
+	HC_FN constexpr Vec3<Real> operator*(const Vec3<Real>& a, Real s)
 	{
-		return Vec3<T>{a.x * s, a.y * s, a.z * s};
+		return Vec3<Real>{a.x * s, a.y * s, a.z * s};
 	}
-	template <typename T>
-	HC_FN constexpr Vec3<T> operator*(T s, const Vec3<T>& a)
+	template <typename Real>
+	HC_FN constexpr Vec3<Real> operator*(Real s, const Vec3<Real>& a)
 	{
 		return a * s;
 	}
-	template <typename T>
-	HC_FN constexpr Vec3<T> operator/(const Vec3<T>& a, T s)
+	template <typename Real>
+	HC_FN constexpr Vec3<Real> operator/(const Vec3<Real>& a, Real s)
 	{
-		return Vec3<T>{a.x / s, a.y / s, a.z / s};
+		return Vec3<Real>{a.x / s, a.y / s, a.z / s};
 	}
-	template <typename T>
-	HC_FN constexpr T dot(const Vec3<T>& a, const Vec3<T>& b)
+	template <typename Real>
+	HC_FN constexpr Real dot(const Vec3<Real>& a, const Vec3<Real>& b)
 	{
 		return a.x * b.x + a.y * b.y + a.z * b.z;
 	}
-	template <typename T>
-	HC_FN constexpr Vec3<T> cross(const Vec3<T>& a, const Vec3<T>& b)
+	template <typename Real>
+	HC_FN constexpr Vec3<Real> cross(const Vec3<Real>& a, const Vec3<Real>& b)
 	{
-		return Vec3<T>{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+		return Vec3<Real>{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
 	}
-	template <typename T>
-	HC_FN constexpr T length2(const Vec3<T>& a)
+	template <typename Real>
+	HC_FN constexpr Real length2(const Vec3<Real>& a)
 	{
 		return dot(a, a);
 	}
-	template <typename T>
-	HC_FN T length(const Vec3<T>& a)
+	template <typename Real>
+	HC_FN Real length(const Vec3<Real>& a)
 	{
 		return std::sqrt(length2(a));
 	}
-	template <typename T>
-	HC_FN Vec3<T> normalize(const Vec3<T>& a)
+	template <typename Real>
+	HC_FN Vec3<Real> normalize(const Vec3<Real>& a)
 	{
 		return a / length(a);
 	}
@@ -134,10 +134,10 @@ namespace propagation
 	using Double3 = Real3<double>;
 
 	/// A 2x2 matrix, stored as two column vectors.
-	template <typename T>
+	template <typename Real>
 	struct Mat2x2
 	{
-		Vec2<T> x, y;
+		Vec2<Real> x, y;
 	};
 
 	template <typename Real>
@@ -146,10 +146,10 @@ namespace propagation
 	/// A 3x4 matrix, stored as four column vectors.
 	///
 	/// Used for affine (rotation + translation) local<->world transforms. See `amul`/`amuld`.
-	template <typename T>
+	template <typename Real>
 	struct Mat3x4
 	{
-		Vec3<T> x, y, z, w;
+		Vec3<Real> x, y, z, w;
 	};
 
 	using Float3x4 = Mat3x4<float>;
