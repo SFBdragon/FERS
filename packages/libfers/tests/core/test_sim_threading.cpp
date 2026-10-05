@@ -356,7 +356,7 @@ namespace
 		rx->setWindowProperties(0.001, 1000.0, 0.0);
 
 		// Setup Target (RCS = 1.0 m^2)
-		auto target = std::make_unique<radar::IsoTarget>(tgt_plat.get(), "Tgt", 1.0, 42, 6);
+		auto target = radar::createIsoTarget(tgt_plat.get(), "Tgt", 1.0, 42, 6);
 
 		world->add(std::move(tx_plat));
 		world->add(std::move(rx_plat));

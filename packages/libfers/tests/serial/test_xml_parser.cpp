@@ -226,6 +226,9 @@ TEST_CASE("fersxml round-trips mesh, material (including PEC), geometry, and ray
 		      <rcs type="isotropic"><value>1</value></rcs>
 		      <geometry mesh="Cube" material="PEC"/>
 		    </target>
+		    <target name="tgt2">
+		      <geometry mesh="Cube" material="PEC"/>
+		    </target>
 		  </platform>
 		</simulation>)";
 
@@ -254,11 +257,28 @@ TEST_CASE("fersxml round-trips mesh, material (including PEC), geometry, and ray
 	REQUIRE(material2.name == "PEC");
 	REQUIRE(std::isinf(material2.conductivity));
 
-	REQUIRE(world2.getTargets().size() == 1);
-	const auto& geometry2 = world2.getTargets().front()->getGeometry();
+	REQUIRE(world2.getTargets().size() == 2);
+	const radar::Target* tgt1 = nullptr;
+	const radar::Target* tgt2 = nullptr;
+	for (const auto& tgt : world2.getTargets())
+	{
+		(tgt->getName() == "tgt1" ? tgt1 : tgt2) = tgt.get();
+	}
+	REQUIRE(tgt1 != nullptr);
+	REQUIRE(tgt2 != nullptr);
+
+	const auto& geometry1 = tgt1->getGeometry();
+	REQUIRE(geometry1.has_value());
+	REQUIRE(geometry1->mesh->name == "Cube");
+	REQUIRE(geometry1->material->name == "PEC");
+	REQUIRE(tgt1->getRcsSpec() != nullptr);
+
+	// tgt2 has geometry but no <rcs>: round-trips with no RCS spec, still fully resolving its geometry.
+	const auto& geometry2 = tgt2->getGeometry();
 	REQUIRE(geometry2.has_value());
 	REQUIRE(geometry2->mesh->name == "Cube");
 	REQUIRE(geometry2->material->name == "PEC");
+	REQUIRE(tgt2->getRcsSpec() == nullptr);
 }
 
 TEST_CASE("parseSimulation throws on missing file", "[serial][xml_parser]")

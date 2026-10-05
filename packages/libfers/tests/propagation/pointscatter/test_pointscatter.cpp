@@ -516,6 +516,51 @@ TEST_CASE("bistatic path handler computes correct bistatic power for isotropic a
 	REQUIRE_THAT(-path->delay * 2.0 * PI * carrier, WithinRel(expected_phase, 1e-9));
 }
 
+TEST_CASE("targets with no RCS contribute no bistatic path", "[propagation][pointscatter][reflected]")
+{
+	ParamGuard const guard;
+	params::params.reset();
+
+	const RealType carrier = 1.0e9;
+
+	const math::Vec3 tx_pos{0.0, 0.0, 0.0};
+	const math::Vec3 tgt_pos{500.0, 0.0, 0.0};
+	const math::Vec3 rx_pos{500.0, 500.0, 0.0};
+
+	radar::Platform tx_plat("tx_plat");
+	setupPlatform(tx_plat, tx_pos);
+
+	radar::Platform tgt_plat("tgt_plat");
+	setupPlatform(tgt_plat, tgt_pos);
+
+	radar::Platform rx_plat("rx_plat");
+	setupPlatform(rx_plat, rx_pos);
+
+	antenna::Isotropic iso_ant("iso");
+	auto timing = std::make_shared<timing::Timing>("clk", 42);
+
+	radar::Transmitter tx(&tx_plat, "tx", radar::OperationMode::PULSED_MODE);
+	tx.setAntenna(&iso_ant);
+	tx.setTiming(timing);
+
+	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwWaveform{});
+	tx.setSignal(&wave);
+
+	radar::Receiver rx(&rx_plat, "rx", 42, radar::OperationMode::PULSED_MODE);
+	rx.setAntenna(&iso_ant);
+	rx.setTiming(timing);
+	rx.setFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT); // isolate the bistatic (reflected) contribution
+
+	core::World world;
+	world.add(std::make_unique<radar::Target>(&tgt_plat, "tgt")); // geometry-only, no RCS attached
+	const propagation::pointscatter::PointScatterModel prop(&world);
+	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
+	const auto paths = prop.findRxFromTxPaths(nullptr, &rx, {source}, 0.0);
+
+	REQUIRE(findBistaticPath(paths, tx, *world.getTargets().front(), rx) == nullptr);
+	REQUIRE(paths.empty());
+}
+
 TEST_CASE("bistatic path power scales linearly with RCS", "[propagation][pointscatter][reflected]")
 {
 	ParamGuard const guard;

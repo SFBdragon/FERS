@@ -121,7 +121,7 @@ namespace propagation::raytracing
 		virtual ~RayTracingEngine() = default;
 
 		/// Create a worker thread's mutable state object.
-		[[nodiscard]] virtual std::unique_ptr<ThreadContext> makeThreadContext() = 0;
+		[[nodiscard]] virtual std::unique_ptr<ThreadContext> makeThreadContext(core::World* world) = 0;
 
 		/// Execute the ray tracing batch job.
 		[[nodiscard]] virtual std::vector<Contribution> trace(ThreadContext*, TraceJob&) = 0;

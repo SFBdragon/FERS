@@ -521,8 +521,8 @@
     <xs:element name="target">
         <xs:complexType>
             <xs:sequence>
-                <xs:element ref="rcs"/>
-                <xs:element ref="model" minOccurs="0"/> <!-- model is optional -->
+                <xs:element ref="rcs" minOccurs="0"/> <!-- rcs is optional -->
+                <xs:element ref="model" minOccurs="0"/> <!-- model is optional; requires rcs -->
                 <xs:element ref="geometry" minOccurs="0"/> <!-- geometry is optional -->
             </xs:sequence>
             <xs:attribute name="name" use="required"/>

@@ -14,7 +14,6 @@
 #include <optix_host.h>
 #include <optix_types.h>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "core/config.h"
@@ -23,6 +22,7 @@
 #include "propagation/raytracing/optix/utils.h"
 #include "propagation/raytracing/raytracing_model.h"
 #include "propagation/raytracing/sbr_shared.h"
+#include "radar/target.h"
 
 namespace propagation::raytracing::optix
 {
@@ -122,9 +122,10 @@ namespace propagation::raytracing::optix
 		/// OptiX launch parameters.
 		DeviceBuffer<ShaderParams> params;
 
-		/// Re-usable input/output buffers.
+		std::vector<OptixInstance> instances;
+		std::vector<const radar::Target*> instance_targets;
+
 		DeviceBuffer<OptixTraversableHandle> iass;
-		DeviceBuffer<Contribution> contribs; // + atomic counter?
 
 		/// Instance Acceleration Structure (IAS) build/refit state, scoped per-thread so that
 		/// concurrent worker threads each build/refit their own IAS without synchronization.
@@ -136,8 +137,9 @@ namespace propagation::raytracing::optix
 		OptixAccelBufferSizes ias_sizes{}; // cached from the first (full) build
 		std::vector<uint32_t> ias_topology; // last-used sequence of mesh indices, for change detection
 
+
 		OptixThreadContext() :
-			stream(), params(stream.get()), iass(stream.get()), contribs(stream.get()), ias_instances(stream.get()),
+			stream(), params(stream.get()), iass(stream.get()), ias_instances(stream.get()),
 			ias_build_temp(stream.get()), ias_output(stream.get())
 		{
 		}
@@ -155,7 +157,7 @@ namespace propagation::raytracing::optix
 
 		~OptixEngine() override = default;
 
-		std::unique_ptr<ThreadContext> makeThreadContext() override;
+		std::unique_ptr<ThreadContext> makeThreadContext(core::World* world) override;
 
 		std::vector<Contribution> trace(ThreadContext* thread_context, TraceJob& job) override;
 
@@ -163,7 +165,7 @@ namespace propagation::raytracing::optix
 		void createDevicePrograms();
 		void processAssets(SceneData scene);
 		void createSbt();
-		OptixTraversableHandle buildOrRefitIAS(OptixThreadContext& ctx, core::World* world, RealType t);
+		OptixTraversableHandle buildOrRefitIAS(OptixThreadContext& ctx, RealType t);
 
 		/// The engine's CUDA context handle.
 		CudaContext _cuda_ctx;

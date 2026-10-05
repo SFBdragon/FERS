@@ -113,8 +113,15 @@ namespace propagation::raytracing::optix
 	}
 	OptixContext::OptixContext(CUcontext context) : _context(nullptr)
 	{
-		OPTIX_CHECK(optixDeviceContextCreate(context, nullptr, &_context));
-		OPTIX_CHECK(optixDeviceContextSetLogCallback(_context, contextLogCallback, nullptr, 4));
+		OptixDeviceContextOptions opts;
+		opts.logCallbackLevel = 4;
+		opts.logCallbackFunction = contextLogCallback;
+		opts.logCallbackData = nullptr;
+
+		// TODO_SHAUN turn this off once everything is working and I do perf tests.
+		opts.validationMode = OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL;
+
+		OPTIX_CHECK(optixDeviceContextCreate(context, &opts, &_context));
 	}
 
 	// By initialising the CUDA and OptiX RAII wrappers first, they get automatically
@@ -143,6 +150,7 @@ namespace propagation::raytracing::optix
 		_pipeline_comp_options.usesMotionBlur = 0;
 		_pipeline_comp_options.numPayloadValues = 2;
 		_pipeline_comp_options.numAttributeValues = 2;
+		// The device context validation mode should be used for debugging.
 		_pipeline_comp_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
 		_pipeline_comp_options.pipelineLaunchParamsVariableName = "shader_params";
 
@@ -356,7 +364,7 @@ namespace propagation::raytracing::optix
 		CUDA_CHECK(cudaStreamSynchronize(_stream.get()));
 	}
 
-	std::unique_ptr<ThreadContext> OptixEngine::makeThreadContext()
+	std::unique_ptr<ThreadContext> OptixEngine::makeThreadContext(core::World* world)
 	{
 		// Set the CUDA context for this thread.
 		//
@@ -386,6 +394,7 @@ namespace propagation::raytracing::optix
 										&log[0], &log_size, &ctx->pipeline));
 		OPTIX_LOG(log, log_size);
 
+		// TODO_SHAUN review these
 		OPTIX_CHECK(optixPipelineSetStackSize(/* [in] The pipeline to configure the stack size for */
 											  ctx->pipeline,
 											  /* [in] The direct stack size requirement for direct
@@ -397,8 +406,35 @@ namespace propagation::raytracing::optix
 											  /* [in] The continuation stack requirement. */
 											  2 * 1024,
 											  /* [in] The maximum depth of a traversable graph passed to trace. */
-											  MAX_RAY_DEPTH));
+											  2)); // 1x IAS + 1x GAS
 		OPTIX_LOG(log, log_size);
+
+		// ------------------------------ Set up the instance list ------------------------------- //
+
+		// The instance list is static, so we can construct most of it upfront once per thread.
+		// Per trace, the transforms `inst.transform` will need to be updated and the IAS refit/rebuilt.
+		for (const auto& target : world->getTargets())
+		{
+			const auto& geom = target->getGeometry();
+			if (!geom.has_value())
+				continue;
+
+			const auto mesh_idx = _mesh_indices.at(geom->mesh->id);
+			const auto mat_idx = _material_indices.at(geom->material->id);
+
+			OptixInstance inst{};
+			// instanceId currently corresponds to the material index of the object.
+			// Once there's more per-instance data to track, this should be converted to an index
+			// into an instance data buffer (containing the material).
+			inst.instanceId = mat_idx;
+			inst.sbtOffset = mesh_idx * RAY_TYPE_COUNT;
+			inst.visibilityMask = 0xFF;
+			inst.flags = OPTIX_INSTANCE_FLAG_NONE;
+			inst.traversableHandle = _gas_handles[mesh_idx];
+
+			ctx->instances.push_back(inst);
+			ctx->instance_targets.push_back(target.get());
+		}
 
 		return ctx;
 	}
@@ -445,55 +481,33 @@ namespace propagation::raytracing::optix
 		transform[11] = static_cast<float>(pos.z);
 	}
 
-	OptixTraversableHandle OptixEngine::buildOrRefitIAS(OptixThreadContext& ctx, core::World* world, RealType t)
+	OptixTraversableHandle OptixEngine::buildOrRefitIAS(OptixThreadContext& ctx, RealType t)
 	{
-		// Host-side, every call: cheap (no device work), so topology changes are caught rather
-		// than assumed away.
-		std::vector<OptixInstance> instances;
-		std::vector<uint32_t> topology;
-
-		for (const auto& target : world->getTargets())
+		for (size_t i = 0; i < ctx.instance_targets.size(); i++)
 		{
-			const auto& geom = target->getGeometry();
-			if (!geom.has_value())
-				continue;
-
-			const auto mesh_idx = _mesh_indices.at(geom->mesh->id);
-			const auto mat_idx = _material_indices.at(geom->material->id);
-
-			OptixInstance inst{};
-			// instanceId currently corresponds to the material index of the object.
-			// Once there's more per-instance data to track, this should be converted to an index
-			// into an instance data buffer (containing the material).
-			inst.instanceId = mat_idx;
-			inst.sbtOffset = mesh_idx * RAY_TYPE_COUNT;
-			inst.visibilityMask = 0xFF;
-			inst.flags = OPTIX_INSTANCE_FLAG_NONE;
-			inst.traversableHandle = _gas_handles[mesh_idx];
-			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay): OptiX C API uses arrays.
-			computeInstanceTransform(target.get(), t, inst.transform);
-
-			instances.push_back(inst);
-			topology.push_back(mesh_idx);
+			const auto* target = ctx.instance_targets[i];
+			auto& instance = ctx.instances[i];
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay): C-like OptiX API uses arrays
+			computeInstanceTransform(target, t, instance.transform);
 		}
-
-		const bool topology_changed = topology != ctx.ias_topology;
+		ctx.ias_instances.upload(ctx.instances);
 
 		OptixBuildInput ias_input{};
 		ias_input.type = OPTIX_BUILD_INPUT_TYPE_INSTANCES;
+		ias_input.instanceArray.instances = ctx.ias_instances.ptr();
+		ias_input.instanceArray.numInstances = static_cast<unsigned int>(ctx.ias_instances.size());
 
 		OptixAccelBuildOptions opts{};
-		// No compaction: unlike the static per-mesh GASes, this is rebuilt/refit every call, so
+		// Unlike the static per-mesh GASes, this is rebuilt/refit every call, so
 		// compaction overhead isn't worth it.
 		opts.buildFlags = OPTIX_BUILD_FLAG_ALLOW_UPDATE;
 
-		if (topology_changed)
+		// As opposed to updating/refitting.
+		// This should probably become more advanced per the TODO below.
+		const bool must_build_ias = ctx.ias_output.capacity() == 0;
+
+		if (must_build_ias)
 		{
-			ctx.ias_instances.upload(instances);
-
-			ias_input.instanceArray.instances = ctx.ias_instances.ptr();
-			ias_input.instanceArray.numInstances = static_cast<unsigned int>(instances.size());
-
 			opts.operation = OPTIX_BUILD_OPERATION_BUILD;
 
 			OPTIX_CHECK(optixAccelComputeMemoryUsage(_optix_ctx.get(), &opts, &ias_input, 1, &ctx.ias_sizes));
@@ -504,16 +518,9 @@ namespace propagation::raytracing::optix
 			OPTIX_CHECK(optixAccelBuild(_optix_ctx.get(), ctx.stream.get(), &opts, &ias_input, 1,
 										ctx.ias_build_temp.ptr(), ctx.ias_sizes.tempSizeInBytes, ctx.ias_output.ptr(),
 										ctx.ias_sizes.outputSizeInBytes, &ctx.ias_handle, nullptr, 0));
-
-			ctx.ias_topology = std::move(topology);
 		}
 		else
 		{
-			ctx.ias_instances.upload(instances);
-
-			ias_input.instanceArray.instances = ctx.ias_instances.ptr();
-			ias_input.instanceArray.numInstances = static_cast<unsigned int>(instances.size());
-
 			opts.operation = OPTIX_BUILD_OPERATION_UPDATE;
 
 			// TODO_SHAUN a large time jump between refits leaves the IAS's tree structure fit to
@@ -553,7 +560,7 @@ namespace propagation::raytracing::optix
 		std::vector<OptixTraversableHandle> iass;
 		iass.reserve(job.times.size());
 		for (auto t : job.times)
-			iass.push_back(buildOrRefitIAS(*ctx, job.world, t));
+			iass.push_back(buildOrRefitIAS(*ctx, t));
 		ctx->iass.upload(iass);
 
 		// Reserve lots of space for return contributions.
@@ -568,12 +575,13 @@ namespace propagation::raytracing::optix
 		// These `E[facet->dest is unshadowed] * E[steps before hitting nothing]` are estimated to be bound by
 		// `MAX_GO_STEPS/depreciation_factor`.
 		const size_t depreciation_factor = 64;
-		ctx->contribs.reserve(source_antennas.size() * dest_antennas.size() * rays_per_source * MAX_RAY_DEPTH /
+		DeviceBuffer<Contribution> contributions(_stream.get());
+		contributions.reserve(source_antennas.size() * dest_antennas.size() * rays_per_source * MAX_RAY_DEPTH /
 							  depreciation_factor);
 
 		ShaderParams params{.iass = ctx->iass.ptr_t(),
 							.contribution_count = 0,
-							.contribution_capacity = static_cast<uint32_t>(ctx->contribs.capacity()),
+							.contribution_capacity = static_cast<uint32_t>(contributions.capacity()),
 							.sbr{
 								.scatter_limit = params::rtModelParams().scatter_limit,
 								.rays_per_source = rays_per_source,
@@ -592,7 +600,7 @@ namespace propagation::raytracing::optix
 								.dest_antenna_count = static_cast<uint32_t>(dest_antennas.size()),
 								.rx_flags = rx_flags.ptr_t(),
 								.rx_to_tx = job.type == TraceJobType::FindRxFromTx,
-								.contributions = ctx->contribs.ptr_t(),
+								.contributions = contributions.ptr_t(),
 							}};
 
 		ctx->params.upload(params);
@@ -617,12 +625,12 @@ namespace propagation::raytracing::optix
 		// began overwriting contributions, not writing more.
 		// Only download at most the full buffer, not the write count.
 		const auto contribution_count =
-			std::min<size_t>(readback.contribution_count.load(cuda::memory_order_relaxed), ctx->contribs.capacity());
+			std::min<size_t>(readback.contribution_count.load(cuda::memory_order_relaxed), contributions.capacity());
 		// TODO_SHAUN grow/reallocate `ctx->contribs` and re-launch instead of dropping contributions past capacity?
 
 		std::vector<Contribution> contribs;
-		ctx->contribs.set_size(contribution_count);
-		ctx->contribs.download(contribs);
+		contributions.set_size(contribution_count);
+		contributions.download(contribs);
 		CUDA_CHECK(cudaStreamSynchronize(ctx->stream.get()));
 
 		return contribs;

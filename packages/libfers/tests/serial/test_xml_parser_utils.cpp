@@ -1413,9 +1413,9 @@ TEST_CASE("parseTarget handles chisquare model", "[serial][xml_parser_utils]")
 	REQUIRE(world.getTargets().size() == 1);
 
 	auto* tgt = world.getTargets().front().get();
-	const auto* model = dynamic_cast<const radar::RcsChiSquare*>(tgt->getFluctuationModel());
+	const auto* model = dynamic_cast<const radar::RcsChiSquare*>(tgt->getRcsSpec()->getFluctuationModel());
 	REQUIRE(model != nullptr);
-	REQUIRE(tgt->getSeed() == expected_seed);
+	REQUIRE(tgt->getRcsSpec()->getSeed() == expected_seed);
 	REQUIRE_THAT(model->getK(), WithinAbs(2.0, 1e-5));
 }
 
@@ -1534,6 +1534,69 @@ TEST_CASE("parseTarget resolves an optional geometry element", "[serial][xml_par
 
 		REQUIRE_THROWS_AS(serial::xml_parser_utils::parseTarget(doc.getRootElement(), &platform, ctx, refs),
 						  XmlException);
+	}
+}
+
+TEST_CASE("parseTarget resolves an optional rcs element", "[serial][xml_parser_utils]")
+{
+	core::World world;
+	std::mt19937 seeder(42);
+	serial::xml_parser_utils::ParserContext ctx;
+	ctx.world = &world;
+	ctx.master_seeder = &seeder;
+	radar::Platform platform("plat");
+
+	world.add(core::MeshAsset{.id = 10, .name = "Cube", .path = "/scenario/dir/meshes/cube.obj", .filename = "cube.obj"});
+	world.add(
+		core::MaterialAsset{.id = 20, .name = "Aluminium", .relative_permittivity = 1.0, .conductivity = 0.0});
+
+	std::unordered_map<std::string, SimId> const w_refs;
+	std::unordered_map<std::string, SimId> const a_refs;
+	std::unordered_map<std::string, SimId> const t_refs;
+	std::unordered_map<std::string, SimId> const mesh_refs = {{"Cube", 10}};
+	std::unordered_map<std::string, SimId> const material_refs = {{"Aluminium", 20}};
+	serial::xml_parser_utils::ReferenceLookup const refs{&w_refs, &a_refs, &t_refs, &mesh_refs, &material_refs};
+
+	SECTION("Target with rcs has an RCS spec as before")
+	{
+		auto doc = loadXml("<target name=\"tgt1\"><rcs type=\"isotropic\"><value>1.0</value></rcs></target>");
+
+		serial::xml_parser_utils::parseTarget(doc.getRootElement(), &platform, ctx, refs);
+		REQUIRE(world.getTargets().size() == 1);
+		REQUIRE(world.getTargets().front()->getRcsSpec() != nullptr);
+	}
+
+	SECTION("Target without rcs has no RCS spec, but still gets added")
+	{
+		auto doc = loadXml("<target name=\"tgt1\">"
+						   "  <geometry mesh=\"Cube\" material=\"Aluminium\"/>"
+						   "</target>");
+
+		serial::xml_parser_utils::parseTarget(doc.getRootElement(), &platform, ctx, refs);
+		REQUIRE(world.getTargets().size() == 1);
+		REQUIRE(world.getTargets().front()->getRcsSpec() == nullptr);
+		REQUIRE(world.getTargets().front()->getGeometry().has_value());
+	}
+
+	SECTION("Target with model but no rcs throws")
+	{
+		auto doc = loadXml("<target name=\"tgt1\">"
+						   "  <model type=\"chisquare\"><k>2.0</k></model>"
+						   "  <geometry mesh=\"Cube\" material=\"Aluminium\"/>"
+						   "</target>");
+
+		REQUIRE_THROWS_AS(serial::xml_parser_utils::parseTarget(doc.getRootElement(), &platform, ctx, refs),
+						  XmlException);
+	}
+
+	SECTION("Target with neither rcs nor geometry doesn't throw")
+	{
+		auto doc = loadXml("<target name=\"tgt1\"/>");
+
+		REQUIRE_NOTHROW(serial::xml_parser_utils::parseTarget(doc.getRootElement(), &platform, ctx, refs));
+		REQUIRE(world.getTargets().size() == 1);
+		REQUIRE(world.getTargets().front()->getRcsSpec() == nullptr);
+		REQUIRE_FALSE(world.getTargets().front()->getGeometry().has_value());
 	}
 }
 

@@ -138,7 +138,7 @@ namespace propagation::raytracing
 		for (const auto* c : group)
 		{
 			const double dt = c->delay - group_delay;
-			const RealType angle = -2.0 * PI * carrier_frequency * dt;
+			const RealType angle = 2.0 * PI * carrier_frequency * dt;
 			const ComplexType v{double(c->voltage.re), double(c->voltage.im)};
 			summed_voltage += v * std::exp(ComplexType{0.0, angle});
 		}
@@ -195,7 +195,10 @@ namespace propagation::raytracing
 		}
 	}
 
-	std::unique_ptr<ThreadContext> RayTracingModel::makeThreadContext() const { return _engine->makeThreadContext(); }
+	std::unique_ptr<ThreadContext> RayTracingModel::makeThreadContext() const
+	{
+		return _engine->makeThreadContext(_world);
+	}
 
 	std::vector<PathsAtTime> RayTracingModel::findTxToRxPaths(ThreadContext* ctx, const Transmitter& transmitter,
 															  const std::vector<RealType>& times) const

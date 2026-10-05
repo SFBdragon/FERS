@@ -244,60 +244,140 @@ namespace propagation::raytracing
 		return float(pattern_gain * model.efficiency);
 	}
 
-	/**
-	 * @brief Direction sampling using the Fibonacci/Vogel spiral point set.
-	 * In local coordinates; `i=0` lands near local (1,0,0), sweeping to near (-1,0,0)
-	 * as `i` approaches `n`.
-	 */
-	[[nodiscard]] HC_FN Float3 sampleFibonacciSpiral(float i, float n)
+	[[nodiscard]] HC_FN Float3 fibonacciDirFromX(float one_minus_x, float one_plus_x, uint32_t index)
 	{
-		// Golden angle = pi * (3 - sqrt(5)), the standard Fibonacci/Vogel-spiral spacing constant.
-		const float phi = PI_V<float> * (3.0f - std::sqrt(5.0f));
+		// In a fibonacci spiral, `theta = golden_angle * i`,
+		// where `golden_angle = 2pi(1 - golden_ratio) = 2pi(1 - 0.618...)`.
+		// This suffers from precision issues with millions of rays as the
+		// inter-float spacing becomes high at large values.
+		//
+		// However,
+		// `theta = 2pi ((1 - golden_ratio) * i)` or equivalently,
+		// `theta = 2pi frac((1 - golden_ratio) * i)`
+		// We can compute the fractional part in fixed precision using integer wrapping.
 
-		const float x = 1.0f - (2.0f * i) / n; // x from 1 to -1
-		const float r = std::sqrt(1.0f - x * x); // radius at x
-		const float theta = phi * i;
-		return Float3{x, r * std::cos(theta), r * std::sin(theta)};
+		// Fixed-precision golden ratio (0.618...) with a denominator of 2^32.
+		// i.e. this is `round(2^32×(golden))`
+		constexpr uint32_t one_minus_golden = 0x9E3779B9u;
+		constexpr float two_raied_to_24 = 16777216.0f;
+
+		// frac((1 - golden_ratio) * i) * 2^32
+		const uint32_t u = index * one_minus_golden;
+		// Put the most significant 24 bits into the mantissa.
+		const float turns = float(u >> 8) * (1.0f / two_raied_to_24); // [0, 1)
+		// Scale fractional to raidans.
+		const float theta = 2.0f * PI_V<float> * turns;
+
+		// This is often sqrt(1 - x * x) in implementations, but this results in
+		// loss of accuracy due to cancellation near the poles.
+		// So (1-x)(1+x) is used instead where the tiny one can be determined accurately at each pole.
+		const float r = std::sqrt(one_minus_x * one_plus_x);
+		return Float3{1.0f - one_minus_x, r * std::cos(theta), r * std::sin(theta)};
+	}
+
+	[[nodiscard]] HC_FN Float3 boresightWeightedSample(const SbrParams& params, uint32_t path_idx, float& weight_out)
+	{
+		const float f = params.boresight_fraction;
+
+		if (path_idx < params.boresight_rays)
+		{
+			weight_out = 4 * PI_V<float> * f / float(params.boresight_rays);
+
+			// the above `if` ensures boresight_rays != 0
+			const float boresight_ray_frac = (float(path_idx) + 0.5f) / float(params.boresight_rays);
+			// compute (1-x) directly to keep it accurate (avoid catastrophic cancellation)
+			const float one_minus_x = 2.0f * f * boresight_ray_frac;
+			return fibonacciDirFromX(one_minus_x, 2.0f - one_minus_x, path_idx);
+		}
+
+		const uint32_t off_index = path_idx - params.boresight_rays;
+		// the above `if` ensures off_rays != 0, given that path_idx < rays_per_source
+		const uint32_t off_rays = params.rays_per_source - params.boresight_rays;
+		weight_out = 4 * PI_V<float> * (1 - f) / float(off_rays);
+
+		// calculate from far pole so (1+x) stays accurate near x = -1
+		const float off_ray_frac = (float(off_rays - off_index) - 0.5f) / float(off_rays);
+		const float one_plus_x = 2.0f * (1.0f - f) * off_ray_frac;
+		return fibonacciDirFromX(2.0f - one_plus_x, one_plus_x, path_idx);
 	}
 
 	// /**
-	//  * @brief Isotropic direction sampling using the Fibonacci/Vogel spiral point set.
+	//  * @brief Direction sampling using the Fibonacci/Vogel spiral point set.
+	//  * In local coordinates; `i=0` lands near local (1,0,0), sweeping to near (-1,0,0)
+	//  * as `i` approaches `n`.
 	//  */
-	// [[nodiscard]] HC_FN Float3 isotropicWeightedSample(const SbrParams& params, uint32_t path_idx, float& weight_out)
+	// [[nodiscard]] HC_FN Float3 sampleFibonacciSpiral(uint32_t index, uint32_t count)
 	// {
-	// 	weight_out = 4 * PI_V<float> / float(params.rays_per_source);
-	// 	return sampleFibonacciSpiral(float(path_idx), float(params.rays_per_source));
+	// 	// In a fibonacci spiral, `theta = golden_angle * i`,
+	// 	// where `golden_angle = 2pi(1 - golden_ratio) = 2pi(1 - 0.618...)`.
+	// 	// This suffers from precision issues with millions of rays as the
+	// 	// inter-float spacing becomes high at large values.
+	// 	//
+	// 	// However,
+	// 	// `theta = 2pi ((1 - golden_ratio) * i)` or equivalently,
+	// 	// `theta = 2pi frac((1 - golden_ratio) * i)`
+	// 	// We can compute the fractional part in fixed precision using integer wrapping.
+
+	// 	// Fixed-precision golden ratio (0.618...) with a denominator of 2^32.
+	// 	// i.e. this is `round(2^32×(golden))`
+	// 	constexpr uint32_t one_minus_golden = 0x9E3779B9u;
+	// 	constexpr float two_raied_to_24 = 16777216.0f;
+
+	// 	// frac((1 - golden_ratio) * i) * 2^32
+	// 	const uint32_t u = index * one_minus_golden;
+	// 	// Put the most significant 24 bits into the mantissa.
+	// 	const float turns = float(u >> 8) * (1.0f / two_raied_to_24); // [0, 1)
+	// 	// Scale fractional to raidans.
+	// 	const float theta = 2.0f * PI_V<float> * turns;
+
+	// 	const float t = (float(index) + 0.5f) / float(count);
+	// 	const float i = float(index) + 0.5f;
+	// 	const float n = float(count);
+	// 	const float x = 1.0f - (2.0f * i) / n; // x from 1 to -1
+	// 	const float r = std::sqrt(1.0f - x * x); // radius at x
+
+	// 	return Float3{x, r * std::cos(theta), r * std::sin(theta)};
 	// }
 
+	// // /**
+	// //  * @brief Isotropic direction sampling using the Fibonacci/Vogel spiral point set.
+	// //  */
+	// // [[nodiscard]] HC_FN Float3 isotropicWeightedSample(const SbrParams& params, uint32_t path_idx, float&
+	// weight_out)
+	// // {
+	// // 	weight_out = 4 * PI_V<float> / float(params.rays_per_source);
+	// // 	return sampleFibonacciSpiral(float(path_idx), float(params.rays_per_source));
+	// // }
 
-	/**
-	 * @brief Dual-weighted sphere sampling.
-	 * A (higher) weight around the boresight and a lower weight outsight that.
-	 */
-	[[nodiscard]] HC_FN Float3 boresightWeightedSample(const SbrParams& params, uint32_t path_idx, float& weight_out)
-	{
-		if (path_idx < params.boresight_rays)
-		{
-			// We're within the boresight regime.
 
-			// `params.boresight_rays == 0` is never true as the above check would fail
-			weight_out = 4 * PI_V<float> * params.boresight_fraction / float(params.boresight_rays);
+	// /**
+	//  * @brief Dual-weighted sphere sampling.
+	//  * A (higher) weight around the boresight and a lower weight outsight that.
+	//  */
+	// [[nodiscard]] HC_FN Float3 boresightWeightedSample(const SbrParams& params, uint32_t path_idx, float& weight_out)
+	// {
+	// 	if (path_idx < params.boresight_rays)
+	// 	{
+	// 		// We're within the boresight regime.
 
-			const float spiral_fraction =
-				(float(path_idx) + 0.5f) / float(params.boresight_rays) * params.boresight_fraction;
-			return sampleFibonacciSpiral(spiral_fraction, 1.0);
-		}
+	// 		// `params.boresight_rays == 0` is never true as the above check would fail
+	// 		weight_out = 4 * PI_V<float> * params.boresight_fraction / float(params.boresight_rays);
 
-		// We're outside the boresight regime.
+	// 		const float spiral_fraction =
+	// 			(float(path_idx) + 0.5f) / float(params.boresight_rays) * params.boresight_fraction;
+	// 		return sampleFibonacciSpiral(spiral_fraction, 1.0);
+	// 	}
 
-		// `off_boresight_rays == 0` never occurs as `path_idx < params.boresight_rays` would always be true.
-		const auto off_boresight_rays = float(params.rays_per_source - params.boresight_rays);
-		weight_out = 4 * PI_V<float> * (1 - params.boresight_fraction) / off_boresight_rays;
+	// 	// We're outside the boresight regime.
 
-		const float spiral_fraction = params.boresight_fraction +
-			(1 - params.boresight_fraction) * (float(path_idx - params.boresight_rays) + 0.5f) / off_boresight_rays;
-		return sampleFibonacciSpiral(spiral_fraction, 1.0);
-	}
+	// 	// `off_boresight_rays == 0` never occurs as `path_idx < params.boresight_rays` would always be true.
+	// 	const auto off_boresight_rays = float(params.rays_per_source - params.boresight_rays);
+	// 	weight_out = 4 * PI_V<float> * (1 - params.boresight_fraction) / off_boresight_rays;
+
+	// 	const float spiral_fraction = params.boresight_fraction +
+	// 		(1 - params.boresight_fraction) * (float(path_idx - params.boresight_rays) + 0.5f) / off_boresight_rays;
+	// 	return sampleFibonacciSpiral(spiral_fraction, 1.0);
+	// }
 
 
 	HC_FN void initIndirectPath(const SbrParams& params, uint32_t path_idx, uint32_t source_idx, uint32_t time_idx,
@@ -602,7 +682,7 @@ namespace propagation::raytracing
 		// Compute the reflected ray direction.
 		const Float3 back = -u_inc;
 		const Float3 cent = dot(u_norm, back) * u_norm;
-		const Float3 k_refl = 2.0f * cent - back;
+		const Float3 u_refl = 2.0f * cent - back;
 
 		// Compute the additional propagation distance.
 		const double ray_len = dot(pos - path->path_vertices.at(path->ray_count), Double3{u_inc});
@@ -611,7 +691,7 @@ namespace propagation::raytracing
 		// Update path
 		path->ray_count += 1;
 		path->path_vertices.at(path->ray_count) = pos;
-		path->trace_directions.at(path->ray_count) = k_refl;
+		path->trace_directions.at(path->ray_count) = u_refl;
 		path->surface_normals.at(path->ray_count - 1) = u_norm;
 		path->surface_materials.at(path->ray_count - 1) = &params.materials[hit.material_index];
 		path->hash = hash_mix(path->hash, hit.triangle_index); // Add the current facet to the path hash

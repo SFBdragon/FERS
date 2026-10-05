@@ -254,7 +254,7 @@
         <!ELEMENT window_length (#PCDATA)>
 
         <!-- Target -->
-        <!ELEMENT target (rcs,model?,geometry?)>
+        <!ELEMENT target (rcs?,model?,geometry?)>
         <!ATTLIST target
                 name CDATA #REQUIRED>
 

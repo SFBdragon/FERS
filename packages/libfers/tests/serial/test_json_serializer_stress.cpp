@@ -321,11 +321,12 @@ namespace
 		auto tgt = radar::createIsoTarget(plat.get(), "tgt_" + std::to_string(i), dist_real(rng), seed_dist(rng));
 		if (i % 2 == 0)
 		{
-			tgt->setFluctuationModel(std::make_unique<radar::RcsChiSquare>(tgt->getRngEngine(), 2.0));
+			tgt->getRcsSpec()->setFluctuationModel(
+				std::make_unique<radar::RcsChiSquare>(tgt->getRcsSpec()->getRngEngine(), 2.0));
 		}
 		else
 		{
-			tgt->setFluctuationModel(std::make_unique<radar::RcsConst>());
+			tgt->getRcsSpec()->setFluctuationModel(std::make_unique<radar::RcsConst>());
 		}
 		world.add(std::move(tgt));
 		world.add(std::move(plat));

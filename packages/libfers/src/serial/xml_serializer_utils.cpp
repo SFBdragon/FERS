@@ -531,26 +531,30 @@ namespace serial::xml_serializer_utils
 		const XmlElement target_elem = parent.addChild("target");
 		target_elem.setAttribute("name", target.getName());
 
-		const XmlElement rcs_elem = target_elem.addChild("rcs");
-		if (const auto* iso = dynamic_cast<const radar::IsoTarget*>(&target))
+		if (const auto* rcs = target.getRcsSpec())
 		{
-			rcs_elem.setAttribute("type", "isotropic");
-			addChildWithNumber(rcs_elem, "value", iso->getConstRcs());
-		}
-		else if (const auto* file_target = dynamic_cast<const radar::FileTarget*>(&target))
-		{
-			rcs_elem.setAttribute("type", "file");
-			rcs_elem.setAttribute("filename", file_target->getFilename());
-		}
-
-		// Serialize fluctuation model if present
-		if (const auto* model = target.getFluctuationModel())
-		{
-			if (const auto* chi = dynamic_cast<const radar::RcsChiSquare*>(model))
+			if (const auto* iso = dynamic_cast<const radar::IsoTargetRcs*>(rcs))
 			{
-				XmlElement const model_elem = target_elem.addChild("model");
-				model_elem.setAttribute("type", "chisquare");
-				addChildWithNumber(model_elem, "k", chi->getK());
+				const XmlElement rcs_elem = target_elem.addChild("rcs");
+				rcs_elem.setAttribute("type", "isotropic");
+				addChildWithNumber(rcs_elem, "value", iso->getConstRcs());
+			}
+			else if (const auto* file_rcs = dynamic_cast<const radar::FileTargetRcs*>(rcs))
+			{
+				const XmlElement rcs_elem = target_elem.addChild("rcs");
+				rcs_elem.setAttribute("type", "file");
+				rcs_elem.setAttribute("filename", file_rcs->getFilename());
+			}
+
+			// Serialize fluctuation model if present
+			if (const auto* model = rcs->getFluctuationModel())
+			{
+				if (const auto* chi = dynamic_cast<const radar::RcsChiSquare*>(model))
+				{
+					XmlElement const model_elem = target_elem.addChild("model");
+					model_elem.setAttribute("type", "chisquare");
+					addChildWithNumber(model_elem, "k", chi->getK());
+				}
 			}
 		}
 

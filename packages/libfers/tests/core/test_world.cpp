@@ -74,7 +74,7 @@ TEST_CASE("World stores and retrieves added objects", "[core][world]")
 	core::World world;
 
 	auto platform = std::make_unique<radar::Platform>("Platform-A", 11);
-	auto target = std::make_unique<radar::IsoTarget>(platform.get(), "Target-A", 1.5, 9, 22);
+	auto target = radar::createIsoTarget(platform.get(), "Target-A", 1.5, 9, 22);
 	world.add(std::move(platform));
 	world.add(std::move(target));
 
@@ -146,7 +146,7 @@ TEST_CASE("World finds radar components by ID", "[core][world]")
 
 	auto tx = std::make_unique<radar::Transmitter>(plat_ptr, "Tx", radar::OperationMode::PULSED_MODE, 101);
 	auto rx = std::make_unique<radar::Receiver>(plat_ptr, "Rx", 42, radar::OperationMode::PULSED_MODE, 202);
-	auto tgt = std::make_unique<radar::IsoTarget>(plat_ptr, "Tgt", 1.0, 42, 303);
+	auto tgt = radar::createIsoTarget(plat_ptr, "Tgt", 1.0, 42, 303);
 
 	auto* tx_ptr = tx.get();
 	auto* rx_ptr = rx.get();
@@ -173,14 +173,14 @@ TEST_CASE("World replaces target", "[core][world]")
 	world.add(std::move(platform));
 
 	// 1. Add initial target
-	auto old_tgt = std::make_unique<radar::IsoTarget>(plat_ptr, "OldTgt", 1.0, 42, 100);
+	auto old_tgt = radar::createIsoTarget(plat_ptr, "OldTgt", 1.0, 42, 100);
 	world.add(std::move(old_tgt));
 
 	REQUIRE(world.getTargets().size() == 1);
 	REQUIRE(world.findTarget(100)->getName() == "OldTgt");
 
 	// 2. Replace existing target
-	auto new_tgt = std::make_unique<radar::IsoTarget>(plat_ptr, "NewTgt", 5.0, 42, 100);
+	auto new_tgt = radar::createIsoTarget(plat_ptr, "NewTgt", 5.0, 42, 100);
 	auto* new_tgt_ptr = new_tgt.get();
 	world.replace(std::move(new_tgt));
 
@@ -189,7 +189,7 @@ TEST_CASE("World replaces target", "[core][world]")
 	REQUIRE(world.findTarget(100)->getName() == "NewTgt");
 
 	// 3. Replace (add) non-existent target
-	auto another_tgt = std::make_unique<radar::IsoTarget>(plat_ptr, "AnotherTgt", 10.0, 42, 200);
+	auto another_tgt = radar::createIsoTarget(plat_ptr, "AnotherTgt", 10.0, 42, 200);
 	auto* another_tgt_ptr = another_tgt.get();
 	world.replace(std::move(another_tgt));
 
@@ -414,7 +414,7 @@ TEST_CASE("World clear resets storage and state", "[core][world]")
 												   radar::OperationMode::CW_MODE, 101));
 	world.add(std::make_unique<radar::Receiver>(world.getPlatforms().front().get(), "Rx-A", 1,
 												radar::OperationMode::CW_MODE, 202));
-	world.add(std::make_unique<radar::IsoTarget>(world.getPlatforms().front().get(), "Target-A", 1.0, 5, 303));
+	world.add(radar::createIsoTarget(world.getPlatforms().front().get(), "Target-A", 1.0, 5, 303));
 	world.add(std::make_unique<fers_signal::RadarSignal>("Wave-A", 1.0, 1.0e9, fers_signal::CwWaveform{}, 404));
 	world.add(std::make_unique<antenna::Isotropic>("Ant-A", 505));
 	world.add(std::make_unique<timing::PrototypeTiming>("Timing-A", 606));

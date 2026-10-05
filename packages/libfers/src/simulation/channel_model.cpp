@@ -809,9 +809,14 @@ namespace simulation
 					propagation::pointscatter::computeAntennaPolarisation(&rx_ctx.receiver, vec_tx_tgt, time);
 				SVec3 in_angle(u_tx_tgt);
 				SVec3 out_angle(-u_tx_tgt);
-				const RealType rcs = target->getRcs(in_angle, out_angle, time);
+				const auto rcs_opt = target->getRcs(in_angle, out_angle, time);
+				if (!rcs_opt)
+				{
+					continue;
+				}
 				const auto gain = propagation::pointscatter::computeReflectedPathGain(
-					gt, gr, tx_pol, rx_pol, vec_tx_tgt, -vec_tx_tgt, range, range, rcs, tx_ctx.lambda, rx_ctx.no_loss);
+					gt, gr, tx_pol, rx_pol, vec_tx_tgt, -vec_tx_tgt, range, range, *rcs_opt, tx_ctx.lambda,
+					rx_ctx.no_loss);
 				const RealType power_ratio = std::abs(gain) * std::abs(gain);
 				const RealType pr_watts = tx_ctx.radiated_power * power_ratio;
 				const auto unit_gain = propagation::pointscatter::computeReflectedPathGain(
@@ -827,7 +832,7 @@ namespace simulation
 								 .source_id = tx_ctx.transmitter.getId(),
 								 .dest_id = target->getId(),
 								 .origin_id = tx_ctx.transmitter.getId(),
-								 .rcs = rcs,
+								 .rcs = *rcs_opt,
 								 .actual_power_dbm = wattsToDbm(pr_watts)});
 			}
 		}
@@ -901,9 +906,13 @@ namespace simulation
 					propagation::pointscatter::computeAntennaPolarisation(&rx_ctx.receiver, -vec_tgt_rx, time);
 				SVec3 in_angle(u_tx_tgt);
 				SVec3 out_angle(-u_tgt_rx);
-				const RealType rcs = target->getRcs(in_angle, out_angle, time);
+				const auto rcs_opt = target->getRcs(in_angle, out_angle, time);
+				if (!rcs_opt)
+				{
+					continue;
+				}
 				const auto gain = propagation::pointscatter::computeReflectedPathGain(
-					gt, gr, tx_pol, rx_pol, vec_tx_tgt, vec_tgt_rx, r1, r2, rcs, tx_ctx.lambda, rx_ctx.no_loss);
+					gt, gr, tx_pol, rx_pol, vec_tx_tgt, vec_tgt_rx, r1, r2, *rcs_opt, tx_ctx.lambda, rx_ctx.no_loss);
 				const RealType power_ratio = std::abs(gain) * std::abs(gain);
 				const RealType pr_watts = tx_ctx.radiated_power * power_ratio;
 				const auto unit_gain = propagation::pointscatter::computeReflectedPathGain(
@@ -919,7 +928,7 @@ namespace simulation
 								 .source_id = target->getId(),
 								 .dest_id = rx_ctx.receiver.getId(),
 								 .origin_id = tx_ctx.transmitter.getId(),
-								 .rcs = rcs,
+								 .rcs = *rcs_opt,
 								 .actual_power_dbm = wattsToDbm(pr_watts)});
 			}
 		}

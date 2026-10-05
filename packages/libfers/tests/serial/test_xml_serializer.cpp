@@ -161,7 +161,7 @@ TEST_CASE("serializeParameters writes raytracing propagation as a nested element
 
 	SECTION("raytracing model writes a nested <raytracing> with non-default attributes")
 	{
-		p.propagation_model = params::PropagationModelKind::GoRayTracing;
+		p.propagation_model = params::PropagationModelKind::SbrRayTracing;
 		p.rt_model_params.scatter_limit = 7;
 		p.rt_model_params.boresight_width = 20.0 * PI / 180.0;
 		p.rt_model_params.boresight_tube_solid_angle = 1e-6;
@@ -178,7 +178,7 @@ TEST_CASE("serializeParameters writes raytracing propagation as a nested element
 
 	SECTION("raytracing model with all-default sub-parameters omits the attributes")
 	{
-		p.propagation_model = params::PropagationModelKind::GoRayTracing;
+		p.propagation_model = params::PropagationModelKind::SbrRayTracing;
 		serial::xml_serializer_utils::serializeParameters(root, p);
 		std::string s = dumpElement(root);
 		REQUIRE_THAT(s, ContainsSubstring("<raytracing/>"));
@@ -631,7 +631,7 @@ TEST_CASE("serializeTarget models", "[serial][xml_serializer]")
 	SECTION("Fluctuation Model ChiSquare")
 	{
 		auto t = radar::createIsoTarget(&plat, "tgt2", 10.0, 42);
-		t->setFluctuationModel(std::make_unique<radar::RcsChiSquare>(t->getRngEngine(), 2.0));
+		t->getRcsSpec()->setFluctuationModel(std::make_unique<radar::RcsChiSquare>(t->getRcsSpec()->getRngEngine(), 2.0));
 		serial::xml_serializer_utils::serializeTarget(*t, root);
 		std::string s = dumpElement(root);
 		REQUIRE_THAT(s, ContainsSubstring("<model type=\"chisquare\"><k>2</k></model>"));
@@ -656,6 +656,15 @@ TEST_CASE("serializeTarget models", "[serial][xml_serializer]")
 		serial::xml_serializer_utils::serializeTarget(*t, root);
 		std::string s = dumpElement(root);
 		REQUIRE_THAT(s, !ContainsSubstring("<geometry"));
+	}
+
+	SECTION("RCS is omitted when absent")
+	{
+		auto t = std::make_unique<radar::Target>(&plat, "tgt5");
+		serial::xml_serializer_utils::serializeTarget(*t, root);
+		std::string s = dumpElement(root);
+		REQUIRE_THAT(s, !ContainsSubstring("<rcs"));
+		REQUIRE_THAT(s, !ContainsSubstring("<model"));
 	}
 
 	// TODO: Missing Coverage for `FileTarget` due to inability to mock generic external valid file loads cleanly

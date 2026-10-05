@@ -181,7 +181,8 @@ namespace
 		transmitter->setSchedule({{0.1, 0.5}});
 
 		auto target = radar::createIsoTarget(platform.get(), "tgt", 10.0, 42, 102);
-		target->setFluctuationModel(std::make_unique<radar::RcsChiSquare>(target->getRngEngine(), 2.5));
+		target->getRcsSpec()->setFluctuationModel(
+			std::make_unique<radar::RcsChiSquare>(target->getRcsSpec()->getRngEngine(), 2.5));
 
 		auto receiver =
 			std::make_unique<radar::Receiver>(platform.get(), "rx", 88, radar::OperationMode::PULSED_MODE, 105);
@@ -1277,11 +1278,11 @@ TEST_CASE("JSON: Granular updates of Radar Components and Timing", "[serial][jso
 		auto* new_tgt = w.findTarget(103);
 		REQUIRE(new_tgt != nullptr);
 		REQUIRE(new_tgt->getName() == "tgt_updated");
-		REQUIRE(new_tgt->getSeed() == 54321); // Seed preserved
-		auto* iso_tgt = dynamic_cast<radar::IsoTarget*>(new_tgt);
-		REQUIRE(iso_tgt != nullptr);
-		REQUIRE_THAT(iso_tgt->getConstRcs(), WithinAbs(50.0, 1e-9));
-		REQUIRE(new_tgt->getFluctuationModel() != nullptr);
+		REQUIRE(new_tgt->getRcsSpec()->getSeed() == 54321); // Seed preserved
+		auto* iso_rcs = dynamic_cast<radar::IsoTargetRcs*>(new_tgt->getRcsSpec());
+		REQUIRE(iso_rcs != nullptr);
+		REQUIRE_THAT(iso_rcs->getConstRcs(), WithinAbs(50.0, 1e-9));
+		REQUIRE(new_tgt->getRcsSpec()->getFluctuationModel() != nullptr);
 	}
 
 	SECTION("Update Timing")

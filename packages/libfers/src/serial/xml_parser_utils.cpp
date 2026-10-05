@@ -1404,40 +1404,50 @@ namespace serial::xml_parser_utils
 		const SimId id = assign_id_from_attribute("target '" + name + "'", ObjectType::Target);
 
 		const XmlElement rcs_element = target.childElement("rcs", 0);
+		std::unique_ptr<radar::Target> target_obj;
+		std::string rcs_type = "none";
+
 		if (!rcs_element.isValid())
 		{
-			throw XmlException("<rcs> element is required in <target>!");
-		}
-
-		const std::string rcs_type = XmlElement::getSafeAttribute(rcs_element, "type");
-		std::unique_ptr<radar::Target> target_obj;
-		const unsigned seed = next_seed(*ctx.master_seeder);
-
-		if (rcs_type == "isotropic")
-		{
-			target_obj = radar::createIsoTarget(platform, name, get_child_real_type(rcs_element, "value"), seed, id);
-		}
-		else if (rcs_type == "file")
-		{
-			// Defer to dependency-injected file loader
-			target_obj = ctx.loaders.loadFileTarget(platform, name,
-													XmlElement::getSafeAttribute(rcs_element, "filename"), seed, id);
+			target_obj = std::make_unique<radar::Target>(platform, name, id);
 		}
 		else
 		{
-			throw XmlException("Unsupported RCS type: " + rcs_type);
+			rcs_type = XmlElement::getSafeAttribute(rcs_element, "type");
+			const unsigned seed = next_seed(*ctx.master_seeder);
+
+			if (rcs_type == "isotropic")
+			{
+				target_obj = radar::createIsoTarget(platform, name, get_child_real_type(rcs_element, "value"), seed, id);
+			}
+			else if (rcs_type == "file")
+			{
+				// Defer to dependency-injected file loader
+				target_obj = ctx.loaders.loadFileTarget(platform, name,
+														XmlElement::getSafeAttribute(rcs_element, "filename"), seed, id);
+			}
+			else
+			{
+				throw XmlException("Unsupported RCS type: " + rcs_type);
+			}
 		}
 
 		if (const XmlElement model = target.childElement("model", 0); model.isValid())
 		{
+			auto* rcs = target_obj->getRcsSpec();
+			if (rcs == nullptr)
+			{
+				throw XmlException("<model> element requires <rcs> to be present in <target> '" + name + "'!");
+			}
+
 			if (const std::string model_type = XmlElement::getSafeAttribute(model, "type"); model_type == "constant")
 			{
-				target_obj->setFluctuationModel(std::make_unique<radar::RcsConst>());
+				rcs->setFluctuationModel(std::make_unique<radar::RcsConst>());
 			}
 			else if (model_type == "chisquare" || model_type == "gamma")
 			{
-				target_obj->setFluctuationModel(
-					std::make_unique<radar::RcsChiSquare>(target_obj->getRngEngine(), get_child_real_type(model, "k")));
+				rcs->setFluctuationModel(
+					std::make_unique<radar::RcsChiSquare>(rcs->getRngEngine(), get_child_real_type(model, "k")));
 			}
 			else
 			{
@@ -1445,6 +1455,7 @@ namespace serial::xml_parser_utils
 			}
 		}
 
+		bool has_geometry = false;
 		if (const XmlElement geometry = target.childElement("geometry", 0); geometry.isValid())
 		{
 			const SimId mesh_id =
@@ -1453,6 +1464,14 @@ namespace serial::xml_parser_utils
 				resolve_reference_id(geometry, "material", "target '" + name + "' geometry", *refs.materials);
 
 			target_obj->setGeometry(ctx.world->findMesh(mesh_id), ctx.world->findMaterial(material_id));
+			has_geometry = true;
+		}
+
+		if (!rcs_element.isValid() && !has_geometry)
+		{
+			LOG(logging::Level::WARNING,
+				"Target '{}' has neither <rcs> nor <geometry>; it will not scatter under any propagation model.",
+				name);
 		}
 
 		LOG(logging::Level::DEBUG, "Added target {} with RCS type {} to platform {}", name, rcs_type,

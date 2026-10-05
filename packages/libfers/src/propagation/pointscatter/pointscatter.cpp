@@ -157,10 +157,10 @@ namespace propagation::pointscatter
 		});
 	}
 
-	static void bistaticPath(const radar::Transmitter& tx, radar::Receiver* rx, const radar::Target& target,
-							 const RealType time, const bool is_tx_time, const CarrierModel<RealType>& carrier,
-							 const RealType segment_start, size_t source_index,
-							 std::vector<PropagationPath>& found_paths)
+	static void reflectedPath(const radar::Transmitter& tx, radar::Receiver* rx, const radar::Target& target,
+							  const RealType time, const bool is_tx_time, const CarrierModel<RealType>& carrier,
+							  const RealType segment_start, size_t source_index,
+							  std::vector<PropagationPath>& found_paths)
 	{
 
 		// If calculating reflected path and target is co-located with either Tx or Rx:
@@ -218,7 +218,12 @@ namespace propagation::pointscatter
 		// OutAngle: Rx -> Tgt (Opposite of Tgt->Rx, so -link_tgt_rx.u_vec)
 		math::SVec3 in_angle(tx_to_tgt);
 		math::SVec3 out_angle(-tgt_to_rx);
-		const auto rcs = target.getRcs(in_angle, out_angle, tgt_time);
+		const auto rcs_opt = target.getRcs(in_angle, out_angle, tgt_time);
+		if (!rcs_opt)
+		{
+			return;
+		}
+		const RealType rcs = *rcs_opt;
 
 		// Tx Gain: Direction Tx -> Tgt
 		const auto tx_gain = computeAntennaGain(&tx, tx_to_tgt, tx_time, lambda);
@@ -269,8 +274,8 @@ namespace propagation::pointscatter
 				for (const auto& target : _world->getTargets())
 				{
 					// Calculate bistatic reflection contribution, if any.
-					bistaticPath(transmitter, receiver.get(), *target, current_time, true, carrier, current_time, 0,
-								 paths);
+					reflectedPath(transmitter, receiver.get(), *target, current_time, true, carrier, current_time, 0,
+								  paths);
 				}
 			}
 
@@ -301,8 +306,8 @@ namespace propagation::pointscatter
 			for (const auto& target : _world->getTargets())
 			{
 				// Calculate bistatic reflection contribution, if any.
-				bistaticPath(*source.transmitter, receiver, *target, rx_time, false, carrier, source.segment_start, s,
-							 paths);
+				reflectedPath(*source.transmitter, receiver, *target, rx_time, false, carrier, source.segment_start, s,
+							  paths);
 			}
 		}
 
