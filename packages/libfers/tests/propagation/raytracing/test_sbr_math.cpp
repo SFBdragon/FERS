@@ -1,7 +1,9 @@
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
+#include <iostream>
 #include <vector>
 
 #include "math/geometry_ops.h"
@@ -96,15 +98,18 @@ TEST_CASE("sampleAntennaPattern clamps queries outside the grid's range", "[rayt
 	REQUIRE_THAT(rt::sampleAntennaPattern(params, view, 100.0f, 100.0f), WithinAbs(30.0, 1e-6));
 }
 
-TEST_CASE("sampleFibonacciSpiral produces unit vectors spanning the sphere", "[raytracing][math]")
+TEST_CASE("fibonacciDirFromX produces unit vectors spanning the sphere", "[raytracing][math]")
 {
 	constexpr uint32_t num_rays = 2000;
 	prop::Double3 sum{0.0, 0.0, 0.0};
-	double min_z = 1.0, max_z = -1.0;
+	double min_x = 0, max_x = -1;
+	double min_y = 0, max_y = -1;
+	double min_z = 0, max_z = -1;
 
 	for (uint32_t i = 0; i < num_rays; ++i)
 	{
-		const auto dir = prop::Double3{rt::sampleFibonacciSpiral(float(i), float(num_rays))};
+		const float one_plus_x = 2.0f * ((float(i) + 0.5f) / float(num_rays));
+		const auto dir = prop::Double3{rt::fibonacciDirFromX(2 - one_plus_x, one_plus_x, i)};
 		const double len = std::sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
 		// dir is float-precision, so 1e-9 is unachievable; float32 gives ~1e-7 relative.
 		REQUIRE_THAT(len, WithinAbs(1.0, 1e-6));
@@ -112,6 +117,10 @@ TEST_CASE("sampleFibonacciSpiral produces unit vectors spanning the sphere", "[r
 		sum.x += dir.x;
 		sum.y += dir.y;
 		sum.z += dir.z;
+		min_x = std::min(min_x, double(dir.x));
+		max_x = std::max(max_x, double(dir.x));
+		min_y = std::min(min_y, double(dir.y));
+		max_y = std::max(max_y, double(dir.y));
 		min_z = std::min(min_z, double(dir.z));
 		max_z = std::max(max_z, double(dir.z));
 	}
@@ -121,18 +130,53 @@ TEST_CASE("sampleFibonacciSpiral produces unit vectors spanning the sphere", "[r
 	REQUIRE_THAT(sum.y / num_rays, WithinAbs(0.0, 1e-2));
 	REQUIRE_THAT(sum.z / num_rays, WithinAbs(0.0, 1e-2));
 
-	// And should span from near one pole to the other.
+	// And should span across the sphere in all dimensions.
+	REQUIRE(min_x < -0.99);
+	REQUIRE(max_x > 0.99);
+	REQUIRE(min_y < -0.99);
+	REQUIRE(max_y > 0.99);
 	REQUIRE(min_z < -0.99);
 	REQUIRE(max_z > 0.99);
 }
 
-TEST_CASE("sampleFibonacciSpiral is deterministic", "[raytracing][math]")
+TEST_CASE("fibonacciDirFromX spaced evenly at dense boresight x", "[raytracing][math]")
 {
-	const auto a = rt::sampleFibonacciSpiral(17.0f, 500.0f);
-	const auto b = rt::sampleFibonacciSpiral(17.0f, 500.0f);
-	REQUIRE_THAT(a.x, WithinAbs(b.x, 1e-15));
-	REQUIRE_THAT(a.y, WithinAbs(b.y, 1e-15));
-	REQUIRE_THAT(a.z, WithinAbs(b.z, 1e-15));
+	// This test guards against floating-point handling regressions.
+
+	// These are the (1-x) values we'll be using.
+	// These are tiny. x = 1 - (1-x) would cancel to 1 here as the ULP of floats around 1 is much larger than 10e-9.
+	const auto x1 = 1e-9f;
+	const auto x2 = 2e-9f;
+	const auto x3 = 3e-9f;
+
+	// These are huge. The ULP of floats here is larger than 2pi.
+	const auto i1 = 100000000;
+	const auto i2 = 100000001;
+	const auto i3 = 100000002;
+
+	const auto d1 = prop::Double3{rt::fibonacciDirFromX(x1, 2 - x1, i1)};
+	const auto d2 = prop::Double3{rt::fibonacciDirFromX(x2, 2 - x2, i2)};
+	const auto d3 = prop::Double3{rt::fibonacciDirFromX(x3, 2 - x3, i3)};
+
+	// check that the theta directions are still spiralling accurately at the golden angle
+	const auto theta1 = std::atan2(d1.y, d1.z);
+	const auto theta2 = std::atan2(d2.y, d2.z);
+	const auto theta3 = std::atan2(d3.y, d3.z);
+	const auto golden_angle = PI * (3 - std::sqrt(5));
+	const auto theta12 = theta2 - theta1 + (theta2 > theta1 ? 0.0 : 2.0 * PI);
+	const auto theta23 = theta3 - theta2 + (theta3 > theta2 ? 0.0 : 2.0 * PI);
+	REQUIRE_THAT(theta12, WithinAbs(golden_angle, 1e-6));
+	REQUIRE_THAT(theta23, WithinAbs(golden_angle, 1e-6));
+
+	// check that the radius (distance from x axis) was computed accurately
+	const auto r1 = std::sqrt(d1.y * d1.y + d1.z * d1.z);
+	const auto r2 = std::sqrt(d2.y * d2.y + d2.z * d2.z);
+	const auto r3 = std::sqrt(d3.y * d3.y + d3.z * d3.z);
+	REQUIRE_THAT(r1, WithinAbs(std::sqrt(double(x1) * (2 - double(x1))), 1e-9));
+	REQUIRE_THAT(r2, WithinAbs(std::sqrt(double(x2) * (2 - double(x2))), 1e-9));
+	REQUIRE_THAT(r3, WithinAbs(std::sqrt(double(x3) * (2 - double(x3))), 1e-9));
+	REQUIRE(r1 != r2);
+	REQUIRE(r2 != r3);
 }
 
 TEST_CASE("boresightWeightedSample assigns per-regime weights that sum to 4*pi", "[raytracing][math]")
