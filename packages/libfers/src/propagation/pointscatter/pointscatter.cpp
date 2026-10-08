@@ -8,6 +8,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <optional>
 #include <vector>
 
 #include "core/config.h"
@@ -41,12 +42,12 @@ namespace propagation::pointscatter
 		return radar->getGain(math::SVec3(direction_vec), radar->getRotation(time), lambda);
 	}
 
-	Complex3<RealType> computeAntennaPolarisation(const radar::Radar* radar, const math::Vec3& direction, RealType time)
+	Complex3<RealType> computeAntennaPolarisation(const radar::Radar& radar, const math::Vec3& direction, RealType time)
 	{
-		const auto pol = radar->getAntenna()->getPolarisation();
+		const auto pol = radar.getAntenna()->getPolarisation();
 		const auto h = Complex{pol.horizontal.real(), pol.horizontal.imag()};
 		const auto v = Complex{pol.vertical.real(), pol.vertical.imag()};
-		const auto fers_orient = radar->getRotation(time);
+		const auto fers_orient = radar.getRotation(time);
 		const AzEl orientation{fers_orient.azimuth, fers_orient.elevation};
 		const RealType inv_len = 1.0 / direction.length();
 		const Real3<RealType> world_dir{direction.x * inv_len, direction.y * inv_len, direction.z * inv_len};
@@ -54,11 +55,106 @@ namespace propagation::pointscatter
 		return antennaPolarizationVector(h, v, orientation, local_dir);
 	}
 
-	ComplexType computeReflectedPathGain(RealType tx_gain, RealType rx_gain, const Complex3<RealType>& tx_pol,
-										 const Complex3<RealType>& rx_pol, const math::Vec3& tx_to_tgt,
-										 const math::Vec3& tgt_to_rx, RealType r_tx, RealType r_rx, RealType rcs,
-										 RealType lambda, bool no_prop_loss)
+
+	/**
+	 * @brief Determine the PropagationPath along a direct tx->rx path
+	 * @param time The time at which to find propagation paths. May be at reception or transmission time.
+	 * @param tx_time True if time is a transmission time, otherwise it's considered to be the receiving time.
+	 */
+	static std::optional<PropagationPath> directPath(const radar::Transmitter& tx, radar::Receiver* rx,
+													 const RealType time, const bool is_tx_time,
+													 const CarrierModel<RealType>& carrier,
+													 const RealType segment_start)
 	{
+
+		// Calculate the direct path contribution.
+		//
+		// Handle the co-location cases:
+		// 1. If explicitly attached (monostatic), skip (internal leakage handled elsewhere).
+		// 2. If independent but on the same platform, distance is 0. Far-field logic (1/R^2)
+		//    diverges. We skip calculation, assuming no direct coupling/interference for
+		//    co-located far-field antennas.
+		if (tx.getPlatform() == rx->getPlatform())
+		{
+			return std::nullopt;
+		}
+
+		const auto p_tx = tx.getPosition(time);
+		const auto p_rx = rx->getPosition(time); // Assumption: v_rx << c
+		const auto tx_to_rx = p_rx - p_tx;
+		const auto tx_to_rx_dist = tx_to_rx.length();
+
+		// Handle co-location of independent TX/RX on distinct platforms.
+		// Similar to case 2 above, far-field logic diverges and assume no direct interference
+		// for co-located antennas.
+		if (tx_to_rx_dist <= EPSILON)
+		{
+			return std::nullopt;
+		}
+
+		const auto delay = tx_to_rx_dist / params::c();
+		const RealType tx_time = is_tx_time ? time : time - delay;
+		const RealType rx_time = is_tx_time ? time + delay : time;
+
+		const RealType frequency = sampleCarrierFrequency(carrier, tx_time - segment_start);
+		const RealType lambda = params::c() / frequency;
+
+		// Tx Gain: Direction Tx -> Rx
+		const auto tx_gain = computeAntennaGain(&tx, tx_to_rx, tx_time, lambda);
+		// Rx Gain: Direction Rx -> Tx
+		const auto rx_gain = computeAntennaGain(rx, -tx_to_rx, rx_time, lambda);
+
+		const bool no_loss = rx->checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
+		ComplexType gain = computeDirectPathGain(tx_gain, rx_gain, lambda, tx_to_rx_dist, no_loss);
+
+		if (params::pointScatterParams().polarimetric)
+		{
+			const auto tx_pol = computeAntennaPolarisation(tx, tx_to_rx, tx_time);
+			const auto rx_pol = computeAntennaPolarisation(*rx, -tx_to_rx, tx_time);
+			const auto linkage = dot_no_conj(tx_pol, rx_pol);
+
+			// TODO_SHAUN remove
+			LOG(logging::Level::DEBUG, "Direct Polarimetric Linkage: {}+j{}", linkage.re, linkage.im);
+
+			gain *= ComplexType(linkage.re, linkage.im);
+		}
+
+		return PropagationPath{
+			.delay = delay,
+			.gain = gain,
+			.path_id = hash_mix(hash_mix(HASH_SEED, tx.getId()), rx->getId()),
+			.source_index{},
+			.receiver = rx,
+		};
+	}
+
+	RealType computeReflectedPathGain(RealType tx_gain, RealType rx_gain, RealType rcs, RealType lambda, RealType r_tx,
+									  RealType r_rx, bool no_prop_loss)
+	{
+		const RealType numerator = std::sqrt(tx_gain * rx_gain * rcs) * lambda;
+		RealType denominator = std::sqrt(64.0 * PI * PI * PI); // (4 * PI)^3/2
+
+		if (!no_prop_loss)
+		{
+			denominator *= r_tx * r_rx;
+		}
+
+		return numerator / denominator;
+	}
+
+	// Computes the dimensionless polarimetric coupling factor for a reflected path: how much of
+	// computeReflectedPathGain's (polarisation-independent, RCS-scaled) amplitude actually couples
+	// through given the Tx/Rx antenna polarisations and the target's scattering matrix. Unit
+	// magnitude for a perfectly co-polarised path; must not itself scale by RCS, since
+	// computeReflectedPathGain already does.
+	ComplexType computePolarimetricReflectedLinkage(const radar::Transmitter& tx, const radar::Receiver& rx,
+													const math::Vec3& tx_to_tgt, const math::Vec3& tgt_to_rx,
+													RealType r_tx, RealType r_rx, RealType t_tx, RealType t_rx)
+	{
+
+		const auto tx_pol = computeAntennaPolarisation(tx, tx_to_tgt, t_tx);
+		const auto rx_pol = computeAntennaPolarisation(rx, -tgt_to_rx, t_rx);
+
 		const auto k_in = Real3<RealType>{tx_to_tgt.x, tx_to_tgt.y, tx_to_tgt.z} / r_tx;
 		const auto k_scat = Real3<RealType>{tgt_to_rx.x, tgt_to_rx.y, tgt_to_rx.z} / r_rx;
 
@@ -75,99 +171,23 @@ namespace propagation::pointscatter
 		const auto e_te = dot(tx_pol, basis.e_te);
 		const auto e_tm = dot(tx_pol, basis.e_tm_in);
 
-		const auto sqrt_rcs = std::sqrt(rcs);
-		// Assume the FSA Jones scattering matrix for a PEC for now.
+		// Assume the FSA Jones scattering matrix for a PEC for now, normalised to unit magnitude -
+		// computeReflectedPathGain supplies the RCS scaling.
 		// TODO add polarimetric scattering matrices to fersxml targets.
-		const auto scatter = Real2x2<RealType>{{-sqrt_rcs, 0}, {0, sqrt_rcs}};
+		const auto scatter = Real2x2<RealType>{{-1, 0}, {0, 1}};
 		const auto e_scat = scatter * Complex2{e_te, e_tm};
 
 		const auto e_tm_scat = cross(basis.e_te, k_scat);
 		const auto refl = basis.e_te * e_scat.x + e_tm_scat * e_scat.y;
-		const auto pol = dot_no_conj(refl, rx_pol);
+		const auto linkage = dot_no_conj(refl, rx_pol);
 
-		// TODO_SHAUN remove
-		LOG(logging::Level::DEBUG, "Reflected Polarimetric Linkage: {}+j{}", pol.re / sqrt_rcs, pol.im / sqrt_rcs);
-
-		RealType scalar = std::sqrt(tx_gain * rx_gain * (1 / (64.0 * PI * PI * PI))) * lambda;
-		if (!no_prop_loss)
-		{
-			scalar /= r_tx * r_rx;
-		}
-
-		const auto ratio = scalar * pol;
-		return ComplexType{ratio.re, ratio.im};
+		return ComplexType{linkage.re, linkage.im};
 	}
 
-
-	/**
-	 * @brief Determine the PropagationPath along a direct tx->rx path
-	 * @param time The time at which to find propagation paths. May be at reception or transmission time.
-	 * @param tx_time True if time is a transmission time, otherwise it's considered to be the receiving time.
-	 */
-	static void directPath(const radar::Transmitter& tx, radar::Receiver* rx, const RealType time,
-						   const bool is_tx_time, const CarrierModel<RealType>& carrier, const RealType segment_start,
-						   size_t source_index, std::vector<PropagationPath>& found_paths)
-	{
-
-		// Calculate the direct path contribution.
-		//
-		// Handle the co-location cases:
-		// 1. If explicitly attached (monostatic), skip (internal leakage handled elsewhere).
-		// 2. If independent but on the same platform, distance is 0. Far-field logic (1/R^2)
-		//    diverges. We skip calculation, assuming no direct coupling/interference for
-		//    co-located far-field antennas.
-		if (tx.getPlatform() == rx->getPlatform())
-		{
-			return;
-		}
-
-		const auto p_tx = tx.getPosition(time);
-		const auto p_rx = rx->getPosition(time); // Assumption: v_rx << c
-		const auto tx_to_rx = p_rx - p_tx;
-		const auto tx_to_rx_dist = tx_to_rx.length();
-
-		// Handle co-location of independent TX/RX on distinct platforms.
-		// Similar to case 2 above, far-field logic diverges and assume no direct interference
-		// for co-located antennas.
-		if (tx_to_rx_dist <= EPSILON)
-		{
-			return;
-		}
-
-		const auto delay = tx_to_rx_dist / params::c();
-		const RealType tx_time = is_tx_time ? time : time - delay;
-		const RealType rx_time = is_tx_time ? time + delay : time;
-
-		const RealType frequency = sampleCarrierFrequency(carrier, tx_time - segment_start);
-		const RealType lambda = params::c() / frequency;
-
-		// Tx Gain and Polarisation: Direction Tx -> Rx
-		const auto tx_gain = computeAntennaGain(&tx, tx_to_rx, tx_time, lambda);
-		const auto tx_pol = computeAntennaPolarisation(&tx, tx_to_rx, tx_time);
-		// Rx Gain and Polarisation: Direction Rx -> Tx
-		const auto rx_gain = computeAntennaGain(rx, -tx_to_rx, rx_time, lambda);
-		const auto rx_pol = computeAntennaPolarisation(rx, -tx_to_rx, tx_time);
-
-		const bool no_loss = rx->checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
-		const auto gain = computeDirectPathGain(tx_gain, rx_gain, tx_pol, rx_pol, lambda, tx_to_rx_dist, no_loss);
-
-		// TODO_SHAUN remove
-		const auto pol = dot_no_conj(tx_pol, rx_pol);
-		LOG(logging::Level::DEBUG, "Direct Polarimetric Linkage: {}+j{}", pol.re, pol.im);
-
-		found_paths.emplace_back(PropagationPath{
-			.delay = delay,
-			.gain = ComplexType{gain.re, gain.im},
-			.path_id = hash_mix(hash_mix(HASH_SEED, tx.getId()), rx->getId()),
-			.source_index = source_index,
-			.receiver = rx,
-		});
-	}
-
-	static void reflectedPath(const radar::Transmitter& tx, radar::Receiver* rx, const radar::Target& target,
-							  const RealType time, const bool is_tx_time, const CarrierModel<RealType>& carrier,
-							  const RealType segment_start, size_t source_index,
-							  std::vector<PropagationPath>& found_paths)
+	static std::optional<PropagationPath> reflectedPath(const radar::Transmitter& tx, radar::Receiver* rx,
+														const radar::Target& target, const RealType time,
+														const bool is_tx_time, const CarrierModel<RealType>& carrier,
+														const RealType segment_start)
 	{
 
 		// If calculating reflected path and target is co-located with either Tx or Rx:
@@ -175,7 +195,7 @@ namespace propagation::pointscatter
 		// requires near-field clutter models, not point-target RCS models.
 		if (target.getPlatform() == tx.getPlatform() || target.getPlatform() == rx->getPlatform())
 		{
-			return;
+			return std::nullopt;
 		}
 
 		const auto p_tx = tx.getPosition(time);
@@ -194,24 +214,11 @@ namespace propagation::pointscatter
 				"Skipping reflected path calculation for Target {} co-located with Transmitter {} or Receiver {}",
 				target.getName(), tx.getName(), rx->getName());
 
-			return;
+			return std::nullopt;
 		}
 
-		// Skip near-exact forward scatter (Rx directly behind the target as seen from Tx).
-		// This isn't handled accurately by specular reflection physics, it's dominated by diffraction
-		// and other effects. The direct path is already computed separately, this skips "reflecting"
-		// off of a in-between target for now.
-		if (math::dotProduct(tx_to_tgt / tx_to_tgt_dist, tgt_to_rx / tgt_to_rx_dist) > 1.0 - EPSILON)
-		{
-			LOG(logging::Level::TRACE,
-				"Skipping reflected path calculation for Target {}: Rx is in the forward-scatter direction from Tx "
-				"through the target, which is not handled as a bistatic reflection path for RCS point targets",
-				target.getName());
-
-			return;
-		}
-
-		const auto delay = (tx_to_tgt_dist + tgt_to_rx_dist) / params::c();
+		const auto path_length = tx_to_tgt_dist + tgt_to_rx_dist;
+		const auto delay = path_length / params::c();
 		RealType tx_time = is_tx_time ? time : time - delay;
 		RealType rx_time = is_tx_time ? time + delay : time;
 		const auto target_delay = tx_to_tgt_dist / params::c();
@@ -221,35 +228,59 @@ namespace propagation::pointscatter
 		const RealType lambda = params::c() / frequency;
 
 		// Calculate RCS
-		// InAngle: Tx -> Tgt (link_tx_tgt.u_vec)
-		// OutAngle: Rx -> Tgt (Opposite of Tgt->Rx, so -link_tgt_rx.u_vec)
+		// InAngle: Tx -> Tgt (tx_to_tgt)
+		// OutAngle: Rx -> Tgt (Opposite of Tgt->Rx, so -tgt_to_rx)
 		math::SVec3 in_angle(tx_to_tgt);
 		math::SVec3 out_angle(-tgt_to_rx);
 		const auto rcs_opt = target.getRcs(in_angle, out_angle, tgt_time);
 		if (!rcs_opt)
 		{
-			return;
+			return std::nullopt;
 		}
 		const RealType rcs = *rcs_opt;
 
 		// Tx Gain: Direction Tx -> Tgt
 		const auto tx_gain = computeAntennaGain(&tx, tx_to_tgt, tx_time, lambda);
-		const auto tx_pol = computeAntennaPolarisation(&tx, tx_to_tgt, tx_time);
 		// Rx Gain: Direction Rx -> Tgt
 		const auto rx_gain = computeAntennaGain(rx, -tgt_to_rx, rx_time, lambda);
-		const auto rx_pol = computeAntennaPolarisation(rx, -tgt_to_rx, tx_time);
 
-		const bool no_loss = rx->checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
-		const auto gain = computeReflectedPathGain(tx_gain, rx_gain, tx_pol, rx_pol, tx_to_tgt, tgt_to_rx,
-												   tx_to_tgt_dist, tgt_to_rx_dist, rcs, lambda, no_loss);
+		const bool no_prop_loss = rx->checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
+		ComplexType gain =
+			computeReflectedPathGain(tx_gain, rx_gain, rcs, lambda, tx_to_tgt_dist, tgt_to_rx_dist, no_prop_loss);
 
-		found_paths.emplace_back(PropagationPath{
+		if (params::pointScatterParams().polarimetric)
+		{
+			// Skip near-exact forward scatter (Rx directly behind the target as seen from Tx).
+			// This isn't handled accurately by specular reflection physics, it's dominated by diffraction
+			// and other effects. The direct path is already computed separately, this skips "reflecting"
+			// off of a in-between target for now.
+			// This special case only applies to the polarimetric scattering physics below; it must not be
+			// applied to the non-polarimetric (incoherent) reflected-path gain.
+			if (math::dotProduct(tx_to_tgt / tx_to_tgt_dist, tgt_to_rx / tgt_to_rx_dist) > 0.995)
+			{
+				LOG(logging::Level::TRACE,
+					"Skipping reflected path calculation for Target between Tx {} and Rx {}. Rx is in the "
+					"forward-scatter direction from Tx through the target, which is not handled as a bistatic "
+					"reflection path for RCS point targets",
+					tx.getName(), rx->getName());
+
+				return std::nullopt;
+			}
+
+			const ComplexType linkage = computePolarimetricReflectedLinkage(tx, *rx, tx_to_tgt, tgt_to_rx,
+																			 tx_to_tgt_dist, tgt_to_rx_dist, tx_time,
+																			 rx_time);
+
+			gain *= linkage;
+		}
+
+		return PropagationPath{
 			.delay = delay,
 			.gain = gain,
 			.path_id = hash_mix(hash_mix(hash_mix(HASH_SEED, tx.getId()), target.getId()), rx->getId()),
-			.source_index = source_index,
+			.source_index{},
 			.receiver = rx,
-		});
+		};
 	}
 
 	std::vector<PathsAtTime> PointScatterModel::findTxToRxPaths(ThreadContext* /* ctx */,
@@ -268,14 +299,20 @@ namespace propagation::pointscatter
 
 			for (const auto& receiver : _world->getReceivers())
 			{
-				// Note, we're passing zero as the source as the caller of findTxToRxPaths
-				// only gives us a Transmitter, not a ActiveStreamingSource.
-				// findTxToRxPaths is used for pulsed radar instead of continuous, so this is fine.
+				// Note, we're not setting the PropagationPath source index as the caller of findTxToRxPaths
+				// only gives us a Transmitter, not an ActiveStreamingSource.
+				// findTxToRxPaths is used for pulsed radar instead of continuous, so this works.
 
 				if (!receiver->checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
 				{
 					// Calculate the direct path contribution, if any.
-					directPath(transmitter, receiver.get(), current_time, true, carrier, current_time, 0, paths);
+					const auto opt = directPath(transmitter, receiver.get(), current_time, true, carrier, current_time);
+
+					if (opt != std::nullopt)
+					{
+						auto path = opt.value();
+						paths.push_back(path);
+					}
 				}
 
 				for (const auto& target : _world->getTargets())
@@ -286,8 +323,14 @@ namespace propagation::pointscatter
 					}
 
 					// Calculate bistatic reflection contribution, if any.
-					reflectedPath(transmitter, receiver.get(), *target, current_time, true, carrier, current_time, 0,
-								  paths);
+					const auto opt =
+						reflectedPath(transmitter, receiver.get(), *target, current_time, true, carrier, current_time);
+
+					if (opt != std::nullopt)
+					{
+						auto path = opt.value();
+						paths.push_back(path);
+					}
 				}
 			}
 
@@ -312,7 +355,15 @@ namespace propagation::pointscatter
 			if (!receiver->checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
 			{
 				// Calculate the direct path contribution, if any.
-				directPath(*source.transmitter, receiver, rx_time, false, carrier, source.segment_start, s, paths);
+				const auto opt =
+					directPath(*source.transmitter, receiver, rx_time, false, carrier, source.segment_start);
+
+				if (opt != std::nullopt)
+				{
+					auto path = opt.value();
+					path.source_index = s;
+					paths.push_back(path);
+				}
 			}
 
 			for (const auto& target : _world->getTargets())
@@ -323,8 +374,15 @@ namespace propagation::pointscatter
 				}
 
 				// Calculate bistatic reflection contribution, if any.
-				reflectedPath(*source.transmitter, receiver, *target, rx_time, false, carrier, source.segment_start, s,
-							  paths);
+				const auto opt = reflectedPath(*source.transmitter, receiver, *target, rx_time, false, carrier,
+											   source.segment_start);
+
+				if (opt != std::nullopt)
+				{
+					auto path = opt.value();
+					path.source_index = s;
+					paths.push_back(path);
+				}
 			}
 		}
 

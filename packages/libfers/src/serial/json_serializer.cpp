@@ -1103,6 +1103,8 @@ namespace params
 			j["coordinatesystem"]["zone"] = p.utm_zone;
 			j["coordinatesystem"]["hemisphere"] = p.utm_north_hemisphere ? "N" : "S";
 		}
+
+		j["pointscatter"] = {{"polarimetric", p.point_scatterer_params.polarimetric}};
 	}
 
 	void from_json(const nlohmann::json& j, Parameters& p) // NOLINT(*-use-internal-linkage)
@@ -1130,6 +1132,9 @@ namespace params
 			p.utm_zone = cs.at("zone").get<int>();
 			p.utm_north_hemisphere = cs.at("hemisphere").get<std::string>() == "N";
 		}
+
+		p.point_scatterer_params.polarimetric =
+			j.value("pointscatter", nlohmann::json::object()).value("polarimetric", false);
 	}
 }
 

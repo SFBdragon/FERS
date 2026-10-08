@@ -574,7 +574,7 @@ TEST_CASE("bistatic path power scales linearly with RCS", "[propagation][pointsc
 
 	// RCS = 5 m^2. Off-axis (non-collinear, non-coplanar-null) geometry: forward scatter and
 	// several coordinate-plane-aligned bistatic angles are degenerate/null for this point-target
-	// model's polarimetric scattering (see pointscatter.cpp's computeReflectedPathGain).
+	// model's polarimetric scattering (see pointscatter.cpp's computePolarimetricReflectedLinkage).
 	radar::Platform tx_plat1("tx1");
 	setupPlatform(tx_plat1, math::Vec3{0.0, 0.0, 0.0});
 	radar::Platform tgt_plat1("tgt1");
@@ -796,10 +796,12 @@ TEST_CASE("bistatic path power follows R^-4 for monostatic geometry", "[propagat
 	REQUIRE_THAT(std::norm(path1->gain) / std::norm(path2->gain), WithinRel(16.0, 0.01));
 }
 
-TEST_CASE("bistatic path with 3D geometry computes correct bistatic range", "[propagation][pointscatter][reflected]")
+TEST_CASE("bistatic path with 3D geometry computes correct bistatic range (polarimetric)",
+		 "[propagation][pointscatter][reflected]")
 {
 	ParamGuard const guard;
 	params::params.reset();
+	params::params.point_scatterer_params.polarimetric = true;
 
 	const RealType c = params::c();
 	const RealType carrier = 2.0e9;
@@ -828,6 +830,68 @@ TEST_CASE("bistatic path with 3D geometry computes correct bistatic range", "[pr
 	constexpr RealType polarisation_coupling = 0.36;
 	const RealType expected_gain =
 		(rcs * lambda * lambda) / (64.0 * PI * PI * PI * r1 * r1 * r2 * r2) * polarisation_coupling;
+	const RealType expected_delay = (r1 + r2) / c;
+
+	radar::Platform tx_plat("tx_plat");
+	setupPlatform(tx_plat, tx_pos);
+
+	radar::Platform tgt_plat("tgt_plat");
+	setupPlatform(tgt_plat, tgt_pos);
+
+	radar::Platform rx_plat("rx_plat");
+	setupPlatform(rx_plat, rx_pos);
+
+	antenna::Isotropic iso_ant("iso");
+	auto timing = std::make_shared<timing::Timing>("clk", 42);
+
+	radar::Transmitter tx(&tx_plat, "tx", radar::OperationMode::PULSED_MODE);
+	tx.setAntenna(&iso_ant);
+	tx.setTiming(timing);
+
+	fers_signal::RadarSignal wave("sig", 1.0, carrier, fers_signal::CwWaveform{});
+	tx.setSignal(&wave);
+
+	radar::Receiver rx(&rx_plat, "rx", 42, radar::OperationMode::PULSED_MODE);
+	rx.setAntenna(&iso_ant);
+	rx.setTiming(timing);
+
+	core::World world;
+	world.add(radar::createIsoTarget(&tgt_plat, "tgt", rcs, 42));
+	const propagation::pointscatter::PointScatterModel prop(&world);
+	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
+	const auto paths = prop.findRxFromTxPaths(nullptr, &rx, {source}, 0.0);
+	const auto* path = findBistaticPath(paths, tx, *world.getTargets().front(), rx);
+	REQUIRE(path != nullptr);
+
+	REQUIRE_THAT(std::norm(path->gain), WithinRel(expected_gain, 1e-6));
+	REQUIRE_THAT(path->delay, WithinRel(expected_delay, 1e-9));
+}
+
+TEST_CASE("bistatic path with 3D geometry computes correct bistatic range (non-polarimetric)",
+		 "[propagation][pointscatter][reflected]")
+{
+	ParamGuard const guard;
+	params::params.reset();
+
+	const RealType c = params::c();
+	const RealType carrier = 2.0e9;
+	const RealType lambda = c / carrier;
+	const RealType rcs = 5.0;
+
+	// 3D positions
+	const math::Vec3 tx_pos{0.0, 0.0, 0.0};
+	const math::Vec3 tgt_pos{300.0, 400.0, 0.0}; // r1 = 500
+	const math::Vec3 rx_pos{300.0, 400.0, 600.0}; // r2 = 600
+
+	const RealType r1 = (tgt_pos - tx_pos).length();
+	const RealType r2 = (rx_pos - tgt_pos).length();
+
+	REQUIRE_THAT(r1, WithinAbs(500.0, 1e-9));
+	REQUIRE_THAT(r2, WithinAbs(600.0, 1e-9));
+
+	// The non-polarimetric model has no antenna-to-antenna coupling term, so unlike the
+	// polarimetric case this geometry's 3D offset has no effect on the expected gain.
+	const RealType expected_gain = (rcs * lambda * lambda) / (64.0 * PI * PI * PI * r1 * r1 * r2 * r2);
 	const RealType expected_delay = (r1 + r2) / c;
 
 	radar::Platform tx_plat("tx_plat");

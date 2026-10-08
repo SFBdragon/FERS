@@ -319,6 +319,6 @@ namespace propagation::raytracing
 	{
 		// For bouncing off of N scatterers, there are N+1 propagation legs.
 		// e.g. 1 scatterer = bistatic path = 2 legs
-		return params::rtModelParams().scatter_limit + 1;
+		return params::rayTracingParams().scatter_limit + 1;
 	}
 }

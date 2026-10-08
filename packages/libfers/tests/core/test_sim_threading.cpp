@@ -685,43 +685,69 @@ TEST_CASE("SimulationEngine calculates mathematically correct CW physics", "[cor
 
 	auto* tx = world->getTransmitters().front().get();
 	auto* rx = world->getReceivers().front().get();
-	SECTION("Calculates exact Direct and Reflected Path complex envelope")
+
+	// Math Verification (shared by both SECTIONs below):
+	// c = 3e8, f = 1e9 -> lambda = 0.3m
+	// Tx=(0,0,0), Rx=(100,0,0), Tgt=(50,10,0)
+	//
+	// DIRECT PATH:
+	// d = 100m.
+	// Pr/Pt = (Gt * Gr * lambda^2) / (16 * pi^2 * d^2)
+	// Amplitude = sqrt(Pr/Pt) = lambda / (4 * pi * d)
+	// Delay = d / c
+	// Phase = -2 * pi * f * delay
+	//
+	// REFLECTED PATH:
+	// Rtx = Rrx = sqrt(50^2 + 10^2) (Tgt is off-axis but still in the Tx-Rx plane, so the
+	// reflection stays fully co-polarised - see the pointscatter tests for the general case).
+	// RCS = 1.0
+	// Pr/Pt = (Gt * Gr * RCS * lambda^2) / (64 * pi^3 * Rtx^2 * Rrx^2)
+	// Amplitude = sqrt(Pr/Pt)
+	// Delay = (Rtx + Rrx) / c
+
+	const RealType lambda = 0.3;
+	const RealType d = 100.0;
+	const RealType r_tgt = std::sqrt(50.0 * 50.0 + tgt_y_offset * tgt_y_offset);
+
+	const RealType expected_direct_amp = lambda / (4.0 * PI * d);
+	const RealType expected_refl_amp =
+		std::sqrt((lambda * lambda) / (64.0 * PI * PI * PI * r_tgt * r_tgt * r_tgt * r_tgt));
+	const RealType expected_direct_phase = -2.0 * PI * (1e9 / 3e8) * d;
+	const RealType expected_refl_phase = -2.0 * PI * (1e9 / 3e8) * (2.0 * r_tgt);
+
+	SECTION("Calculates exact Direct and Reflected Path complex envelope (non-polarimetric)")
 	{
-		// Math Verification:
-		// c = 3e8, f = 1e9 -> lambda = 0.3m
-		// Tx=(0,0,0), Rx=(100,0,0), Tgt=(50,10,0)
-		//
-		// DIRECT PATH:
-		// d = 100m.
-		// Pr/Pt = (Gt * Gr * lambda^2) / (16 * pi^2 * d^2)
-		// Amplitude = sqrt(Pr/Pt) = lambda / (4 * pi * d)
-		// Delay = d / c
-		// Phase = -2 * pi * f * delay
-		//
-		// REFLECTED PATH:
-		// Rtx = Rrx = sqrt(50^2 + 10^2) (Tgt is off-axis but still in the Tx-Rx plane, so the
-		// reflection stays fully co-polarised - see the pointscatter tests for the general case).
-		// RCS = 1.0
-		// Pr/Pt = (Gt * Gr * RCS * lambda^2) / (64 * pi^3 * Rtx^2 * Rrx^2)
-		// Amplitude = sqrt(Pr/Pt)
-		// Delay = (Rtx + Rrx) / c
-		//
+		// The default (non-polarimetric) model has no antenna-to-antenna coupling term at all, for
+		// either path, so both amplitudes apply directly with no sign/coupling factor.
+		ComplexType const expected_direct = std::polar(expected_direct_amp, expected_direct_phase);
+		ComplexType const expected_refl = std::polar(expected_refl_amp, expected_refl_phase);
+		ComplexType const expected_total = expected_direct + expected_refl;
+
+		const propagation::pointscatter::PointScatterModel prop(world.get());
+		const std::vector<core::ActiveStreamingSource> sources = {
+			core::makeActiveSource(tx, 0.0, std::numeric_limits<RealType>::max())};
+
+		ComplexType actual_total{0.0, 0.0};
+		for (const auto& path : prop.findRxFromTxPaths(nullptr, rx, sources, 0.0))
+		{
+			actual_total +=
+				path.gain * std::polar(RealType(1.0), -2.0 * PI * tx->getSignal()->getCarrier() * path.delay);
+		}
+
+		REQUIRE_THAT(actual_total.real(), WithinAbs(expected_total.real(), 1e-12));
+		REQUIRE_THAT(actual_total.imag(), WithinAbs(expected_total.imag(), 1e-12));
+	}
+
+	SECTION("Calculates exact Direct and Reflected Path complex envelope (polarimetric)")
+	{
+		params::params.point_scatterer_params.polarimetric = true;
+
 		// Polarisation sign: Tx and Rx are both boresight-aligned along the Tx-Rx axis (each sees
 		// the other, or the target, at its own antenna pole), and the target's incidence and scatter
 		// directions are also aligned with that same axis. Both the direct antenna-to-antenna
 		// coupling and the reflection's co-pol coupling come out to exactly -1 (not +1) for this
 		// alignment, so both contributions carry a sign flip.
-
-		const RealType lambda = 0.3;
-		const RealType d = 100.0;
-		const RealType r_tgt = std::sqrt(50.0 * 50.0 + tgt_y_offset * tgt_y_offset);
 		constexpr RealType polarisation_sign = -1.0;
-
-		const RealType expected_direct_amp = lambda / (4.0 * PI * d);
-		const RealType expected_refl_amp =
-			std::sqrt((lambda * lambda) / (64.0 * PI * PI * PI * r_tgt * r_tgt * r_tgt * r_tgt));
-		const RealType expected_direct_phase = -2.0 * PI * (1e9 / 3e8) * d;
-		const RealType expected_refl_phase = -2.0 * PI * (1e9 / 3e8) * (2.0 * r_tgt);
 
 		ComplexType const expected_direct = polarisation_sign * std::polar(expected_direct_amp, expected_direct_phase);
 		ComplexType const expected_refl = polarisation_sign * std::polar(expected_refl_amp, expected_refl_phase);

@@ -280,6 +280,19 @@ TEST_CASE("parseParameters uses defaults without warnings for omitted optional p
 	REQUIRE(p.oversample_ratio == 1);
 	REQUIRE(capture.str().empty());
 	REQUIRE(p.propagation_model == params::PropagationModelKind::RcsPointScatter);
+	REQUIRE(p.point_scatterer_params.polarimetric == false);
+}
+
+TEST_CASE("parseParameters extracts the pointscatter polarimetric flag", "[serial][xml_parser_utils]")
+{
+	ParamGuard const guard;
+	const auto p = parseParametersXml("<parameters>"
+									  "  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
+									  "  <propagation><pointscatter polarimetric=\"true\"/></propagation>"
+									  "</parameters>");
+
+	REQUIRE(p.propagation_model == params::PropagationModelKind::RcsPointScatter);
+	REQUIRE(p.point_scatterer_params.polarimetric == true);
 }
 
 TEST_CASE("parseParameters extracts the raytracing propagation model and its sub-parameters",
@@ -294,11 +307,11 @@ TEST_CASE("parseParameters extracts the raytracing propagation model and its sub
 		"</parameters>");
 
 	REQUIRE(p.propagation_model == params::PropagationModelKind::SbrRayTracing);
-	REQUIRE(p.rt_model_params.scatter_limit == 5);
+	REQUIRE(p.ray_tracing_params.scatter_limit == 5);
 	// Default rotation_angle_unit is degrees, so boresight_width="20" is 20 degrees.
-	REQUIRE_THAT(p.rt_model_params.boresight_width, WithinAbs(20.0 * PI / 180.0, 1e-9));
-	REQUIRE_THAT(p.rt_model_params.boresight_tube_solid_angle, WithinAbs(1e-6, 1e-12));
-	REQUIRE_THAT(p.rt_model_params.off_boresight_tube_solid_angle, WithinAbs(1e-3, 1e-12));
+	REQUIRE_THAT(p.ray_tracing_params.boresight_width, WithinAbs(20.0 * PI / 180.0, 1e-9));
+	REQUIRE_THAT(p.ray_tracing_params.boresight_tube_solid_angle, WithinAbs(1e-6, 1e-12));
+	REQUIRE_THAT(p.ray_tracing_params.off_boresight_tube_solid_angle, WithinAbs(1e-3, 1e-12));
 }
 
 TEST_CASE("parseParameters keeps ray-tracing sub-parameter defaults when omitted", "[serial][xml_parser_utils]")
@@ -311,12 +324,12 @@ TEST_CASE("parseParameters keeps ray-tracing sub-parameter defaults when omitted
 									  "</parameters>");
 
 	REQUIRE(p.propagation_model == params::PropagationModelKind::SbrRayTracing);
-	REQUIRE(p.rt_model_params.scatter_limit == defaults.rt_model_params.scatter_limit);
-	REQUIRE_THAT(p.rt_model_params.boresight_width, WithinAbs(defaults.rt_model_params.boresight_width, 1e-12));
-	REQUIRE_THAT(p.rt_model_params.boresight_tube_solid_angle,
-				 WithinAbs(defaults.rt_model_params.boresight_tube_solid_angle, 1e-18));
-	REQUIRE_THAT(p.rt_model_params.off_boresight_tube_solid_angle,
-				 WithinAbs(defaults.rt_model_params.off_boresight_tube_solid_angle, 1e-15));
+	REQUIRE(p.ray_tracing_params.scatter_limit == defaults.ray_tracing_params.scatter_limit);
+	REQUIRE_THAT(p.ray_tracing_params.boresight_width, WithinAbs(defaults.ray_tracing_params.boresight_width, 1e-12));
+	REQUIRE_THAT(p.ray_tracing_params.boresight_tube_solid_angle,
+				 WithinAbs(defaults.ray_tracing_params.boresight_tube_solid_angle, 1e-18));
+	REQUIRE_THAT(p.ray_tracing_params.off_boresight_tube_solid_angle,
+				 WithinAbs(defaults.ray_tracing_params.off_boresight_tube_solid_angle, 1e-15));
 }
 
 TEST_CASE("parseParameters rejects a boresight_width of a full turn or more", "[serial][xml_parser_utils]")

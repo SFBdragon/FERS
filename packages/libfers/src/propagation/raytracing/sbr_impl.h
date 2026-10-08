@@ -862,8 +862,8 @@ namespace propagation::raytracing
 																	   dst_antenna.direction, dst_local_dir);
 
 		const bool no_prop_loss = (rx_flags & RxFlags::FLAG_NOSPREADING) != 0;
-		const CFloat voltage =
-			computeDirectPathGain(src_gain, dst_gain, src_pol, dst_pol, wavelength, float(path_len), no_prop_loss);
+		const float scalar_gain = computeDirectPathGain(src_gain, dst_gain, wavelength, float(path_len), no_prop_loss);
+		const CFloat voltage = scalar_gain * dot_no_conj(src_pol, dst_pol);
 
 		const uint32_t contrib_index = get_contrib_index();
 		auto* contrib = &params.contributions[contrib_index];

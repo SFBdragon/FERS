@@ -728,14 +728,17 @@ namespace serial::xml_parser_utils
 		if (!raytracing_element.isValid())
 		{
 			params_out.propagation_model = params::PropagationModelKind::RcsPointScatter;
-			LOG(logging::Level::INFO, "Propagation model set to: pointscatter");
+			params_out.point_scatterer_params.polarimetric =
+				get_attribute_bool(pointscatter_element, "polarimetric", false);
+			LOG(logging::Level::INFO, "Propagation model set to: pointscatter (polarimetric={})",
+				params_out.point_scatterer_params.polarimetric);
 			return;
 		}
 
 		params_out.propagation_model = params::PropagationModelKind::SbrRayTracing;
 		LOG(logging::Level::INFO, "Propagation model set to: raytracing");
 
-		auto& rt = params_out.rt_model_params;
+		auto& rt = params_out.ray_tracing_params;
 
 		if (const auto scatter_limit = XmlElement::getOptionalAttribute(raytracing_element, "scatter_limit"))
 		{

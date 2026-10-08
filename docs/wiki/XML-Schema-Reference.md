@@ -74,7 +74,7 @@ Optional children, in order:
 | `<rotationangleunit>` | `deg` or `rad` | `deg` | Unit used by platform rotation values. |
 | `<origin>` | attributes | built-in KML default | Geodetic reference used only by ENU KML/geospatial export. It does not affect signal simulation geometry. |
 | `<coordinatesystem>` | attributes | `ENU` | Coordinate frame used when converting platform coordinates to geodetic coordinates for KML/geospatial export. It does not transform positions during simulation. |
-| `<propagation>` | `<pointscatter/>` or `<raytracing>` sub-element | `pointscatter` model | Selects the propagation model and, for `raytracing`, its ray-sampling parameters. |
+| `<propagation>` | `<pointscatter>` or `<raytracing>` sub-element | `pointscatter` model | Selects the propagation model and its model-specific parameters. |
 
 ### `<origin>`
 
@@ -122,7 +122,13 @@ FERS does not accept platform latitude/longitude waypoints. Latitude and longitu
 
 ### `<propagation>`
 
-`<propagation>` selects the propagation model as a choice of exactly one sub-element: an empty `<pointscatter/>`, or a `<raytracing>` carrying its ray-sampling parameters. Omitting `<propagation>` entirely defaults to `pointscatter`.
+`<propagation>` selects the propagation model as a choice of exactly one sub-element: `<pointscatter>`, carrying its polarimetric-transport flag, or `<raytracing>`, carrying its ray-sampling parameters. Omitting `<propagation>` entirely defaults to `pointscatter` with polarimetric transport disabled.
+
+```xml
+<propagation>
+    <pointscatter polarimetric="true"/>
+</propagation>
+```
 
 ```xml
 <propagation>
@@ -130,6 +136,12 @@ FERS does not accept platform latitude/longitude waypoints. Latitude and longitu
                 boresight_tube_solid_angle="2e-8" off_boresight_tube_solid_angle="1e-5"/>
 </propagation>
 ```
+
+`<pointscatter>` attributes:
+
+| Attribute | Required | Unit | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `polarimetric` | No | boolean | `false` | Enables full polarimetric transport: antenna Jones-vector polarisation coupling and target scattering matrices on reflected paths. When `false`, direct and reflected paths compute scalar amplitudes. |
 
 `<raytracing>` attributes:
 

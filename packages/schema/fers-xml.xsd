@@ -100,7 +100,9 @@
         <xs:complexType>
             <xs:choice>
                 <xs:element name="pointscatter">
-                    <xs:complexType/>
+                    <xs:complexType>
+                        <xs:attribute name="polarimetric" type="xs:boolean"/>
+                    </xs:complexType>
                 </xs:element>
                 <xs:element name="raytracing">
                     <xs:complexType>

@@ -121,7 +121,7 @@ namespace propagation
 	// --- Gain Calculations ----------------------------------------------------------------------------- //
 
 	/**
-	 * @brief Computes the power scaling factor for a direct path (Friis Transmission Equation).
+	 * @brief Computes the scalar voltage scaling factor for a direct path (Friis Transmission Equation).
 	 * @param tx_gain Transmitter gain (linear).
 	 * @param rx_gain Receiver gain (linear).
 	 * @param lambda Wavelength (meters).
@@ -130,9 +130,8 @@ namespace propagation
 	 * @return The voltage scaling factor (Vr / Vt) or sqrt(Pr / Pt).
 	 */
 	template <typename Real>
-	[[nodiscard]] HC_FN Complex<Real> computeDirectPathGain(Real tx_gain, Real rx_gain, const Complex3<Real>& tx_pol,
-															const Complex3<Real>& rx_pol, Real lambda, Real dist,
-															bool no_prop_loss)
+	[[nodiscard]] HC_FN Real computeDirectPathGain(Real tx_gain, Real rx_gain, Real lambda, Real dist,
+												   bool no_prop_loss)
 	{
 		const Real numerator = std::sqrt(tx_gain * rx_gain) * lambda;
 
@@ -142,7 +141,7 @@ namespace propagation
 			denominator *= dist;
 		}
 
-		return Real(numerator / denominator) * dot_no_conj(tx_pol, rx_pol);
+		return numerator / denominator;
 	}
 
 	// --- Carrier Modelling ----------------------------------------------------------------------------- //

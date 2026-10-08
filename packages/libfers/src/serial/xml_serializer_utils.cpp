@@ -114,7 +114,7 @@ namespace serial::xml_serializer_utils
 		{
 			const XmlElement prop_elem = parent.addChild("propagation");
 			const XmlElement rt_elem = prop_elem.addChild("raytracing");
-			const auto& rt = p.rt_model_params;
+			const auto& rt = p.ray_tracing_params;
 			const params::RayTracingParameters defaults;
 
 			if (rt.scatter_limit != defaults.scatter_limit)
@@ -134,6 +134,12 @@ namespace serial::xml_serializer_utils
 			{
 				setAttributeFromNumber(rt_elem, "off_boresight_tube_solid_angle", rt.off_boresight_tube_solid_angle);
 			}
+		}
+		else if (p.point_scatterer_params.polarimetric != params::PointScatterParameters{}.polarimetric)
+		{
+			const XmlElement prop_elem = parent.addChild("propagation");
+			const XmlElement ps_elem = prop_elem.addChild("pointscatter");
+			setAttributeFromBool(ps_elem, "polarimetric", p.point_scatterer_params.polarimetric);
 		}
 	}
 

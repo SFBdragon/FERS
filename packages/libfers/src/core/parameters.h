@@ -55,6 +55,13 @@ namespace params
 		SbrRayTracing = 2, ///< GO+PO ray-tracing model against target meshes.
 	};
 
+	struct PointScatterParameters
+	{
+		/// Whether to enable polarimetric transport, including antenna polarisations and
+		/// Target scattering matrices.
+		bool polarimetric = false;
+	};
+
 	/// Simulation parameters for running the ray tracing propagation model.
 	///
 	/// Ray directions are sampled with two uniform densities: a finer one within a cone around
@@ -133,7 +140,8 @@ namespace params
 		unsigned oversample_ratio = 1; ///< Oversampling ratio.
 
 		PropagationModelKind propagation_model = PropagationModelKind::RcsPointScatter; ///< Active propagation model.
-		RayTracingParameters rt_model_params{}; ///< Ray-tracing model parameters.
+		PointScatterParameters point_scatterer_params{}; ///< Point-scatterer (RCS) model parameters.
+		RayTracingParameters ray_tracing_params{}; ///< Ray-tracing (SBR) model parameters.
 
 		/**
 		 * @brief Resets the parameters to their default-constructed state.
@@ -218,10 +226,16 @@ namespace params
 	inline PropagationModelKind propagationModel() noexcept { return params.propagation_model; }
 
 	/**
-	 * @brief Get the ray-tracing model's parameters.
-	 * @return The ray-tracing model parameters.
+	 * @brief Get the point-scatterer modelling parameters.
+	 * @return The point-scatterer modelling parameters.
 	 */
-	inline const RayTracingParameters& rtModelParams() noexcept { return params.rt_model_params; }
+	inline const PointScatterParameters& pointScatterParams() noexcept { return params.point_scatterer_params; }
+
+	/**
+	 * @brief Get the ray-tracing modelling parameters.
+	 * @return The ray-tracing modelling parameters.
+	 */
+	inline const RayTracingParameters& rayTracingParams() noexcept { return params.ray_tracing_params; }
 
 	/**
 	 * @brief Gets the maximum supported oversampling ratio.

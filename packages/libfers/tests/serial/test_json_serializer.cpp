@@ -639,6 +639,42 @@ TEST_CASE("JSON: Serialization of Math and Timing Structures", "[serial][json]")
 	}
 }
 
+TEST_CASE("JSON: pointscatter polarimetric flag round trips", "[serial][json]")
+{
+	ParamGuard const guard;
+	core::World w;
+
+	SECTION("defaults to false when omitted")
+	{
+		params::params.reset();
+		json const j = serial::world_to_json(w);
+		REQUIRE(j["simulation"]["parameters"]["pointscatter"]["polarimetric"] == false);
+
+		std::mt19937 seeder{0};
+		serial::update_parameters_from_json(json{{"starttime", 0.0},
+												  {"endtime", 1.0},
+												  {"rate", 1.0},
+												  {"origin", {{"latitude", 0.0}, {"longitude", 0.0}, {"altitude", 0.0}}},
+												  {"coordinatesystem", {{"frame", "ENU"}}}},
+											seeder);
+		REQUIRE(params::pointScatterParams().polarimetric == false);
+	}
+
+	SECTION("true value serializes and deserializes")
+	{
+		params::params.reset();
+		params::params.point_scatterer_params.polarimetric = true;
+
+		json const j = serial::world_to_json(w);
+		REQUIRE(j["simulation"]["parameters"]["pointscatter"]["polarimetric"] == true);
+
+		params::params.reset();
+		std::mt19937 seeder{0};
+		serial::update_parameters_from_json(j["simulation"]["parameters"], seeder);
+		REQUIRE(params::pointScatterParams().polarimetric == true);
+	}
+}
+
 TEST_CASE("JSON: Serialization of Assets and Radar Components", "[serial][json]")
 {
 	ParamGuard const guard;

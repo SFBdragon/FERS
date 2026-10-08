@@ -48,6 +48,9 @@
         <!-- Selects the propagation model and sets model-specific parameters. -->
         <!ELEMENT propagation (pointscatter|raytracing)>
         <!ELEMENT pointscatter EMPTY>
+        <!ATTLIST pointscatter
+                polarimetric (true|false) "false"
+                >
         <!ELEMENT raytracing EMPTY>
         <!ATTLIST raytracing
                 scatter_limit                  CDATA #IMPLIED

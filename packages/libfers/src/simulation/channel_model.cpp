@@ -804,10 +804,6 @@ namespace simulation
 				const Vec3 u_tx_tgt = vec_tx_tgt / range;
 				const RealType gt = computeAntennaGain(&tx_ctx.transmitter, u_tx_tgt, time, tx_ctx.lambda);
 				const RealType gr = computeAntennaGain(&rx_ctx.receiver, u_tx_tgt, time, tx_ctx.lambda);
-				const auto tx_pol =
-					propagation::pointscatter::computeAntennaPolarisation(&tx_ctx.transmitter, vec_tx_tgt, time);
-				const auto rx_pol =
-					propagation::pointscatter::computeAntennaPolarisation(&rx_ctx.receiver, vec_tx_tgt, time);
 				SVec3 in_angle(u_tx_tgt);
 				SVec3 out_angle(-u_tx_tgt);
 				const auto rcs_opt = target->getRcs(in_angle, out_angle, time);
@@ -815,13 +811,20 @@ namespace simulation
 				{
 					continue;
 				}
-				const auto gain = propagation::pointscatter::computeReflectedPathGain(
-					gt, gr, tx_pol, rx_pol, vec_tx_tgt, -vec_tx_tgt, range, range, *rcs_opt, tx_ctx.lambda,
-					rx_ctx.no_loss);
+
+				ComplexType gain = propagation::pointscatter::computeReflectedPathGain(gt, gr, *rcs_opt, tx_ctx.lambda,
+																					   range, range, rx_ctx.no_loss);
+				ComplexType unit_gain = propagation::pointscatter::computeReflectedPathGain(
+					gt, gr, 1.0, tx_ctx.lambda, range, range, rx_ctx.no_loss);
+				if (params::pointScatterParams().polarimetric)
+				{
+					const auto linkage = propagation::pointscatter::computePolarimetricReflectedLinkage(
+						tx_ctx.transmitter, rx_ctx.receiver, vec_tx_tgt, -vec_tx_tgt, range, range, time, time);
+					gain *= linkage;
+					unit_gain *= linkage;
+				}
 				const RealType power_ratio = std::abs(gain) * std::abs(gain);
 				const RealType pr_watts = tx_ctx.radiated_power * power_ratio;
-				const auto unit_gain = propagation::pointscatter::computeReflectedPathGain(
-					gt, gr, tx_pol, rx_pol, vec_tx_tgt, -vec_tx_tgt, range, range, 1.0, tx_ctx.lambda, rx_ctx.no_loss);
 				const RealType pr_unit_watts = tx_ctx.radiated_power * std::abs(unit_gain) * std::abs(unit_gain);
 
 				links.push_back({.type = LinkType::Monostatic,
@@ -856,13 +859,19 @@ namespace simulation
 			const Vec3 u_tx_rx = vec_direct / range;
 			const RealType gt = computeAntennaGain(&tx_ctx.transmitter, u_tx_rx, time, tx_ctx.lambda);
 			const RealType gr = computeAntennaGain(&rx_ctx.receiver, -u_tx_rx, time, tx_ctx.lambda);
-			const auto tx_pol =
-				propagation::pointscatter::computeAntennaPolarisation(&tx_ctx.transmitter, vec_direct, time);
-			const auto rx_pol =
-				propagation::pointscatter::computeAntennaPolarisation(&rx_ctx.receiver, -vec_direct, time);
-			const auto gain =
-				propagation::computeDirectPathGain(gt, gr, tx_pol, rx_pol, tx_ctx.lambda, range, rx_ctx.no_loss);
-			const RealType power_ratio = propagation::cabs(gain) * propagation::cabs(gain);
+
+			const RealType scalar_gain = propagation::computeDirectPathGain(gt, gr, tx_ctx.lambda, range, rx_ctx.no_loss);
+			ComplexType gain{scalar_gain, 0.0};
+			if (params::pointScatterParams().polarimetric)
+			{
+				const auto tx_pol =
+					propagation::pointscatter::computeAntennaPolarisation(tx_ctx.transmitter, vec_direct, time);
+				const auto rx_pol =
+					propagation::pointscatter::computeAntennaPolarisation(rx_ctx.receiver, -vec_direct, time);
+				const auto linkage = propagation::dot_no_conj(tx_pol, rx_pol);
+				gain *= ComplexType{linkage.re, linkage.im};
+			}
+			const RealType power_ratio = std::abs(gain) * std::abs(gain);
 			const RealType pr_watts = tx_ctx.radiated_power * power_ratio;
 
 			links.push_back({.type = LinkType::DirectTxRx,
@@ -893,7 +902,7 @@ namespace simulation
 				const Vec3 u_tx_tgt = vec_tx_tgt / r1;
 				const Vec3 u_tgt_rx = vec_tgt_rx / r2;
 
-				// computeReflectedPathGain requires tx_to_tgt and tgt_to_rx not to point in exactly
+				// computePolarimetricReflectedLinkage requires tx_to_tgt and tgt_to_rx not to point in exactly
 				// the same direction (forward scatter).
 				if (math::dotProduct(u_tx_tgt, u_tgt_rx) > 1.0 - EPSILON)
 				{
@@ -901,10 +910,6 @@ namespace simulation
 				}
 				const RealType gt = computeAntennaGain(&tx_ctx.transmitter, u_tx_tgt, time, tx_ctx.lambda);
 				const RealType gr = computeAntennaGain(&rx_ctx.receiver, -u_tgt_rx, time, tx_ctx.lambda);
-				const auto tx_pol =
-					propagation::pointscatter::computeAntennaPolarisation(&tx_ctx.transmitter, vec_tx_tgt, time);
-				const auto rx_pol =
-					propagation::pointscatter::computeAntennaPolarisation(&rx_ctx.receiver, -vec_tgt_rx, time);
 				SVec3 in_angle(u_tx_tgt);
 				SVec3 out_angle(-u_tgt_rx);
 				const auto rcs_opt = target->getRcs(in_angle, out_angle, time);
@@ -912,12 +917,21 @@ namespace simulation
 				{
 					continue;
 				}
-				const auto gain = propagation::pointscatter::computeReflectedPathGain(
-					gt, gr, tx_pol, rx_pol, vec_tx_tgt, vec_tgt_rx, r1, r2, *rcs_opt, tx_ctx.lambda, rx_ctx.no_loss);
+
+				ComplexType gain = propagation::pointscatter::computeReflectedPathGain(gt, gr, *rcs_opt, tx_ctx.lambda,
+																					   r1, r2, rx_ctx.no_loss);
+				ComplexType unit_gain =
+					propagation::pointscatter::computeReflectedPathGain(gt, gr, 1.0, tx_ctx.lambda, r1, r2,
+																		 rx_ctx.no_loss);
+				if (params::pointScatterParams().polarimetric)
+				{
+					const auto linkage = propagation::pointscatter::computePolarimetricReflectedLinkage(
+						tx_ctx.transmitter, rx_ctx.receiver, vec_tx_tgt, vec_tgt_rx, r1, r2, time, time);
+					gain *= linkage;
+					unit_gain *= linkage;
+				}
 				const RealType power_ratio = std::abs(gain) * std::abs(gain);
 				const RealType pr_watts = tx_ctx.radiated_power * power_ratio;
-				const auto unit_gain = propagation::pointscatter::computeReflectedPathGain(
-					gt, gr, tx_pol, rx_pol, vec_tx_tgt, vec_tgt_rx, r1, r2, 1.0, tx_ctx.lambda, rx_ctx.no_loss);
 				const RealType pr_unit_watts = tx_ctx.radiated_power * std::abs(unit_gain) * std::abs(unit_gain);
 
 				links.push_back({.type = LinkType::BistaticTgtRx,

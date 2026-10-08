@@ -126,10 +126,10 @@ namespace propagation::raytracing::optix
 		OPTIX_CHECK(optixDeviceContextCreate(context, &opts, &_context));
 	}
 
-	static uint32_t maxScatterLimit() { return std::min(MAX_SCATTER_LIMIT, params::rtModelParams().scatter_limit); }
+	static uint32_t maxScatterLimit() { return std::min(MAX_SCATTER_LIMIT, params::rayTracingParams().scatter_limit); }
 	static uint32_t maxTraceDepth()
 	{
-		return std::min(MAX_SCATTER_LIMIT + 1, params::rtModelParams().scatter_limit + 1);
+		return std::min(MAX_SCATTER_LIMIT + 1, params::rayTracingParams().scatter_limit + 1);
 	}
 
 	// By initialising the CUDA and OptiX RAII wrappers first, they get automatically
@@ -147,13 +147,13 @@ namespace propagation::raytracing::optix
 		// in ThreadContexts as pipelines aren't thread-safe, and the options must be consistent.
 
 		// If we're capping the scatter limit, warn the user.
-		if (params::rtModelParams().scatter_limit + 1 != maxScatterLimit())
+		if (params::rayTracingParams().scatter_limit + 1 != maxScatterLimit())
 		{
 			LOG(logging::Level::WARNING,
 				"Ray-tracing propagation model kernel was not built with support for a scatter limit of {}, this "
 				"build's maximum is {}. It's possible to edit the kernel's `MAX_SCATTER_LIMIT` and rebuild. This run "
 				"will use a scatter limit of {}.",
-				params::rtModelParams().scatter_limit, maxScatterLimit(), maxScatterLimit());
+				params::rayTracingParams().scatter_limit, maxScatterLimit(), maxScatterLimit());
 		}
 
 
@@ -559,7 +559,7 @@ namespace propagation::raytracing::optix
 		if (ctx == nullptr)
 			throw std::runtime_error("OptixEngine::trace did not receive a valid OptixThreadContext.");
 
-		const auto rays_per_source = params::rtModelParams().raysPerSource();
+		const auto rays_per_source = params::rayTracingParams().raysPerSource();
 		const auto x_rays_per_source = rays_per_source;
 		const auto y_source_antennas = static_cast<uint32_t>(job.source_antennas.size());
 		const auto z_times = static_cast<uint32_t>(job.times.size());
@@ -600,29 +600,30 @@ namespace propagation::raytracing::optix
 
 		LOG(logging::Level::DEBUG, "Contribution buffer capacity: {}", contributions.capacity());
 
-		ShaderParams params{.iass = ctx->iass.ptr_t(),
-							.contribution_count = ctx->contribution_count.ptr_t(),
-							.contribution_capacity = static_cast<uint32_t>(contributions.capacity()),
-							.sbr{
-								.scatter_limit = maxScatterLimit(),
-								.rays_per_source = rays_per_source,
-								.boresight_rays = params::rtModelParams().raysAtBoresightCap(),
-								.boresight_fraction = float(params::rtModelParams().boresightSolidAngle() / (4.0 * PI)),
-								.vertices = _vertices.ptr_t(),
-								.indices = _indeces.ptr_t(),
-								.materials = _materials.ptr_t(),
-								.times = times.ptr_t(),
-								.carrier_models = carriers.ptr_t(),
-								.antenna_models = _antenna_models.ptr_t(),
-								.antenna_gains = _antenna_gains.ptr_t(),
-								.source_antennas = source_antennas.ptr_t(),
-								.source_antenna_count = static_cast<uint32_t>(source_antennas.size()),
-								.dest_antennas = dest_antennas.ptr_t(),
-								.dest_antenna_count = static_cast<uint32_t>(dest_antennas.size()),
-								.rx_flags = rx_flags.ptr_t(),
-								.rx_to_tx = job.type == TraceJobType::FindRxFromTx,
-								.contributions = contributions.ptr_t(),
-							}};
+		ShaderParams params{
+			.iass = ctx->iass.ptr_t(),
+			.contribution_count = ctx->contribution_count.ptr_t(),
+			.contribution_capacity = static_cast<uint32_t>(contributions.capacity()),
+			.sbr{
+				.scatter_limit = maxScatterLimit(),
+				.rays_per_source = rays_per_source,
+				.boresight_rays = params::rayTracingParams().raysAtBoresightCap(),
+				.boresight_fraction = float(params::rayTracingParams().boresightSolidAngle() / (4.0 * PI)),
+				.vertices = _vertices.ptr_t(),
+				.indices = _indeces.ptr_t(),
+				.materials = _materials.ptr_t(),
+				.times = times.ptr_t(),
+				.carrier_models = carriers.ptr_t(),
+				.antenna_models = _antenna_models.ptr_t(),
+				.antenna_gains = _antenna_gains.ptr_t(),
+				.source_antennas = source_antennas.ptr_t(),
+				.source_antenna_count = static_cast<uint32_t>(source_antennas.size()),
+				.dest_antennas = dest_antennas.ptr_t(),
+				.dest_antenna_count = static_cast<uint32_t>(dest_antennas.size()),
+				.rx_flags = rx_flags.ptr_t(),
+				.rx_to_tx = job.type == TraceJobType::FindRxFromTx,
+				.contributions = contributions.ptr_t(),
+			}};
 
 		ctx->params.upload(params);
 

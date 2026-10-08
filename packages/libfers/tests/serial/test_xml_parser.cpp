@@ -242,10 +242,10 @@ TEST_CASE("fersxml round-trips mesh, material (including PEC), geometry, and ray
 	REQUIRE_NOTHROW(serial::parseSimulationFromString(roundtripped, &world2, true, seeder2));
 
 	REQUIRE(params::params.propagation_model == params::PropagationModelKind::SbrRayTracing);
-	REQUIRE(params::params.rt_model_params.scatter_limit == 7);
-	REQUIRE_THAT(params::params.rt_model_params.boresight_width, WithinAbs(12.5 * PI / 180.0, 1e-9));
-	REQUIRE_THAT(params::params.rt_model_params.boresight_tube_solid_angle, WithinAbs(3e-7, 1e-13));
-	REQUIRE_THAT(params::params.rt_model_params.off_boresight_tube_solid_angle, WithinAbs(2e-4, 1e-10));
+	REQUIRE(params::params.ray_tracing_params.scatter_limit == 7);
+	REQUIRE_THAT(params::params.ray_tracing_params.boresight_width, WithinAbs(12.5 * PI / 180.0, 1e-9));
+	REQUIRE_THAT(params::params.ray_tracing_params.boresight_tube_solid_angle, WithinAbs(3e-7, 1e-13));
+	REQUIRE_THAT(params::params.ray_tracing_params.off_boresight_tube_solid_angle, WithinAbs(2e-4, 1e-10));
 
 	REQUIRE(world2.getMeshes().size() == 1);
 	const auto& mesh2 = world2.getMeshes().begin()->second;

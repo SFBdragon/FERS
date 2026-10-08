@@ -151,7 +151,7 @@ TEST_CASE("serializeParameters writes raytracing propagation as a nested element
 	p.end = 1.0;
 	p.rate = 1000.0;
 
-	SECTION("pointscatter model emits no <propagation> element")
+	SECTION("pointscatter model with default (non-polarimetric) sub-parameters emits no <propagation> element")
 	{
 		p.propagation_model = params::PropagationModelKind::RcsPointScatter;
 		serial::xml_serializer_utils::serializeParameters(root, p);
@@ -159,13 +159,23 @@ TEST_CASE("serializeParameters writes raytracing propagation as a nested element
 		REQUIRE_THAT(s, !ContainsSubstring("<propagation>"));
 	}
 
+	SECTION("pointscatter model writes a nested <pointscatter> when polarimetric is enabled")
+	{
+		p.propagation_model = params::PropagationModelKind::RcsPointScatter;
+		p.point_scatterer_params.polarimetric = true;
+		serial::xml_serializer_utils::serializeParameters(root, p);
+		std::string s = dumpElement(root);
+		REQUIRE_THAT(s, ContainsSubstring("<propagation><pointscatter"));
+		REQUIRE_THAT(s, ContainsSubstring("polarimetric=\"true\""));
+	}
+
 	SECTION("raytracing model writes a nested <raytracing> with non-default attributes")
 	{
 		p.propagation_model = params::PropagationModelKind::SbrRayTracing;
-		p.rt_model_params.scatter_limit = 7;
-		p.rt_model_params.boresight_width = 20.0 * PI / 180.0;
-		p.rt_model_params.boresight_tube_solid_angle = 1e-6;
-		p.rt_model_params.off_boresight_tube_solid_angle = 1e-3;
+		p.ray_tracing_params.scatter_limit = 7;
+		p.ray_tracing_params.boresight_width = 20.0 * PI / 180.0;
+		p.ray_tracing_params.boresight_tube_solid_angle = 1e-6;
+		p.ray_tracing_params.off_boresight_tube_solid_angle = 1e-3;
 
 		serial::xml_serializer_utils::serializeParameters(root, p);
 		std::string s = dumpElement(root);
