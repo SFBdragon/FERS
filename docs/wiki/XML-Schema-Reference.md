@@ -394,6 +394,27 @@ Optional child parameters:
 | `<azscale>` | `gaussian` | Azimuth spread for Gaussian pattern. |
 | `<elscale>` | `gaussian` | Elevation spread for Gaussian pattern. |
 | `<efficiency>` | `isotropic`, `sinc`, `squarehorn`, `parabolic`, `xml`, `file` | Linear gain multiplier applied to the computed antenna gain. Defaults to `1`. |
+| `<boresight_polarisation>` | all | Boresight polarisation Jones vector (Ludwig-3). See below. Defaults to purely horizontal if omitted. |
+
+### `<boresight_polarisation>`
+
+```xml
+<antenna name="Iso" pattern="isotropic">
+    <boresight_polarisation h="1.0+0.0i" v="0.0+0.0i"/>
+</antenna>
+```
+
+| Attribute | Required | Meaning |
+| --- | --- | --- |
+| `h` | No | Horizontal component of the Jones vector, as a complex number literal. Defaults to `0+0i`. |
+| `v` | No | Vertical component of the Jones vector, as a complex number literal. Defaults to `0+0i`. |
+
+The vector is normalised on load, so only the ratio between `h` and `v` matters.
+
+A complex number literal is a real term, an imaginary term, or both (real first). An
+imaginary term's unit marker (`i` or `j`, case-insensitive) may come before or after its
+magnitude, and whitespace around signs and units is ignored. For example, all of
+`1.0+0.0i`, `1.0 + j0.5`, `-0.5 - i2`, `0.5j`, and `1e-3+2e-4i` are valid.
 
 Pattern notes:
 
@@ -509,7 +530,7 @@ Contains one or more `<rotationwaypoint>` elements.
 
 | Element | Unit | Meaning |
 | --- | --- | --- |
-| `<azimuth>` | `<rotationangleunit>` | Platform azimuth. |
+| `<azimuth>` | `<rotationangleunit>` | Platform compass azimuth (left-handed angle from north). |
 | `<elevation>` | `<rotationangleunit>` | Platform elevation. |
 | `<time>` | seconds | Time for this pointing waypoint. |
 

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "core/config.h"
+#include "core/logging.h"
 #include "math/geometry_ops.h"
 
 namespace propagation::raytracing
@@ -61,7 +62,11 @@ namespace propagation::raytracing
 
 		const auto pol = antenna.getPolarisation();
 		result.horizontal_pol = CFloat{float(pol.horizontal.real()), float(pol.horizontal.imag())};
-		result.vertical_pol = CFloat{float(pol.veritcal.real()), float(pol.veritcal.imag())};
+		result.vertical_pol = CFloat{float(pol.vertical.real()), float(pol.vertical.imag())};
+
+		// TODO_SHAUN remove
+		LOG(logging::Level::DEBUG, "Building antenna: H {}+j{} V {}+j{}", result.horizontal_pol.re,
+			result.horizontal_pol.im, result.vertical_pol.re, result.vertical_pol.im);
 
 		if (dynamic_cast<const antenna::Isotropic*>(&antenna) != nullptr)
 		{

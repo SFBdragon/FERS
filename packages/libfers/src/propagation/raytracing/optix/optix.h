@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <cccl/cuda/__atomic/atomic.h>
 #include <cstdint>
 #include <cuda.h>
 #include <cuda_runtime_api.h>
@@ -121,6 +122,7 @@ namespace propagation::raytracing::optix
 
 		/// OptiX launch parameters.
 		DeviceBuffer<ShaderParams> params;
+		DeviceBuffer<ContributionCountType> contribution_count;
 
 		std::vector<OptixInstance> instances;
 		std::vector<const radar::Target*> instance_targets;
@@ -139,8 +141,8 @@ namespace propagation::raytracing::optix
 
 
 		OptixThreadContext() :
-			stream(), params(stream.get()), iass(stream.get()), ias_instances(stream.get()),
-			ias_build_temp(stream.get()), ias_output(stream.get())
+			stream(), params(stream.get()), contribution_count(stream.get()), iass(stream.get()),
+			ias_instances(stream.get()), ias_build_temp(stream.get()), ias_output(stream.get())
 		{
 		}
 	};

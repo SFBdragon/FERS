@@ -264,7 +264,7 @@ TEST_CASE("PulseWaveform render matches constant input physics", "[signal][radar
 
 	const RealType power = 4.0;
 	const RealType phase = PI / 4.0;
-	const std::vector<interp::InterpPoint> points = {{power, 0.0, 0.0, phase}};
+	const std::vector<interp::InterpPoint> points = {{std::sqrt(power), 0.0, 0.0, phase}};
 
 	const auto data = signal.render(points, points.front().rx_time, 0.0, 1.0);
 
@@ -294,8 +294,8 @@ TEST_CASE("PulseWaveform render interpolates power and phase", "[signal][radar]"
 	const RealType power_b = 9.0;
 	const RealType phase_a = 0.0;
 	const RealType phase_b = PI / 2.0;
-	const std::vector<interp::InterpPoint> points = {{power_a, 0.0, 0.0, phase_a},
-													 {power_b, 2.0 * filter_length, 0.0, phase_b}};
+	const std::vector<interp::InterpPoint> points = {{std::sqrt(power_a), 0.0, 0.0, phase_a},
+													 {std::sqrt(power_b), 2.0 * filter_length, 0.0, phase_b}};
 
 	const auto data = signal.render(points, points.front().rx_time, 0.0, 1.0);
 

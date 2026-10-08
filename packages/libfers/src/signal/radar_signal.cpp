@@ -109,7 +109,7 @@ namespace fers_signal
 		const RealType bw =
 			iter.rx_time < next.rx_time ? (sampleTime - iter.rx_time) / (next.rx_time - iter.rx_time) : 0.0;
 
-		const RealType amplitude = amplitudeScale * std::lerp(std::sqrt(iter.gain), std::sqrt(next.gain), bw);
+		const RealType amplitude = amplitudeScale * std::lerp(iter.gain, next.gain, bw);
 		const RealType phase = std::lerp(iter.phase_delay, next.phase_delay, bw);
 		RealType fdelay = -(std::lerp(iter.delay, next.delay, bw) * _buffer.getRate() - idelay + fracWinDelay);
 		const RealType int_part = std::floor(fdelay);

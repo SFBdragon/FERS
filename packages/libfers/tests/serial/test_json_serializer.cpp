@@ -376,6 +376,41 @@ TEST_CASE("JSON: Granular parsing of Antenna and Waveform", "[serial][json]")
 	}
 }
 
+TEST_CASE("JSON: boresight_polarisation round trips as nested re/im objects", "[serial][json]")
+{
+	ParamGuard const guard;
+
+	SECTION("Default (pure horizontal) is omitted")
+	{
+		core::World world;
+		world.add(std::make_unique<antenna::Isotropic>("iso", 20));
+		const json simulation_json = serial::world_to_json(world)["simulation"];
+		REQUIRE_FALSE(simulation_json["antennas"][0].contains("boresight_polarisation"));
+	}
+
+	SECTION("Non-default round trips through nested h/v re/im objects")
+	{
+		core::World world;
+		auto ant = std::make_unique<antenna::Isotropic>("iso", 20);
+		ant->setPolarisation(
+			antenna::JonesPolarisation{.horizontal = ComplexType(0.6, 0.0), .vertical = ComplexType(0.0, 0.8)});
+		world.add(std::move(ant));
+
+		const json simulation_json = serial::world_to_json(world)["simulation"];
+		const auto& pol_json = simulation_json["antennas"][0]["boresight_polarisation"];
+		REQUIRE_THAT(pol_json["h"]["re"].get<double>(), WithinAbs(0.6, 1e-9));
+		REQUIRE_THAT(pol_json["h"]["im"].get<double>(), WithinAbs(0.0, 1e-9));
+		REQUIRE_THAT(pol_json["v"]["re"].get<double>(), WithinAbs(0.0, 1e-9));
+		REQUIRE_THAT(pol_json["v"]["im"].get<double>(), WithinAbs(0.8, 1e-9));
+
+		auto reparsed = serial::parse_antenna_from_json(simulation_json["antennas"][0]);
+		REQUIRE(reparsed != nullptr);
+		const auto pol = reparsed->getPolarisation();
+		REQUIRE_THAT(pol.horizontal.real(), WithinAbs(0.6, 1e-9));
+		REQUIRE_THAT(pol.vertical.imag(), WithinAbs(0.8, 1e-9));
+	}
+}
+
 TEST_CASE("JSON: FMCW waveform emits large-buffer warning", "[serial][json]")
 {
 	ParamGuard const guard;

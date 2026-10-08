@@ -57,12 +57,13 @@ namespace propagation::raytracing::optix
 		}                                                                                                              \
 	}
 
-#define OPTIX_LOG(log, log_size)                                                                                       \
+#define OPTIX_LOG(optix_log, log_size)                                                                                 \
 	{                                                                                                                  \
 		if ((log_size) > 1)                                                                                            \
-			std::cerr << __FILE_NAME__ << ':' << __LINE__ << " OptiX Log: " << &(log) << '\n';                         \
-                                                                                                                       \
-		log_size = sizeof((log));                                                                                      \
+		{                                                                                                              \
+			LOG(logging::Level::DEBUG, "OptiX Log: {}", optix_log);                                                    \
+		}                                                                                                              \
+		log_size = sizeof((optix_log));                                                                                \
 	}
 
 	/**

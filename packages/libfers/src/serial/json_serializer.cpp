@@ -852,12 +852,10 @@ namespace antenna
 		}
 
 		const auto pol = a.getPolarisation();
-		if (pol.horizontal != ComplexType(1.0, 0.0) || pol.veritcal != ComplexType(0.0, 0.0))
+		if (pol.horizontal != ComplexType(1.0, 0.0) || pol.vertical != ComplexType(0.0, 0.0))
 		{
-			j["polarisation_h_re"] = pol.horizontal.real();
-			j["polarisation_h_im"] = pol.horizontal.imag();
-			j["polarisation_v_re"] = pol.veritcal.real();
-			j["polarisation_v_im"] = pol.veritcal.imag();
+			j["boresight_polarisation"] = {{"h", {{"re", pol.horizontal.real()}, {"im", pol.horizontal.imag()}}},
+											{"v", {{"re", pol.vertical.real()}, {"im", pol.vertical.imag()}}}};
 		}
 	}
 
@@ -916,14 +914,21 @@ namespace antenna
 
 		ant->setEfficiencyFactor(j.value("efficiency", 1.0));
 
-		if (j.contains("polarisation_h_re") || j.contains("polarisation_h_im") || j.contains("polarisation_v_re") ||
-			j.contains("polarisation_v_im"))
+		if (const auto pol_it = j.find("boresight_polarisation"); pol_it != j.end())
 		{
+			const auto component = [&](const char* axis_name)
+			{
+				const auto axis_it = pol_it->find(axis_name);
+				if (axis_it == pol_it->end())
+				{
+					return ComplexType(0.0, 0.0);
+				}
+				return ComplexType{axis_it->value("re", 0.0), axis_it->value("im", 0.0)};
+			};
+
 			try
 			{
-				ant->setPolarisation(JonesPolarisation{
-					.horizontal = ComplexType{j.value("polarisation_h_re", 0.0), j.value("polarisation_h_im", 0.0)},
-					.veritcal = ComplexType{j.value("polarisation_v_re", 0.0), j.value("polarisation_v_im", 0.0)}});
+				ant->setPolarisation(JonesPolarisation{.horizontal = component("h"), .vertical = component("v")});
 			}
 			catch (const std::runtime_error& e)
 			{

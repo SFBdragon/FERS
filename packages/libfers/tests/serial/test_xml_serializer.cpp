@@ -393,6 +393,31 @@ TEST_CASE("serializeAntenna dispatches to correct pattern forms", "[serial][xml_
 	// TODO: XmlAntenna and H5Antenna coverage skipped as they require structurally-valid backing files
 }
 
+TEST_CASE("serializeAntenna emits boresight_polarisation only when non-default", "[serial][xml_serializer]")
+{
+	XmlDocument const doc;
+	XmlElement const root = XmlElement::create("root");
+	doc.setRootElement(root);
+
+	SECTION("Default (pure horizontal) is omitted")
+	{
+		antenna::Isotropic const ant("a1");
+		serial::xml_serializer_utils::serializeAntenna(ant, root);
+		REQUIRE_THAT(dumpElement(root), !ContainsSubstring("boresight_polarisation"));
+	}
+
+	SECTION("Non-default is written as a complex literal attribute pair")
+	{
+		antenna::Isotropic ant("a1");
+		ant.setPolarisation(antenna::JonesPolarisation{.horizontal = ComplexType(0.6, 0.0), .vertical = ComplexType(0.0, 0.8)});
+		serial::xml_serializer_utils::serializeAntenna(ant, root);
+		std::string const s = dumpElement(root);
+		REQUIRE_THAT(s, ContainsSubstring("boresight_polarisation"));
+		REQUIRE_THAT(s, ContainsSubstring("h=\"0.6+0i\""));
+		REQUIRE_THAT(s, ContainsSubstring("v=\"0+0.8i\""));
+	}
+}
+
 TEST_CASE("serializeMotionPath sets right interpolation models", "[serial][xml_serializer]")
 {
 	XmlDocument const doc;

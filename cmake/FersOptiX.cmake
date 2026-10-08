@@ -45,6 +45,7 @@ add_custom_command(
 	COMMAND "${CUDAToolkit_NVCC_EXECUTABLE}"
 			--ptx
 			--expt-relaxed-constexpr
+			-lineinfo
 			-std=c++${CMAKE_CXX_STANDARD}
 			-I "${OptiX_INCLUDE_DIR}"
 			-I "${_fers_optix_dir}"
@@ -56,6 +57,7 @@ add_custom_command(
 		${_fers_optix_dir}/kernel_defs.h
 		${_fers_optix_dir}/utils.h
 		${CMAKE_CURRENT_SOURCE_DIR}/src/propagation/raytracing/sbr_shared.h
+		${CMAKE_CURRENT_SOURCE_DIR}/src/propagation/raytracing/sbr_impl.h
 		${CMAKE_CURRENT_SOURCE_DIR}/src/propagation/math.h
 	COMMENT "Compiling kernel.cu to PTX with nvcc"
 	VERBATIM

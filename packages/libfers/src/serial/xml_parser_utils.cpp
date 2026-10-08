@@ -7,12 +7,14 @@
 #include "xml_parser_utils.h"
 
 #include <GeographicLib/UTMUPS.hpp>
+#include <cctype>
 #include <cmath>
 #include <exception>
 #include <filesystem>
 #include <format>
 #include <limits>
 #include <optional>
+#include <regex>
 #include <string_view>
 
 #include "antenna/antenna_factory.h"
@@ -323,6 +325,37 @@ namespace serial::xml_parser_utils
 			ctx.timing_instances.emplace(timing_id, timing_obj);
 			return timing_obj;
 		}
+
+		/// One real or imaginary term of a complex number literal, as matched by `complex_term_re`.
+		struct ComplexTerm
+		{
+			RealType value;
+			bool is_imaginary;
+		};
+
+		/// Pattern for one term of a complex literal: an optionally-signed number with an optional
+		/// 'i'/'j' unit marker before or after it (see `parseComplexLiteral`).
+		const std::regex complex_term_re(R"(([+-])?([ij])?(\d+(?:\.\d+)?(?:e[+-]?\d+)?)([ij])?)",
+										  std::regex::icase);
+
+		/// Matches a single term of a complex literal starting exactly at `pos`, advances `pos`
+		/// past it, and returns its value. Throws `std::invalid_argument` on any mismatch,
+		/// including a term carrying both a leading and a trailing unit marker.
+		ComplexTerm matchComplexTerm(std::string::const_iterator& pos, const std::string::const_iterator end)
+		{
+			std::smatch match;
+			if (!std::regex_search(pos, end, match, complex_term_re) || match.position() != 0 ||
+				match.length() == 0 || (match[2].matched && match[4].matched))
+			{
+				throw std::invalid_argument("malformed complex number term");
+			}
+
+			const bool negative = match[1].matched && match[1].str() == "-";
+			const RealType magnitude = std::stod(match[3].str());
+			const bool is_imaginary = match[2].matched || match[4].matched;
+			pos += match.length();
+			return ComplexTerm{.value = negative ? -magnitude : magnitude, .is_imaginary = is_imaginary};
+		}
 	}
 
 	RealType get_child_real_type(const XmlElement& element, const std::string& elementName)
@@ -333,6 +366,50 @@ namespace serial::xml_parser_utils
 			throw XmlException("Element " + elementName + " is empty!");
 		}
 		return std::stod(text);
+	}
+
+	ComplexType parseComplexLiteral(const std::string& literal)
+	{
+		std::string cleaned;
+		cleaned.reserve(literal.size());
+		for (const char c : literal)
+		{
+			if (std::isspace(static_cast<unsigned char>(c)) == 0)
+			{
+				cleaned.push_back(c);
+			}
+		}
+
+		std::optional<RealType> real_part;
+		std::optional<RealType> imag_part;
+
+		try
+		{
+			auto pos = cleaned.cbegin();
+			const auto end = cleaned.cend();
+			while (pos != end)
+			{
+				const bool is_first_term = !real_part.has_value() && !imag_part.has_value();
+				const auto term = matchComplexTerm(pos, end);
+
+				if (term.is_imaginary ? imag_part.has_value() : (!is_first_term || real_part.has_value()))
+				{
+					throw std::invalid_argument("duplicate or misplaced complex number term");
+				}
+				(term.is_imaginary ? imag_part : real_part) = term.value;
+			}
+
+			if (!real_part.has_value() && !imag_part.has_value())
+			{
+				throw std::invalid_argument("empty complex number literal");
+			}
+		}
+		catch (const std::invalid_argument&)
+		{
+			throw XmlException("Invalid complex number literal: '" + literal + "'");
+		}
+
+		return ComplexType{real_part.value_or(0.0), imag_part.value_or(0.0)};
 	}
 
 	bool get_attribute_bool(const XmlElement& element, const std::string& attributeName, const bool defaultVal)
@@ -981,34 +1058,31 @@ namespace serial::xml_parser_utils
 			}
 		}
 
-		const bool has_polarisation = antenna.childElement("polarisation_h_re", 0).isValid() ||
-			antenna.childElement("polarisation_h_im", 0).isValid() ||
-			antenna.childElement("polarisation_v_re", 0).isValid() ||
-			antenna.childElement("polarisation_v_im", 0).isValid();
-		if (has_polarisation)
+		if (const auto pol_element = antenna.childElement("boresight_polarisation", 0); pol_element.isValid())
 		{
-			const auto component = [&](const char* child_name)
+			const auto component = [&](const char* attribute_name)
 			{
-				if (!antenna.childElement(child_name, 0).isValid())
+				const auto text = XmlElement::getOptionalAttribute(pol_element, attribute_name);
+				if (!text)
 				{
-					return RealType(0.0);
+					return ComplexType(0.0, 0.0);
 				}
 				try
 				{
-					return get_child_real_type(antenna, child_name);
+					return parseComplexLiteral(*text);
 				}
 				catch (const XmlException&)
 				{
-					LOG(logging::Level::WARNING, "Antenna '{}' has an empty '{}', assuming 0.", name, child_name);
-					return RealType(0.0);
+					LOG(logging::Level::WARNING, "Antenna '{}' has an invalid '{}' of '{}', assuming 0.", name,
+						attribute_name, *text);
+					return ComplexType(0.0, 0.0);
 				}
 			};
 
 			try
 			{
-				ant->setPolarisation(antenna::JonesPolarisation{
-					.horizontal = ComplexType{component("polarisation_h_re"), component("polarisation_h_im")},
-					.veritcal = ComplexType{component("polarisation_v_re"), component("polarisation_v_im")}});
+				ant->setPolarisation(
+					antenna::JonesPolarisation{.horizontal = component("h"), .vertical = component("v")});
 			}
 			catch (const std::runtime_error& e)
 			{

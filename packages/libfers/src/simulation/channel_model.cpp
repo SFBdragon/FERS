@@ -589,6 +589,7 @@ namespace simulation
 			return {0.0, 0.0};
 		}
 
+
 		// Accumulate amplitude and phase effects
 		ComplexType contribution = source.amplitude * path.gain * eval.envelope * std::polar(1.0, eval.phase);
 

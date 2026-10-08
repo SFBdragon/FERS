@@ -51,7 +51,7 @@ namespace antenna
 		/// Magnitude and phase in the vertical direction (+Z) at the boresight (+X)
 		/// in the antenna-local frame. This is currently extended to the rest of the
 		/// antenna the using Ludwig-3 definition of polarisation.
-		ComplexType veritcal;
+		ComplexType vertical;
 	};
 
 
@@ -158,7 +158,7 @@ namespace antenna
 		 */
 		void setPolarisation(JonesPolarisation pol)
 		{
-			auto len = std::sqrt(std::norm(pol.horizontal) + std::norm(pol.veritcal));
+			auto len = std::sqrt(std::norm(pol.horizontal) + std::norm(pol.vertical));
 
 			if (std::abs(len) < EPSILON)
 			{
@@ -166,7 +166,7 @@ namespace antenna
 			}
 
 			_polarisation.horizontal = pol.horizontal / len;
-			_polarisation.veritcal = pol.veritcal / len;
+			_polarisation.vertical = pol.vertical / len;
 		}
 
 	protected:
@@ -182,7 +182,7 @@ namespace antenna
 	private:
 		RealType _loss_factor{1}; ///< Efficiency factor of the antenna.
 		/// Polarisation of the antenna boresight. Defaults to horizontal.
-		JonesPolarisation _polarisation{.horizontal = ComplexType(1.0, 0.0), .veritcal = ComplexType(0.0, 0.0)};
+		JonesPolarisation _polarisation{.horizontal = ComplexType(1.0, 0.0), .vertical = ComplexType(0.0, 0.0)};
 		SimId _id; ///< Unique ID for this antenna.
 		std::string _name; ///< Name of the antenna.
 	};

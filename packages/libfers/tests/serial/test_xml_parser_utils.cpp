@@ -122,6 +122,39 @@ TEST_CASE("get_child_real_type extracts floating point values", "[serial][xml_pa
 	REQUIRE_THROWS_AS(serial::xml_parser_utils::get_child_real_type(missing_doc.getRootElement(), "val"), XmlException);
 }
 
+TEST_CASE("parseComplexLiteral accepts the documented grammar", "[serial][xml_parser_utils]")
+{
+	using serial::xml_parser_utils::parseComplexLiteral;
+
+	auto check = [](const std::string& literal, const double expected_re, const double expected_im)
+	{
+		const auto value = parseComplexLiteral(literal);
+		REQUIRE_THAT(value.real(), WithinAbs(expected_re, 1e-9));
+		REQUIRE_THAT(value.imag(), WithinAbs(expected_im, 1e-9));
+	};
+
+	check("1.0+0.0i", 1.0, 0.0);
+	check("1.0", 1.0, 0.0);
+	check("0.5i", 0.0, 0.5);
+	check("-0.5j", 0.0, -0.5);
+	check("1.0 + j0.5", 1.0, 0.5);
+	check("-0.5 - i2", -0.5, -2.0);
+	check("1e-3+2e-4i", 1e-3, 2e-4);
+	check("-1E2j", 0.0, -100.0);
+}
+
+TEST_CASE("parseComplexLiteral rejects malformed literals", "[serial][xml_parser_utils]")
+{
+	using serial::xml_parser_utils::parseComplexLiteral;
+
+	REQUIRE_THROWS_AS(parseComplexLiteral(""), XmlException);
+	REQUIRE_THROWS_AS(parseComplexLiteral("abc"), XmlException);
+	REQUIRE_THROWS_AS(parseComplexLiteral("1.0+2.0"), XmlException);
+	REQUIRE_THROWS_AS(parseComplexLiteral("1.0i+2.0i"), XmlException);
+	REQUIRE_THROWS_AS(parseComplexLiteral("j1i"), XmlException);
+	REQUIRE_THROWS_AS(parseComplexLiteral("1.0+0.0i+"), XmlException);
+}
+
 TEST_CASE("get_attribute_bool extracts boolean values safely", "[serial][xml_parser_utils]")
 {
 	LogLevelGuard const log_level(logging::Level::WARNING);
@@ -805,6 +838,59 @@ TEST_CASE("parseAntenna instantiates correct antenna types", "[serial][xml_parse
 	{
 		auto doc = loadXml("<antenna name=\"bad\" pattern=\"magic\"></antenna>");
 		REQUIRE_THROWS_AS(serial::xml_parser_utils::parseAntenna(doc.getRootElement(), ctx), XmlException);
+	}
+}
+
+TEST_CASE("parseAntenna reads boresight_polarisation", "[serial][xml_parser_utils]")
+{
+	core::World world;
+	serial::xml_parser_utils::ParserContext ctx;
+	ctx.world = &world;
+	ctx.loaders = createMockLoaders();
+
+	SECTION("Explicit h and v")
+	{
+		auto doc = loadXml(
+			"<antenna name=\"a\" pattern=\"isotropic\"><boresight_polarisation h=\"0.6+0i\" "
+			"v=\"0.8i\"/></antenna>");
+		serial::xml_parser_utils::parseAntenna(doc.getRootElement(), ctx);
+		const auto pol = world.getAntennas().begin()->second->getPolarisation();
+		REQUIRE_THAT(pol.horizontal.real(), WithinAbs(0.6, 1e-9));
+		REQUIRE_THAT(pol.vertical.imag(), WithinAbs(0.8, 1e-9));
+	}
+
+	SECTION("Omitted v defaults to zero")
+	{
+		auto doc =
+			loadXml("<antenna name=\"a\" pattern=\"isotropic\"><boresight_polarisation h=\"1\"/></antenna>");
+		serial::xml_parser_utils::parseAntenna(doc.getRootElement(), ctx);
+		const auto pol = world.getAntennas().begin()->second->getPolarisation();
+		REQUIRE_THAT(pol.horizontal.real(), WithinAbs(1.0, 1e-9));
+		REQUIRE_THAT(pol.vertical.real(), WithinAbs(0.0, 1e-9));
+		REQUIRE_THAT(pol.vertical.imag(), WithinAbs(0.0, 1e-9));
+	}
+
+	SECTION("Omitted element defaults to pure horizontal")
+	{
+		auto doc = loadXml("<antenna name=\"a\" pattern=\"isotropic\"></antenna>");
+		serial::xml_parser_utils::parseAntenna(doc.getRootElement(), ctx);
+		const auto pol = world.getAntennas().begin()->second->getPolarisation();
+		REQUIRE_THAT(pol.horizontal.real(), WithinAbs(1.0, 1e-9));
+		REQUIRE_THAT(pol.vertical.real(), WithinAbs(0.0, 1e-9));
+	}
+
+	SECTION("Invalid literal warns and assumes zero for that axis")
+	{
+		LogLevelGuard const log_level(logging::Level::WARNING);
+		CerrCapture const capture;
+		auto doc = loadXml(
+			"<antenna name=\"a\" pattern=\"isotropic\"><boresight_polarisation h=\"nonsense\" "
+			"v=\"1\"/></antenna>");
+		serial::xml_parser_utils::parseAntenna(doc.getRootElement(), ctx);
+		const auto pol = world.getAntennas().begin()->second->getPolarisation();
+		REQUIRE_THAT(pol.horizontal.real(), WithinAbs(0.0, 1e-9));
+		REQUIRE_THAT(pol.vertical.real(), WithinAbs(1.0, 1e-9));
+		REQUIRE_THAT(capture.str(), ContainsSubstring("invalid"));
 	}
 }
 

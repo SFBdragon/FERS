@@ -148,6 +148,19 @@ namespace serial::xml_parser_utils
 	bool get_attribute_bool(const XmlElement& element, const std::string& attributeName, bool defaultVal);
 
 	/**
+	 * @brief Parses a complex number literal, e.g. "1.0+0.0i", "0.5j", "-0.5 - i2", "1e-3+2e-4i".
+	 *
+	 * Accepts a bare real term, a bare imaginary term, or both (real first). An imaginary
+	 * term's unit marker ('i' or 'j', case-insensitive) may precede or follow its magnitude.
+	 * Surrounding and internal whitespace is ignored.
+	 *
+	 * @param literal The complex number literal to parse.
+	 * @return The parsed complex value.
+	 * @throws XmlException if the literal does not match the grammar above.
+	 */
+	ComplexType parseComplexLiteral(const std::string& literal);
+
+	/**
 	 * @brief Generates a unique SimId based on the requested object type.
 	 * @param owner The name/description of the object requesting the ID (used for logging).
 	 * @param type The category/type of the object.

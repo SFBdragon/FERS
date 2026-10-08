@@ -3,7 +3,6 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
-#include <iostream>
 #include <vector>
 
 #include "math/geometry_ops.h"
@@ -191,10 +190,11 @@ TEST_CASE("boresightWeightedSample assigns per-regime weights that sum to 4*pi",
 	{
 		float weight = 0.0f;
 		const auto dir = rt::boresightWeightedSample(params, i, weight);
-		const double len = std::sqrt(double(dir.x) * dir.x + double(dir.y) * dir.y + double(dir.z) * dir.z);
+		const double len =
+			std::sqrt(double(dir.x) * double(dir.x) + double(dir.y) * double(dir.y) + double(dir.z) * double(dir.z));
 		REQUIRE_THAT(len, WithinAbs(1.0, 1e-6));
 		REQUIRE(weight > 0.0f);
-		total_weight += weight;
+		total_weight += double(weight);
 	}
 
 	REQUIRE_THAT(total_weight, WithinAbs(4.0 * double(prop::PI_V<float>), 1e-3));
@@ -239,12 +239,12 @@ TEST_CASE("computeTubePatch shrinks to the tube footprint when it's smaller than
 {
 	constexpr float dist = 1.0f;
 	constexpr float solid_angle = 0.01f; // a_tube = dist^2 * solid_angle / cos(0) = 0.01 < 0.5
-	const auto patch = rt::po::computeTubePatch(test_tri, test_hit_pos, test_norm, test_incoming_dir, test_tri_area,
-												dist, solid_angle);
+	const auto patch =
+		rt::po::computeTubePatch(test_tri, test_norm, test_incoming_dir, test_tri_area, dist, solid_angle);
 
 	REQUIRE_THAT(patch.area, WithinAbs(0.01, 1e-6));
-	// Scaled toward the hit point, and hit-pos-centered per computeTubePatch's contract (verts are
-	// relative to hit_pos, not world-space).
+	// Scaled toward, and centroid-centered on, the triangle's own centroid (which equals test_hit_pos
+	// for this right triangle - see its definition above).
 	const double scale = std::sqrt(0.01 / 0.5);
 	for (int i = 0; i < 3; ++i)
 	{
@@ -260,11 +260,12 @@ TEST_CASE("computeTubePatch clamps to the full triangle when the tube footprint 
 {
 	constexpr float dist = 100.0f;
 	constexpr float solid_angle = 1.0f; // a_tube = 10000, way over the 0.5 triangle area
-	const auto patch = rt::po::computeTubePatch(test_tri, test_hit_pos, test_norm, test_incoming_dir, test_tri_area,
-												dist, solid_angle);
+	const auto patch =
+		rt::po::computeTubePatch(test_tri, test_norm, test_incoming_dir, test_tri_area, dist, solid_angle);
 
 	REQUIRE_THAT(patch.area, WithinAbs(test_tri_area, 1e-9));
-	// scale=1 here (no shrinking), but verts are still hit-pos-centered per computeTubePatch's contract.
+	// scale=1 here (no shrinking), but verts are still centroid-centered (which equals test_hit_pos
+	// for this right triangle - see its definition above).
 	for (size_t i = 0; i < 3; ++i)
 	{
 		const auto expected = test_tri[i] - test_hit_pos;
@@ -278,8 +279,7 @@ TEST_CASE("computeTubePatch stays finite at grazing incidence", "[raytracing][ma
 {
 	// Travelling almost parallel to the triangle plane - cos(theta_i) would be near 0 unclamped.
 	const prop::Float3 grazing_dir = normalize(prop::Float3{1.0, 0.0, -1e-5f});
-	const auto patch =
-		rt::po::computeTubePatch(test_tri, test_hit_pos, test_norm, grazing_dir, test_tri_area, 1.0f, 0.001f);
+	const auto patch = rt::po::computeTubePatch(test_tri, test_norm, grazing_dir, test_tri_area, 1.0f, 0.001f);
 
 	REQUIRE(std::isfinite(patch.area));
 	REQUIRE(patch.area >= 0.0f);

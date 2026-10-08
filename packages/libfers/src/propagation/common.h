@@ -102,12 +102,12 @@ namespace propagation
 	}
 
 	template <typename Real>
-	HC_FN IncidencePlaneBasis<Real> incidencePlaneBasis(const Real3<Real>& normal, const Real3<Real>& k_in)
+	HC_FN IncidencePlaneBasis<Real> incidencePlaneBasis(const Real3<Real>& normal, const Real3<Real>& u_inc)
 	{
-		auto raw = cross(k_in, normal);
+		auto raw = cross(u_inc, normal);
 		auto len = length(raw);
 		Real3<Real> e_te;
-		if (len < Real(1e-9))
+		if (len < Real(1e-5))
 		{
 			e_te = arbitraryPerpendicular(normal);
 		}
@@ -115,7 +115,7 @@ namespace propagation
 		{
 			e_te = raw / len;
 		}
-		return {e_te, cross(e_te, k_in)};
+		return {e_te, cross(e_te, u_inc)};
 	}
 
 	// --- Gain Calculations ----------------------------------------------------------------------------- //
@@ -208,7 +208,7 @@ namespace propagation
 	[[nodiscard]] HC_FN uint64_t hash_mix(uint64_t hash, uint32_t idx)
 	{
 		constexpr uint64_t P1 = 0x9E3779B97F4A7C15ULL; // odd, golden-ratio
-		constexpr uint64_t P2 = 0xC2B2AE3D27D4EB4FULL; // odd, independent
+		constexpr uint64_t P2 = 0xC2B2AE3D27D4EB4FULL; // odd, independent prime
 
 		uint64_t v = uint64_t(idx) * P2; // spreads idx's low bits across all 64 output bits
 		hash ^= v;

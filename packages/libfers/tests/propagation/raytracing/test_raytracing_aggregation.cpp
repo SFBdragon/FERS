@@ -15,7 +15,7 @@ namespace
 									  uint32_t source_times_index = 0, uint32_t dest_index = 0)
 	{
 		rt::Contribution c{};
-		c.voltage = voltage;
+		c.path_gain = voltage;
 		c.delay = delay;
 		c.path_id = path_id;
 		c.source_times_index = source_times_index;

@@ -153,7 +153,7 @@ TEST_CASE("facetHit's contribution scales linearly with ray weight in the sub-tr
 		uint32_t idx = 0;
 		auto get_idx = [&idx] { return idx++; };
 		(void)rt::facetHit(params, &ray, hit, unoccluded, get_idx);
-		return prop::cabs(contribs[0].voltage);
+		return prop::cabs(contribs[0].path_gain);
 	};
 
 	const float mag1 = run(0.001f);
@@ -183,7 +183,7 @@ TEST_CASE("facetHit's contribution saturates once the tube footprint exceeds the
 		uint32_t idx = 0;
 		auto get_idx = [&idx] { return idx++; };
 		(void)rt::facetHit(params, &ray, hit, unoccluded, get_idx);
-		return prop::cabs(contribs[0].voltage);
+		return prop::cabs(contribs[0].path_gain);
 	};
 
 	const float mag1 = run(1.0f);

@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <random>
 #include <ranges>
 #include <span>
 #include <unordered_map>
@@ -21,6 +22,7 @@
 
 #include "core/assets.h"
 #include "core/config.h"
+#include "core/logging.h"
 #include "core/parameters.h"
 #include "core/sim_id.h"
 #include "core/simulation_state.h"
@@ -94,6 +96,7 @@ namespace propagation::raytracing
 
 	ContributionGroups groupContributions(const std::vector<Contribution>& contributions)
 	{
+		std::mt19937_64 twister{};
 		ContributionGroups groups;
 		for (const auto& c : contributions)
 		{
@@ -138,8 +141,8 @@ namespace propagation::raytracing
 		for (const auto* c : group)
 		{
 			const double dt = c->delay - group_delay;
-			const RealType angle = 2.0 * PI * carrier_frequency * dt;
-			const ComplexType v{double(c->voltage.re), double(c->voltage.im)};
+			const RealType angle = -2.0 * PI * carrier_frequency * dt;
+			const ComplexType v{double(c->path_gain.re), double(c->path_gain.im)};
 			summed_voltage += v * std::exp(ComplexType{0.0, angle});
 		}
 
@@ -276,6 +279,22 @@ namespace propagation::raytracing
 		buildRxFlags(_world, job);
 
 		auto contributions = _engine->trace(ctx, job);
+
+		double incoherent_sum = 0;
+		for (auto& contrib : contributions)
+			incoherent_sum += std::sqrt(
+				double(contrib.path_gain.re * contrib.path_gain.re + contrib.path_gain.im * contrib.path_gain.im));
+		LOG(logging::Level::DEBUG, "Incoherent sum: {}", incoherent_sum);
+
+		ComplexType coherent_sum{};
+		for (auto& contrib : contributions)
+			coherent_sum += ComplexType{contrib.path_gain.re, contrib.path_gain.im};
+		LOG(logging::Level::DEBUG, "Coherent sum arg: {}", std::arg(coherent_sum));
+
+		double total_area = 0;
+		for (auto& contrib : contributions)
+			total_area += double(contrib.area);
+		LOG(logging::Level::DEBUG, "Total patch area: {}", total_area);
 
 		std::vector<PropagationPath> paths;
 		const auto groups = groupContributions(contributions);

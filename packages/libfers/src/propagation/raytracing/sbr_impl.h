@@ -119,21 +119,21 @@ namespace propagation::raytracing
 		/// Path vertices or hit points, positions, in meters.
 		///
 		/// Contains `ray_count + 1` vertices.
-		std::array<Double3, MAX_RAY_DEPTH> path_vertices;
+		std::array<Double3, MAX_SCATTER_LIMIT + 1> path_vertices;
 		/// Unit directions from path vertex i to i+1 in trace direction.
 		///
 		/// Contains `ray_count + 1` unit directions.
-		std::array<Float3, MAX_RAY_DEPTH> trace_directions;
+		std::array<Float3, MAX_SCATTER_LIMIT + 1> trace_directions;
 		/// Unit normals at hit surfaces.
 		///
 		/// There are `ray_count` unit normals.
 		/// Normal 0 corresponds to Path Vertex 1.
-		std::array<Float3, MAX_RAY_DEPTH - 1> surface_normals;
+		std::array<Float3, MAX_SCATTER_LIMIT> surface_normals;
 		/// Materials of hit surfaces.
 		///
 		/// There are `ray_count` materials.
 		/// Material 0 corresponds to Path Vertex 1.
-		std::array<const Material*, MAX_RAY_DEPTH - 1> surface_materials{};
+		std::array<const Material*, MAX_SCATTER_LIMIT> surface_materials{};
 		/// The accumulative path length.
 		double length = 0.0;
 		/// The hash of the path so far, unique per facet sequence.
@@ -403,7 +403,7 @@ namespace propagation::raytracing
 		struct TubePatch
 		{
 			/// The vertices defining the hit ray tube patch triangle.
-			/// The origin of the vertices is the ray hit point, thus these are at local scale.
+			/// The origin of the vertices is the parent triangle's centroid, thus these are at local scale.
 			/// CCW winding order (right-hand-rule)
 			std::array<Float3, 3> verts;
 			/// The pre-computed area of the patch defined by `verts`.
@@ -412,7 +412,7 @@ namespace propagation::raytracing
 
 		/**
 		 * @brief Computes the ray tube's PO integration patch at a facet hit: the tube's footprint,
-		 * clamped to the triangle's own area, expressed as a triangle scaled toward the hit point.
+		 * clamped to the triangle's own area, expressed as a triangle scaled toward the triangle's centroid.
 		 *
 		 * Relies on the flat-facet assumption: a flat-mirror reflection of a spherical wave is exactly
 		 * another spherical wave from the mirrored virtual source, so the wavefront keeps diverging as if
@@ -423,29 +423,32 @@ namespace propagation::raytracing
 		 * Footprint area: for a tube of solid angle `solid_angle` steradians hitting the facet at
 		 * incidence angle theta_i off its normal, the footprint projected onto the facet plane is
 		 * `dist^2 * solid_angle / cos(theta_i)` (standard oblique-projection geometry). The returned
-		 * patch is then clamped to `min(footprint, tri_area)` by scaling the triangle toward `hit_pos` -
-		 * which, since it's a scale toward an interior point, stays inside the parent triangle
+		 * patch is then clamped to `min(footprint, facet_area)` by scaling the triangle toward its own
+		 * centroid - which, since it's a scale toward an interior point, stays inside the parent triangle
 		 * automatically, without needing separate edge-clipping.
 		 *
 		 * @param tri_verts World-space triangle vertices.
-		 * @param hit_pos World-space hit point (assumed inside the triangle).
-		 * @param norm Outward triangle normal (unit length).
-		 * @param incoming_dir Unit direction the ray is travelling in (towards `hit_pos`).
-		 * @param tri_area The triangle's own area.
+		 * @param u_norm Outward triangle normal (unit length).
+		 * @param u_inc Unit direction the ray is travelling in (towards the hit point).
+		 * @param facet_area The triangle's own area.
 		 * @param dist Total accumulated path length from the ray's original source to this hit.
 		 * @param solid_angle The ray tube's solid angle (steradians).
 		 */
-		HC_FN TubePatch computeTubePatch(const std::array<const Double3, 3>& tri_verts, const Double3& hit_pos,
-										 const Float3& u_norm, const Float3& u_inc, float facet_area, float dist,
-										 float solid_angle)
+		HC_FN TubePatch computeTubePatch(const std::array<const Double3, 3>& tri_verts, const Float3& u_norm,
+										 const Float3& u_inc, float facet_area, float dist, float solid_angle)
 		{
 			const float cos_theta_i = std::max(dot(-u_inc, u_norm), 1e-3f);
 			const float tube_area = dist * dist * solid_angle / cos_theta_i;
 			const float scale = std::sqrt(std::min(tube_area, facet_area) / facet_area);
 
+			Double3 centroid{}; // TODO_SHAUN optimize
+			for (size_t vi = 0; vi < 3; vi++)
+				centroid += tri_verts.at(vi);
+			centroid = centroid / 3.0;
+
 			TubePatch patch{};
 			for (size_t vi = 0; vi < 3; vi++)
-				patch.verts.at(vi) = scale * Float3(tri_verts.at(vi) - hit_pos);
+				patch.verts.at(vi) = scale * Float3(tri_verts.at(vi) - centroid);
 			patch.area = scale * scale * facet_area;
 			return patch;
 		}
@@ -458,7 +461,7 @@ namespace propagation::raytracing
 								   const Float3& u_scat, float wavenumber)
 		{
 			/// Scattering vector, representing phase difference across patch.
-			Float3 scatter = wavenumber * (u_inc - u_scat);
+			Float3 scatter = wavenumber * (u_scat - u_inc);
 			/// In-plane component of the scattering vector.
 			Float3 scatter_inplane = scatter - dot(scatter, norm) * norm;
 			float scatter_inplane2 = length2(scatter_inplane);
@@ -481,20 +484,20 @@ namespace propagation::raytracing
 				acc = acc + re * cexp_i(dot(scatter, mid_vs.at(i)));
 			}
 
-			return acc / scatter_inplane2;
+			return mul_i(acc) / scatter_inplane2;
 		}
 
 		HC_FN CFloat3 facetScatteredRadiation(const TubePatch& patch, const Float3& u_norm, const Float3& u_inc,
 											  const Float3& u_scat, const RadiationCache& cache, const float wavenumber)
 		{
 			const CFloat phase_integral = phaseIntegral(patch, u_norm, u_inc, u_scat, wavenumber);
-			// [-jk/4/pi] * [j (for phase integral)] = k/4/pi
-			const CFloat constants = (1.0f / 4.0f / PI_V<float>)*wavenumber;
 
 			const CFloat3 e_total = cache.electric_unit_total;
 			const CFloat3 n_x_m_total = cache.n_cross_magnetic_unit_total;
 			const CFloat3 field_vector = cross(u_scat, cross(u_norm, e_total) - cross(u_scat, n_x_m_total));
 
+			// -jk/4/pi
+			const CFloat constants = mul_i(CFloat{wavenumber * (-1.0f / 4.0f / PI_V<float>)});
 			return constants * phase_integral * field_vector;
 		}
 	} // namespace po
@@ -540,24 +543,25 @@ namespace propagation::raytracing
 		/// Reflect Cartesian radiation vector off a facet specularly
 		/// using geometric optics and Fresnel equations to enforce
 		/// interface conditions.
-		HC_FN void fresnelGoReflection(CFloat3& radiation, const Float3& norm, const Float3& k_inc,
-									   const Float3& k_refl, const Material* mat, float frequency)
+		HC_FN void fresnelGoReflection(CFloat3& radiation, const Float3& norm, const Float3& u_inc,
+									   const Float3& u_refl, const Material* mat, float frequency)
 		{
 			// This implements Fresnel equations for solving the reflected
-			// field given an incident electric plane wave on a planar
-			// surface.
+			// field given an incident electric plane wave on a planar surface.
 
 			// Compute the indident basis.
-			const auto basis = incidencePlaneBasis(norm, k_inc);
-			const auto e_tm_out = cross(basis.e_te, k_refl);
+			const auto basis = incidencePlaneBasis(norm, u_inc);
+			const auto e_tm_out = cross(basis.e_te, u_refl);
 
 			const auto relative_permittivity = mat->relative_permittivity;
 			const auto conductivity = mat->conductivity;
 
-			const Complex n2 = indexOfRefraction(relative_permittivity, conductivity, frequency);
-
-			CFloat gamma_tm, gamma_te;
-			complexSnellsLaw(norm, k_inc, n2, gamma_tm, gamma_te);
+			CFloat gamma_tm = 1, gamma_te = -1; // PEC values
+			if (mat->conductivity != INFINITY) // if not a PEC
+			{
+				const Complex n2 = indexOfRefraction(relative_permittivity, conductivity, frequency);
+				complexSnellsLaw(norm, u_inc, n2, gamma_tm, gamma_te);
+			}
 
 			const Complex elec_te = dot(radiation, basis.e_te);
 			const Complex elec_tm = dot(radiation, basis.e_tm_in);
@@ -629,11 +633,12 @@ namespace propagation::raytracing
 				// h = k x e
 				const CFloat3 magnetic_inc = cross(path->trace_directions.at(ray_index - 1), electric_inc);
 				const CFloat3 magnetic_refl = cross(path->trace_directions.at(ray_index), radiation);
-				const CFloat3 js_z0_unit = cross(path->surface_normals.at(ray_index - 1), magnetic_inc + magnetic_refl);
+				const CFloat3 n_cross_magnetic_unit_total =
+					cross(path->surface_normals.at(ray_index - 1), magnetic_inc + magnetic_refl);
 
 				path->cache.electric_unit_reflected = radiation;
 				path->cache.electric_unit_total = electric_unit_total;
-				path->cache.n_cross_magnetic_unit_total = js_z0_unit;
+				path->cache.n_cross_magnetic_unit_total = n_cross_magnetic_unit_total;
 				path->cache.depth = path->ray_count;
 				path->cache.carrier_frequency = frequency;
 			}
@@ -676,8 +681,12 @@ namespace propagation::raytracing
 		// Outward-facing normal, per the CCW winding convention documented on `SbrParams.indices`.
 		const Double3 dnormal = cross(verts[1] - verts[0], verts[2] - verts[0]);
 		const double two_times_facet_area = length(dnormal);
-		const Float3 u_norm = Float3{dnormal / two_times_facet_area};
-		const float facet_area = float(two_times_facet_area) / 2;
+		Float3 u_norm = Float3{dnormal / two_times_facet_area};
+		float facet_area = float(two_times_facet_area) / 2;
+
+		const float back_face = dot(u_inc, u_norm) <= 0 ? 1.0f : -1.0f;
+		u_norm = u_norm * back_face;
+		facet_area *= back_face;
 
 		// Compute the reflected ray direction.
 		const Float3 back = -u_inc;
@@ -739,12 +748,12 @@ namespace propagation::raytracing
 
 				// Ray-tube PO integration patch.
 				// This is the part of the PO calculation that isn't symmetric under propagation direction.
-				const Float3& prop_po_inc = params.rx_to_tx ? -u_scat : u_inc;
+				const Float3& prop_po_inc = params.rx_to_tx ? -u_scat : u_inc; // TODO_SHAUN I think this is wrong
 				const auto patch =
-					po::computeTubePatch(verts, pos, u_norm, prop_po_inc, facet_area, float(go_path_len), path->weight);
+					po::computeTubePatch(verts, u_norm, prop_po_inc, facet_area, float(go_path_len), path->weight);
 				// The scattering vector `w = k (u_inc - u_scat)` computation is identical between
 				// (u_inc, u_scat) and (-u_scat, -u_inc) so we just pass in the trace directions here.
-				const CFloat3 radiation =
+				const CFloat3 radiation_sqrt_gs =
 					po::facetScatteredRadiation(patch, u_norm, u_inc, u_scat, path->cache, wavenumber);
 
 				// Weight by the destination antenna's gain towards this facet.
@@ -765,22 +774,25 @@ namespace propagation::raytracing
 				// Valid because `pol` was evaluated at `-u_scat` above
 				// (the antenna's own as-if-transmitting-back-toward-the-source direction).
 				// Don't "fix" this by conjugating.
-				CFloat voltage = dot_no_conj(radiation, dst_pol) * effective_length;
+				CFloat path_gain = dot_no_conj(radiation_sqrt_gs, dst_pol) * effective_length / (4.0f * PI_V<float>);
+				// a_p = sqrt(G_t G_r) * lambda / (4 pi) * (e_s dot p_r) * (1 / (R_GO + R_PO))
 
 				// Optionally apply sphere spreading gain loss.
-				if ((params.rx_flags[params.rx_to_tx ? path->source_index : dst_idx] & RxFlags::FLAG_NOSPREADING) == 0)
+				const uint32_t rx_index = params.rx_to_tx ? path->source_index : dst_idx;
+				if ((params.rx_flags[rx_index] & RxFlags::FLAG_NOSPREADING) == 0)
 				{
-					voltage = voltage / float(path_len);
+					path_gain = path_gain / (float(go_path_len) * float(po_len));
 				}
 
 				// Add a contribution to the sink.
 				uint32_t contrib_index = get_contrib_index();
 				auto& contrib = params.contributions[contrib_index];
-				contrib.voltage = voltage;
+				contrib.path_gain = path_gain;
 				contrib.delay = prop_time;
 				contrib.dest_index = dst_idx;
 				contrib.path_id = hash_mix(path->hash, dst_idx);
 				contrib.source_times_index = path->source_index + params.source_antenna_count * path->time_index;
+				contrib.area = patch.area;
 			}
 		}
 
@@ -855,7 +867,7 @@ namespace propagation::raytracing
 
 		const uint32_t contrib_index = get_contrib_index();
 		auto* contrib = &params.contributions[contrib_index];
-		contrib->voltage = voltage;
+		contrib->path_gain = voltage;
 		contrib->delay = prop_time;
 		contrib->source_times_index = src_idx + time_idx * params.source_antenna_count;
 		contrib->dest_index = dst_idx;

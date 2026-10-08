@@ -36,6 +36,12 @@ namespace serial::xml_serializer_utils
 		element.setAttribute(name, value ? "true" : "false");
 	}
 
+	std::string formatComplexLiteral(const ComplexType value)
+	{
+		const std::string imag_sign = value.imag() < 0 ? "-" : "+";
+		return numberToString(value.real()) + imag_sign + numberToString(std::abs(value.imag())) + "i";
+	}
+
 	void serializeSchedule(const std::vector<radar::SchedulePeriod>& schedule, const XmlElement& parent)
 	{
 		if (schedule.empty())
@@ -295,12 +301,11 @@ namespace serial::xml_serializer_utils
 		}
 
 		const auto pol = antenna.getPolarisation();
-		if (pol.horizontal != ComplexType(1.0, 0.0) || pol.veritcal != ComplexType(0.0, 0.0))
+		if (pol.horizontal != ComplexType(1.0, 0.0) || pol.vertical != ComplexType(0.0, 0.0))
 		{
-			addChildWithNumber(parent, "polarisation_h_re", pol.horizontal.real());
-			addChildWithNumber(parent, "polarisation_h_im", pol.horizontal.imag());
-			addChildWithNumber(parent, "polarisation_v_re", pol.veritcal.real());
-			addChildWithNumber(parent, "polarisation_v_im", pol.veritcal.imag());
+			const auto pol_element = parent.addChild("boresight_polarisation");
+			pol_element.setAttribute("h", formatComplexLiteral(pol.horizontal));
+			pol_element.setAttribute("v", formatComplexLiteral(pol.vertical));
 		}
 	}
 

@@ -18,6 +18,7 @@
 #include <memory>
 #include <optix.h>
 #include <optix_function_table_definition.h>
+#include <optix_stack_size.h>
 #include <optix_stubs.h>
 #include <optix_types.h>
 #include <stdexcept>
@@ -25,6 +26,7 @@
 #include <vector>
 
 #include "core/config.h"
+#include "core/logging.h"
 #include "core/parameters.h"
 #include "core/world.h"
 #include "propagation/math.h"
@@ -124,6 +126,12 @@ namespace propagation::raytracing::optix
 		OPTIX_CHECK(optixDeviceContextCreate(context, &opts, &_context));
 	}
 
+	static uint32_t maxScatterLimit() { return std::min(MAX_SCATTER_LIMIT, params::rtModelParams().scatter_limit); }
+	static uint32_t maxTraceDepth()
+	{
+		return std::min(MAX_SCATTER_LIMIT + 1, params::rtModelParams().scatter_limit + 1);
+	}
+
 	// By initialising the CUDA and OptiX RAII wrappers first, they get automatically
 	// cleaned up if part of the initialization throws. Desctruction of the OptiX device
 	// context will automatically clean up all the modules, program groups, pipelines, etc.
@@ -138,23 +146,31 @@ namespace propagation::raytracing::optix
 		// These are persisted as OptixPipelines need them, which are created later
 		// in ThreadContexts as pipelines aren't thread-safe, and the options must be consistent.
 
-		// TODO_SHAUN fix all these
+		// If we're capping the scatter limit, warn the user.
+		if (params::rtModelParams().scatter_limit + 1 != maxScatterLimit())
+		{
+			LOG(logging::Level::WARNING,
+				"Ray-tracing propagation model kernel was not built with support for a scatter limit of {}, this "
+				"build's maximum is {}. It's possible to edit the kernel's `MAX_SCATTER_LIMIT` and rebuild. This run "
+				"will use a scatter limit of {}.",
+				params::rtModelParams().scatter_limit, maxScatterLimit(), maxScatterLimit());
+		}
 
-		_module_comp_options.maxRegisterCount = 50;
+
+		_module_comp_options.maxRegisterCount = 128;
 		_module_comp_options.optLevel = OPTIX_COMPILE_OPTIMIZATION_DEFAULT;
 		_module_comp_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_DEFAULT;
 
-		// ALLOW_SINGLE_GAS would forbid using an IAS as the top-level traversable at all, which
-		// buildOrRefitIAS below needs — one level of instancing (IAS -> GAS, no nested IASes).
+		// Allows one level of IAS.
 		_pipeline_comp_options.traversableGraphFlags = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
 		_pipeline_comp_options.usesMotionBlur = 0;
 		_pipeline_comp_options.numPayloadValues = 2;
 		_pipeline_comp_options.numAttributeValues = 2;
 		// The device context validation mode should be used for debugging.
-		_pipeline_comp_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
+		_pipeline_comp_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_STACK_OVERFLOW | OPTIX_EXCEPTION_FLAG_TRACE_DEPTH;
 		_pipeline_comp_options.pipelineLaunchParamsVariableName = "shader_params";
 
-		_pipeline_link_options.maxTraceDepth = MAX_RAY_DEPTH;
+		_pipeline_link_options.maxTraceDepth = maxTraceDepth();
 
 		createDevicePrograms();
 		processAssets(std::move(scene));
@@ -304,6 +320,7 @@ namespace propagation::raytracing::optix
 										&_gas_handles[i], &emit, 1));
 
 			uint64_t compact_size = 0;
+			compact_size_buf.set_size(1);
 			compact_size_buf.download(compact_size);
 
 			_gas_data[i].reserve(compact_size);
@@ -394,19 +411,20 @@ namespace propagation::raytracing::optix
 										&log[0], &log_size, &ctx->pipeline));
 		OPTIX_LOG(log, log_size);
 
-		// TODO_SHAUN review these
-		OPTIX_CHECK(optixPipelineSetStackSize(/* [in] The pipeline to configure the stack size for */
-											  ctx->pipeline,
-											  /* [in] The direct stack size requirement for direct
-												 callables invoked from IS or AH. */
-											  2 * 1024,
-											  /* [in] The direct stack size requirement for direct
-												 callables invoked from RG, MS, or CH.  */
-											  2 * 1024,
-											  /* [in] The continuation stack requirement. */
-											  2 * 1024,
-											  /* [in] The maximum depth of a traversable graph passed to trace. */
-											  2)); // 1x IAS + 1x GAS
+		OptixStackSizes ss{};
+		for (auto* pg : program_groups)
+			OPTIX_CHECK(optixUtilAccumulateStackSizes(pg, &ss, ctx->pipeline));
+
+		// LOG(logging::Level::DEBUG, "OptiX stack sizes: AH {} CC {} CH {} IS {} MS {} RG {}", ss.cssAH, ss.cssCC,
+		// ss.cssCH, 	ss.cssIS, ss.cssMS, ss.cssRG);
+
+		unsigned int dcFromTraversal = 0, dcFromState = 0, continuation = 0;
+		OPTIX_CHECK(
+			optixUtilComputeStackSizes(&ss, maxTraceDepth(), 0, 0, &dcFromTraversal, &dcFromState, &continuation));
+
+		OPTIX_CHECK(optixPipelineSetStackSize(ctx->pipeline, dcFromTraversal, dcFromState, continuation,
+											  /*maxTraversableGraphDepth (= 1x IAS + 1x GAS)*/ 2));
+
 		OPTIX_LOG(log, log_size);
 
 		// ------------------------------ Set up the instance list ------------------------------- //
@@ -546,15 +564,15 @@ namespace propagation::raytracing::optix
 		const auto y_source_antennas = static_cast<uint32_t>(job.source_antennas.size());
 		const auto z_times = static_cast<uint32_t>(job.times.size());
 
-		DeviceBuffer<ActiveAntenna> source_antennas(_stream.get());
+		DeviceBuffer<ActiveAntenna> source_antennas(ctx->stream.get());
 		source_antennas.upload(job.source_antennas);
-		DeviceBuffer<ActiveAntenna> dest_antennas(_stream.get());
+		DeviceBuffer<ActiveAntenna> dest_antennas(ctx->stream.get());
 		dest_antennas.upload(job.dest_antennas);
-		DeviceBuffer<double> times(_stream.get());
+		DeviceBuffer<double> times(ctx->stream.get());
 		times.upload(job.times);
-		DeviceBuffer<CarrierModel<float>> carriers(_stream.get());
+		DeviceBuffer<CarrierModel<float>> carriers(ctx->stream.get());
 		carriers.upload(job.carriers);
-		DeviceBuffer<RxFlags> rx_flags(_stream.get());
+		DeviceBuffer<RxFlags> rx_flags(ctx->stream.get());
 		rx_flags.upload(job.rx_flags);
 
 		std::vector<OptixTraversableHandle> iass;
@@ -563,6 +581,7 @@ namespace propagation::raytracing::optix
 			iass.push_back(buildOrRefitIAS(*ctx, t));
 		ctx->iass.upload(iass);
 
+		ctx->contribution_count.upload(0);
 		// Reserve lots of space for return contributions.
 		//
 		// The number of contribtions is going to be equal to (where E[.] is the expectation function):
@@ -570,20 +589,22 @@ namespace propagation::raytracing::optix
 		// where
 		// - `E[facet->dest is unshadowed]` is likely to be under half
 		//      (half the triangles on average will face away from a random point, some face the point but are occluded)
-		// - `E[steps before hitting nothing]` is likely to be some tiny nonlinearly scaling proportion of MAX_GO_STEPS
+		// - `E[steps before hitting nothing]` is likely to be some tiny nonlinearly scaling proportion of scatter_limit
 		//
 		// These `E[facet->dest is unshadowed] * E[steps before hitting nothing]` are estimated to be bound by
-		// `MAX_GO_STEPS/depreciation_factor`.
-		const size_t depreciation_factor = 64;
-		DeviceBuffer<Contribution> contributions(_stream.get());
-		contributions.reserve(source_antennas.size() * dest_antennas.size() * rays_per_source * MAX_RAY_DEPTH /
+		// `scatter_limit/depreciation_factor`.
+		const size_t depreciation_factor = 1;
+		DeviceBuffer<Contribution> contributions(ctx->stream.get());
+		contributions.reserve(source_antennas.size() * dest_antennas.size() * rays_per_source * maxScatterLimit() /
 							  depreciation_factor);
 
+		LOG(logging::Level::DEBUG, "Contribution buffer capacity: {}", contributions.capacity());
+
 		ShaderParams params{.iass = ctx->iass.ptr_t(),
-							.contribution_count = 0,
+							.contribution_count = ctx->contribution_count.ptr_t(),
 							.contribution_capacity = static_cast<uint32_t>(contributions.capacity()),
 							.sbr{
-								.scatter_limit = params::rtModelParams().scatter_limit,
+								.scatter_limit = maxScatterLimit(),
 								.rays_per_source = rays_per_source,
 								.boresight_rays = params::rtModelParams().raysAtBoresightCap(),
 								.boresight_fraction = float(params::rtModelParams().boresightSolidAngle() / (4.0 * PI)),
@@ -611,21 +632,20 @@ namespace propagation::raytracing::optix
 								/*! dimensions of the launch: */
 								x_rays_per_source, y_source_antennas, z_times));
 
-
-		// Read back the device-side contribution count, so we only download what was actually
-		// written. `ctx->params` was uploaded with `contribution_count = 0`; the kernel increments
-		// its own device-side copy via `fetch_add`, so we must download that copy, not reuse `params`.
-		ShaderParams readback{};
-		ctx->params.download(readback);
+		// Read back the device-side contribution write count.
+		ContributionCountType contribution_counter{};
+		ctx->contribution_count.download(contribution_counter);
+		const uint32_t contribution_writes = contribution_counter.load(cuda::memory_order_relaxed);
 
 		CUDA_CHECK(cudaStreamSynchronize(ctx->stream.get()));
+
+		LOG(logging::Level::DEBUG, "Contribution write count: {}", contribution_writes);
 
 		// Clamp defensively: if the device wrote more contributions than `ctx->contribs` was
 		// reserved for (see the `depreciation_factor` sizing estimate above), then the kernel
 		// began overwriting contributions, not writing more.
 		// Only download at most the full buffer, not the write count.
-		const auto contribution_count =
-			std::min<size_t>(readback.contribution_count.load(cuda::memory_order_relaxed), contributions.capacity());
+		const auto contribution_count = std::min<size_t>(contribution_writes, contributions.capacity());
 		// TODO_SHAUN grow/reallocate `ctx->contribs` and re-launch instead of dropping contributions past capacity?
 
 		std::vector<Contribution> contribs;

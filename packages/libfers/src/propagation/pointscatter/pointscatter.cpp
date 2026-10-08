@@ -45,7 +45,7 @@ namespace propagation::pointscatter
 	{
 		const auto pol = radar->getAntenna()->getPolarisation();
 		const auto h = Complex{pol.horizontal.real(), pol.horizontal.imag()};
-		const auto v = Complex{pol.veritcal.real(), pol.veritcal.imag()};
+		const auto v = Complex{pol.vertical.real(), pol.vertical.imag()};
 		const auto fers_orient = radar->getRotation(time);
 		const AzEl orientation{fers_orient.azimuth, fers_orient.elevation};
 		const RealType inv_len = 1.0 / direction.length();
@@ -84,6 +84,9 @@ namespace propagation::pointscatter
 		const auto e_tm_scat = cross(basis.e_te, k_scat);
 		const auto refl = basis.e_te * e_scat.x + e_tm_scat * e_scat.y;
 		const auto pol = dot_no_conj(refl, rx_pol);
+
+		// TODO_SHAUN remove
+		LOG(logging::Level::DEBUG, "Reflected Polarimetric Linkage: {}+j{}", pol.re / sqrt_rcs, pol.im / sqrt_rcs);
 
 		RealType scalar = std::sqrt(tx_gain * rx_gain * (1 / (64.0 * PI * PI * PI))) * lambda;
 		if (!no_prop_loss)
@@ -147,6 +150,10 @@ namespace propagation::pointscatter
 
 		const bool no_loss = rx->checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
 		const auto gain = computeDirectPathGain(tx_gain, rx_gain, tx_pol, rx_pol, lambda, tx_to_rx_dist, no_loss);
+
+		// TODO_SHAUN remove
+		const auto pol = dot_no_conj(tx_pol, rx_pol);
+		LOG(logging::Level::DEBUG, "Direct Polarimetric Linkage: {}+j{}", pol.re, pol.im);
 
 		found_paths.emplace_back(PropagationPath{
 			.delay = delay,
@@ -273,6 +280,11 @@ namespace propagation::pointscatter
 
 				for (const auto& target : _world->getTargets())
 				{
+					if (target->getRcsSpec() == nullptr)
+					{
+						continue;
+					}
+
 					// Calculate bistatic reflection contribution, if any.
 					reflectedPath(transmitter, receiver.get(), *target, current_time, true, carrier, current_time, 0,
 								  paths);
@@ -305,6 +317,11 @@ namespace propagation::pointscatter
 
 			for (const auto& target : _world->getTargets())
 			{
+				if (target->getRcsSpec() == nullptr)
+				{
+					continue;
+				}
+
 				// Calculate bistatic reflection contribution, if any.
 				reflectedPath(*source.transmitter, receiver, *target, rx_time, false, carrier, source.segment_start, s,
 							  paths);

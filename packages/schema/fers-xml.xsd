@@ -242,12 +242,17 @@
                 <xs:element minOccurs="0" name="azscale" type="xs:string"/>
                 <xs:element minOccurs="0" name="elscale" type="xs:string"/>
                 <xs:element minOccurs="0" name="efficiency" type="xs:string"/>
-                <!-- Boresight polarisation Jones vector (Ludwig-3). Defaults to purely horizontal
-                     (polarisation_h_re=1, all others 0) if omitted. Normalised on load. -->
-                <xs:element minOccurs="0" name="polarisation_h_re" type="xs:string"/>
-                <xs:element minOccurs="0" name="polarisation_h_im" type="xs:string"/>
-                <xs:element minOccurs="0" name="polarisation_v_re" type="xs:string"/>
-                <xs:element minOccurs="0" name="polarisation_v_im" type="xs:string"/>
+                <!-- Boresight polarisation Jones vector (Ludwig-3). h/v each hold a complex
+                     number as text, e.g. "1.0+0.0i" (also accepts a leading unit marker like
+                     "1.0+j0.5", a bare real or imaginary term, and "j" as well as "i"). Defaults
+                     to purely horizontal (h="1+0i", v="0+0i") if the element is omitted; an
+                     omitted h or v attribute defaults that axis to 0+0i. Normalised on load. -->
+                <xs:element minOccurs="0" name="boresight_polarisation">
+                    <xs:complexType>
+                        <xs:attribute name="h" type="xs:string"/>
+                        <xs:attribute name="v" type="xs:string"/>
+                    </xs:complexType>
+                </xs:element>
             </xs:sequence>
             <xs:attribute name="name" use="required"/>
             <xs:attribute name="pattern" use="required"/>

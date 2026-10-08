@@ -120,7 +120,7 @@
 
         <!-- Antenna -->
         <!ELEMENT antenna (alpha?,beta?,gamma?,diameter?,azscale?,elscale?,efficiency?,
-                          polarisation_h_re?,polarisation_h_im?,polarisation_v_re?,polarisation_v_im?)>
+                          boresight_polarisation?)>
         <!ATTLIST antenna
                 name CDATA #REQUIRED
                 pattern CDATA #REQUIRED
@@ -139,11 +139,13 @@
         <!ELEMENT elscale (#PCDATA)>
         <!-- The antenna efficiency factor -->
         <!ELEMENT efficiency (#PCDATA)>
-        <!-- Boresight polarisation Jones vector (Ludwig-3). Defaults to purely horizontal if omitted. -->
-        <!ELEMENT polarisation_h_re (#PCDATA)>
-        <!ELEMENT polarisation_h_im (#PCDATA)>
-        <!ELEMENT polarisation_v_re (#PCDATA)>
-        <!ELEMENT polarisation_v_im (#PCDATA)>
+        <!-- Boresight polarisation Jones vector (Ludwig-3). h/v each hold a complex number as
+             text, e.g. "1.0+0.0i" (also accepts a leading unit marker, a bare real or imaginary
+             term, and "j" as well as "i"). Defaults to purely horizontal if omitted. -->
+        <!ELEMENT boresight_polarisation EMPTY>
+        <!ATTLIST boresight_polarisation
+                h CDATA #IMPLIED
+                v CDATA #IMPLIED>
 
         <!-- Mesh Asset: a reusable mesh, loaded from a file within the "meshes" directory next to the scenario file -->
         <!ELEMENT mesh EMPTY>

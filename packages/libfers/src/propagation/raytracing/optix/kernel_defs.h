@@ -19,12 +19,15 @@ namespace propagation::raytracing::optix
 	constexpr unsigned int RAY_TYPE_INDIRECT = 0;
 	constexpr unsigned int RAY_TYPE_SHADOW = 1;
 
+	using ContributionCountType = cuda::atomic<unsigned int, cuda::thread_scope_device>;
+
 	struct ShaderParams
 	{
 		/// The IASs for this run, per time. Indexed by launch Z dimension (time index).
 		OptixTraversableHandle* iass;
 		/// The number of contributions already recorded. Indexes the contribution buffer.
-		cuda::atomic<unsigned int, cuda::thread_scope_device> contribution_count;
+		ContributionCountType* contribution_count;
+		/// The capacity of the contribution buffer. Do not write beyond this.
 		uint32_t contribution_capacity;
 
 		/// The simulation engine's parameters.

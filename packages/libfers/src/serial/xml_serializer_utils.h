@@ -124,6 +124,14 @@ namespace serial::xml_serializer_utils
 	 * @param name The name of the attribute to set.
 	 * @param value The numeric value to set for the attribute.
 	 */
+	/**
+	 * @brief Formats a complex number as a literal, e.g. "1+0i" or "0.5-2i" (see
+	 * `serial::parseComplexLiteral` for the grammar this is a subset of).
+	 * @param value The complex value to format.
+	 * @return The formatted literal.
+	 */
+	std::string formatComplexLiteral(ComplexType value);
+
 	template <typename T>
 	void setAttributeFromNumber(const XmlElement& element, const std::string& name, T value)
 	{

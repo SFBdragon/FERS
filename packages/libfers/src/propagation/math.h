@@ -73,6 +73,12 @@ namespace propagation
 		return Vec3<Real>{a.x + b.x, a.y + b.y, a.z + b.z};
 	}
 	template <typename Real>
+	HC_FN constexpr Vec3<Real>& operator+=(Vec3<Real>& a, Vec3<Real> b)
+	{
+		a = a + b;
+		return a;
+	}
+	template <typename Real>
 	HC_FN constexpr Vec3<Real> operator-(const Vec3<Real>& a, const Vec3<Real>& b)
 	{
 		return Vec3<Real>{a.x - b.x, a.y - b.y, a.z - b.z};
@@ -91,6 +97,12 @@ namespace propagation
 	HC_FN constexpr Vec3<Real> operator*(Real s, const Vec3<Real>& a)
 	{
 		return a * s;
+	}
+	template <typename Real>
+	HC_FN constexpr Vec3<Real>& operator*=(Vec3<Real>& a, Real s)
+	{
+		a = a * s;
+		return a;
 	}
 	template <typename Real>
 	HC_FN constexpr Vec3<Real> operator/(const Vec3<Real>& a, Real s)
@@ -168,6 +180,12 @@ namespace propagation
 		return Complex(a.re + b.re, a.im + b.im);
 	}
 	template <typename Real>
+	HC_FN constexpr Complex<Real>& operator+=(Complex<Real>& a, Complex<Real> b)
+	{
+		a = a + b;
+		return a;
+	}
+	template <typename Real>
 	HC_FN constexpr Complex<Real> operator-(Complex<Real> a, Complex<Real> b)
 	{
 		return Complex(a.re - b.re, a.im - b.im);
@@ -196,6 +214,12 @@ namespace propagation
 	HC_FN constexpr Complex<Real> operator*(Real s, Complex<Real> a)
 	{
 		return a * s;
+	}
+	template <typename Real>
+	HC_FN constexpr Complex<Real>& operator*=(Complex<Real>& a, Real s)
+	{
+		a = a * s;
+		return a;
 	}
 	template <typename Real>
 	HC_FN constexpr Complex<Real> operator/(Complex<Real> a, Complex<Real> b)

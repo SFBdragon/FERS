@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cuda_runtime_api.h>
+#include <optix.h>
 #include <optix_device.h>
 #include <optix_types.h>
 #include <vector_types.h>
@@ -14,6 +15,7 @@
 #include "propagation/math.h"
 #include "propagation/raytracing/optix/kernel_defs.h"
 #include "propagation/raytracing/sbr_impl.h"
+#include "propagation/raytracing/sbr_shared.h"
 
 // Get rid of the warnings about the names starting with two underscores.
 // NOLINTBEGIN(bugprone-reserved-identifier)
@@ -91,7 +93,7 @@ namespace propagation::raytracing::optix
 	static __device__ inline float shadowTest(Float3 origin, Float3 direction, OptixTraversableHandle ias)
 	{
 		// Default to unoccluded. Upon hit, this is updated.
-		float shadow_t = INFINITY;
+		float shadow_t = MAX_RAY_DISTANCE;
 
 		unsigned int hi{}, lo{};
 		packPointer(&shadow_t, &hi, &lo);
@@ -99,7 +101,7 @@ namespace propagation::raytracing::optix
 				   float3{origin.x, origin.y, origin.z}, // rayOrigin
 				   float3{direction.x, direction.y, direction.z}, // rayDirection
 				   MIN_RAY_DISTANCE, // tmin
-				   INFINITY, // tmax
+				   MAX_RAY_DISTANCE, // tmax
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask TODO?
 				   OPTIX_RAY_FLAG_DISABLE_ANYHIT, // rayFlags
@@ -113,7 +115,7 @@ namespace propagation::raytracing::optix
 
 	static __device__ inline uint32_t contributionIndex()
 	{
-		return min(shader_params.contribution_count.fetch_add(1), shader_params.contribution_capacity - 1);
+		return min(shader_params.contribution_count->fetch_add(1), shader_params.contribution_capacity - 1);
 	}
 
 	// -------------------------------------------------------------------------------- //
@@ -160,7 +162,7 @@ namespace propagation::raytracing::optix
 				   asF32(path->path_vertices[path->ray_count]), // rayOrigin
 				   asF32(path->trace_directions[path->ray_count]), // rayDirection
 				   MIN_RAY_DISTANCE, // tmin
-				   INFINITY, // tmax
+				   MAX_RAY_DISTANCE, // tmax
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask
 				   OPTIX_RAY_FLAG_DISABLE_ANYHIT, // rayFlags
@@ -215,7 +217,7 @@ namespace propagation::raytracing::optix
 				   asF32(path.path_vertices[0]), // rayOrigin
 				   asF32(path.trace_directions[0]), // rayDirection
 				   MIN_RAY_DISTANCE, // tmin
-				   INFINITY, // tmax
+				   MAX_RAY_DISTANCE, // tmax
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask
 				   OPTIX_RAY_FLAG_DISABLE_ANYHIT, // rayFlags

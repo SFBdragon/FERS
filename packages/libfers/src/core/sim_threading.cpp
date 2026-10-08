@@ -1355,14 +1355,8 @@ namespace core
 				simulation::calculateStreamingPathContribution(streaming_sources[path.source_index], rx, path, rx_time,
 															   _cw_phase_noise_lookup.get(), cache, timing_phase_mode);
 
-			// Tier 2 cleanup evidence: this path's retarded time has not yet moved past the source's
-			// transmit segment end, so it may still be delivering signal now or in the future (either
-			// still in-window, or not yet arrived at all — a long enough path delay can mean nothing
-			// arrives for a while after the transmitter stops). Only `t_ret >= segment_end` is proof
-			// there is nothing left to arrive via this path; `t_ret < segment_start` is NOT such proof
-			// and must not be treated as "confirmed dead" (unlike the windowing check in
-			// computeStreamingEvaluation, which zeroes the contribution but says nothing about whether
-			// more is still coming).
+			// Don't clean up this source. This path's retarded time has not yet moved past the source's
+			// transmit segment end, so it may still be delivering signal now or in the future.
 			if (path.source_index < source_live_this_sample.size())
 			{
 				const auto& source = streaming_sources[path.source_index];
