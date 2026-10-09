@@ -651,11 +651,11 @@ namespace propagation::raytracing
 	 *
 	 * @param shadow_test Engine-supplied occlusion test: `float(Float3 origin, Float3 segment)`,
 	 * returning the hit distance as a fraction of `|segment|`.
-	 * @param contrib_index Engine-supplied next contribution index. `uint32_t()`
+	 * @param get_contrib_ptr Returns a location to write contribution data to. `Contribution*()`
 	 */
-	template <typename ShadowTest, typename ContribIndex>
+	template <typename ShadowTest, typename GetContribPtr>
 	[[nodiscard]] HC_FN bool facetHit(const SbrParams& params, PathState* path, const HitInfo& hit,
-									  ShadowTest shadow_test, ContribIndex get_contrib_index)
+									  ShadowTest shadow_test, GetContribPtr get_contrib_ptr)
 	{
 		// Local geometry computations in 32-bit precision in object space.
 
@@ -785,23 +785,22 @@ namespace propagation::raytracing
 				}
 
 				// Add a contribution to the sink.
-				uint32_t contrib_index = get_contrib_index();
-				auto& contrib = params.contributions[contrib_index];
-				contrib.path_gain = path_gain;
-				contrib.delay = prop_time;
-				contrib.dest_index = dst_idx;
-				contrib.path_id = hash_mix(path->hash, dst_idx);
-				contrib.source_times_index = path->source_index + params.source_antenna_count * path->time_index;
-				contrib.area = patch.area;
+				Contribution* contrib = get_contrib_ptr();
+				contrib->path_gain = path_gain;
+				contrib->delay = prop_time;
+				contrib->dest_index = dst_idx;
+				contrib->path_id = hash_mix(path->hash, dst_idx);
+				contrib->source_times_index = path->source_index + params.source_antenna_count * path->time_index;
+				contrib->area = patch.area;
 			}
 		}
 
 		return path->ray_count < params.scatter_limit;
 	} // facetHit
 
-	template <typename ShadowTest, typename ContribIndex>
+	template <typename ShadowTest, typename GetContribPtr>
 	HC_FN void directPath(const SbrParams& params, uint32_t src_idx, uint32_t dst_idx, uint32_t time_idx,
-						  ShadowTest shadow_test, ContribIndex get_contrib_index)
+						  ShadowTest shadow_test, GetContribPtr get_contrib_ptr)
 	{
 		const auto rx_idx = params.rx_to_tx ? dst_idx : src_idx;
 		const auto rx_flags = params.rx_flags[rx_idx];
@@ -865,8 +864,7 @@ namespace propagation::raytracing
 		const float scalar_gain = computeDirectPathGain(src_gain, dst_gain, wavelength, float(path_len), no_prop_loss);
 		const CFloat voltage = scalar_gain * dot_no_conj(src_pol, dst_pol);
 
-		const uint32_t contrib_index = get_contrib_index();
-		auto* contrib = &params.contributions[contrib_index];
+		Contribution* contrib = get_contrib_ptr();
 		contrib->path_gain = voltage;
 		contrib->delay = prop_time;
 		contrib->source_times_index = src_idx + time_idx * params.source_antenna_count;

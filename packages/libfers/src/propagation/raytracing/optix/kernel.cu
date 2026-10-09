@@ -4,7 +4,6 @@
 //
 // See the GNU GPLv2 LICENSE file in the FERS project root for more information.
 
-#include <cmath>
 #include <cstdint>
 #include <cuda_runtime_api.h>
 #include <optix.h>
@@ -113,9 +112,10 @@ namespace propagation::raytracing::optix
 		return shadow_t;
 	}
 
-	static __device__ inline uint32_t contributionIndex()
+	static __device__ inline Contribution* getContributionPtr()
 	{
-		return min(shader_params.contribution_count->fetch_add(1), shader_params.contribution_capacity - 1);
+		const auto index = min(shader_params.contribution_count->fetch_add(1), shader_params.contribution_capacity - 1);
+		return &shader_params.contributions[index];
 	}
 
 	// -------------------------------------------------------------------------------- //
@@ -149,15 +149,15 @@ namespace propagation::raytracing::optix
 		unsigned int hi = optixGetPayload_0(), lo = optixGetPayload_1();
 		auto* path = unpackPointer<PathState>(hi, lo);
 
-		auto ias = shader_params.iass[path->time_index];
+		const auto ias = shader_params.iass[path->time_index];
+		const auto shadow_test = [ias](Float3 origin, Float3 seg) { return shadowTest(origin, seg, ias); };
 
-		auto should_reflect = facetHit(
-			shader_params.sbr, path, hit, [ias](Float3 origin, Float3 seg) { return shadowTest(origin, seg, ias); },
-			contributionIndex);
+		auto should_reflect = facetHit(shader_params.sbr, path, hit, shadow_test, getContributionPtr);
 
 		if (!should_reflect)
 			return; // we're done with this path
 
+		// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index): can't use throwing .at() in CUDA
 		optixTrace(ias, // AS handle
 				   asF32(path->path_vertices[path->ray_count]), // rayOrigin
 				   asF32(path->trace_directions[path->ray_count]), // rayDirection
@@ -171,6 +171,7 @@ namespace propagation::raytracing::optix
 				   RAY_TYPE_INDIRECT, // missSBTIndex
 				   hi, lo // payload; up to 32 unsigned ints
 		);
+		// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
 	}
 
 	/// This is the Geometric Optics (GO) any-hit program.
@@ -197,15 +198,14 @@ namespace propagation::raytracing::optix
 		/// The time-step index. Determines which IAS to use.
 		unsigned int t_index = idx.z;
 
-		auto ias = shader_params.iass[t_index];
+		const auto ias = shader_params.iass[t_index];
+		const auto shadow_test = [ias](Float3 origin, Float3 seg) { return shadowTest(origin, seg, ias); };
 
 		// Zero-bounce direct-path check, piggybacked on spare X-lanes (dest_antenna_count is tiny).
 		// Looped, not `if`, so it stays correct even if rays_per_source < dest_antenna_count.
 		for (uint32_t d = path_index; d < shader_params.sbr.dest_antenna_count; d += shader_params.sbr.rays_per_source)
 		{
-			directPath(
-				shader_params.sbr, antenna_index, d, t_index,
-				[ias](Float3 origin, Float3 seg) { return shadowTest(origin, seg, ias); }, contributionIndex);
+			directPath(shader_params.sbr, antenna_index, d, t_index, shadow_test, getContributionPtr);
 		}
 
 		PathState path{};

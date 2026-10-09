@@ -42,13 +42,11 @@ namespace propagation::raytracing
 	/// SBR engine triangle mesh view.
 	struct TriangleMeshView
 	{
-		/// The offset of this mesh's vertex buffer within the SbrParams::vertices buffer.
-		uint32_t vertex_buffer_offset;
 		/// The number of vertices in this mesh's buffer.
 		uint32_t vertex_count;
 		/// The offset of this mesh's index buffer within the SbrParams::indices buffer.
 		///
-		/// Note that the indices index globally into the vertex buffer, not from `vertex_buffer_offset`.
+		/// Note that the indices are not offset from the start of the vertex buffer.
 		uint32_t index_buffer_index;
 		/// The number of triangles in this mesh's buffer. Equal to the number of Uint3 index sets.
 		uint32_t triangle_count;
@@ -157,7 +155,7 @@ namespace propagation::raytracing
 		uint32_t dest_index{};
 
 		// TODO_SHAUN remove
-		float area;
+		float area{};
 	};
 
 	enum RxFlags : uint8_t
@@ -241,10 +239,6 @@ namespace propagation::raytracing
 		// If there's a need to go beyond that, turn that into an instance
 		// index which indexes into per-instance data here.
 		// Instance* instances;
-
-		// Output buffer of contributions.
-		// Indexing this safely device-side requires platform-specific atomic counters.
-		Contribution* contributions;
 	};
 
 } // namespace propagation::raytracing

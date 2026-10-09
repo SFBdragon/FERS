@@ -144,17 +144,16 @@ set(LIBFERS_SOURCES
 	${CMAKE_CURRENT_LIST_DIR}/timing/timing.cpp
 )
 
-# --- Optional GPU Ray Tracing Backends ---
-# Each backend's CMake logic (finding its SDK, any device-code compile steps)
-# lives in its own cmake/Fers<Backend>.cmake module so this file - and the
-# main libfers CMakeLists.txt - stay backend-agnostic as more of these show
-# up (Embree, HIPRT, ...). A backend module is expected to set
-# FERS_<BACKEND>_SOURCES / _PRIVATE_HEADERS / _LINK_LIBRARIES, and optionally
-# _GENERATE_TARGET if it needs a custom build step wired into the library
-# target's dependencies (see fers_configure_library_target in the parent
-# CMakeLists.txt).
+# --- Optional Ray Tracing Backends ---
+
 if (FERS_ENABLE_OPTIX)
 	include(FersOptiX)
 	list(APPEND LIBFERS_PRIVATE_HEADERS ${FERS_OPTIX_PRIVATE_HEADERS})
 	list(APPEND LIBFERS_SOURCES ${FERS_OPTIX_SOURCES})
+endif ()
+
+if (FERS_ENABLE_EMBREE)
+	include(FersEmbree)
+	list(APPEND LIBFERS_PRIVATE_HEADERS ${FERS_EMBREE_PRIVATE_HEADERS})
+	list(APPEND LIBFERS_SOURCES ${FERS_EMBREE_SOURCES})
 endif ()

@@ -30,6 +30,10 @@ namespace propagation::raytracing::optix
 		/// The capacity of the contribution buffer. Do not write beyond this.
 		uint32_t contribution_capacity;
 
+		// Output buffer of contributions.
+		// Indexing this safely device-side requires platform-specific atomic counters.
+		Contribution* contributions;
+
 		/// The simulation engine's parameters.
 		SbrParams sbr;
 	};

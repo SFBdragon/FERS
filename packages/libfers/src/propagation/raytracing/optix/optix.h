@@ -147,27 +147,27 @@ namespace propagation::raytracing::optix
 		}
 	};
 
-	class OptixEngine : public RayTracingEngine
+	class OptixBackend : public RayTracingBackend
 	{
 	public:
-		OptixEngine(SceneData scene);
+		OptixBackend(SceneData scene);
 
-		OptixEngine(const OptixEngine&) = delete;
-		OptixEngine& operator=(const OptixEngine&) = delete;
-		OptixEngine(OptixEngine&&) = delete;
-		OptixEngine& operator=(OptixEngine&&) = delete;
+		OptixBackend(const OptixBackend&) = delete;
+		OptixBackend& operator=(const OptixBackend&) = delete;
+		OptixBackend(OptixBackend&&) = delete;
+		OptixBackend& operator=(OptixBackend&&) = delete;
 
-		~OptixEngine() override = default;
+		~OptixBackend() override = default;
 
-		std::unique_ptr<ThreadContext> makeThreadContext(core::World* world) override;
+		std::unique_ptr<ThreadContext> makeThreadContext(core::World* world) const override;
 
-		std::vector<Contribution> trace(ThreadContext* thread_context, TraceJob& job) override;
+		std::vector<Contribution> trace(ThreadContext* thread_context, TraceJob& job) const override;
 
 	private:
 		void createDevicePrograms();
 		void processAssets(SceneData scene);
 		void createSbt();
-		OptixTraversableHandle buildOrRefitIAS(OptixThreadContext& ctx, RealType t);
+		OptixTraversableHandle buildOrRefitIAS(OptixThreadContext& ctx, RealType t) const;
 
 		/// The engine's CUDA context handle.
 		CudaContext _cuda_ctx;

@@ -14,5 +14,11 @@
         },
         "libxml2",
         "nlohmann-json"
-    ]
+    ],
+    "features": {
+        "embree": {
+            "description": "Embree CPU ray tracing backend for the SBR propagation model",
+            "dependencies": ["embree"]
+        }
+    }
 }

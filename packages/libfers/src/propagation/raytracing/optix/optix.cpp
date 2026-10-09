@@ -7,14 +7,12 @@
 #include "optix.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cuda.h>
 #include <cuda_device_runtime_api.h>
 #include <cuda_runtime.h>
 #include <cuda_runtime_api.h>
-#include <iostream>
 #include <memory>
 #include <optix.h>
 #include <optix_function_table_definition.h>
@@ -111,7 +109,24 @@ namespace propagation::raytracing::optix
 
 	static void contextLogCallback(unsigned int level, const char* tag, const char* message, void*)
 	{
-		std::cerr << "OptiX Device Context Log [level " << level << "] " << tag << ": " << message << '\n';
+		logging::Level log_level = logging::Level::DEBUG;
+		switch (level)
+		{
+		case 1:
+			log_level = logging::Level::FATAL;
+			break;
+		case 2:
+			log_level = logging::Level::ERROR;
+			break;
+		case 3:
+			log_level = logging::Level::WARNING;
+			break;
+		default:
+			log_level = logging::Level::DEBUG;
+			break;
+		}
+
+		LOG(log_level, "OptiX Device Context Log [level {}] {}: {}", level, tag, message);
 	}
 	OptixContext::OptixContext(CUcontext context) : _context(nullptr)
 	{
@@ -126,17 +141,13 @@ namespace propagation::raytracing::optix
 		OPTIX_CHECK(optixDeviceContextCreate(context, &opts, &_context));
 	}
 
-	static uint32_t maxScatterLimit() { return std::min(MAX_SCATTER_LIMIT, params::rayTracingParams().scatter_limit); }
-	static uint32_t maxTraceDepth()
-	{
-		return std::min(MAX_SCATTER_LIMIT + 1, params::rayTracingParams().scatter_limit + 1);
-	}
+	static uint32_t maxTraceDepth() { return maxScatterLimit() + 1; }
 
 	// By initialising the CUDA and OptiX RAII wrappers first, they get automatically
 	// cleaned up if part of the initialization throws. Desctruction of the OptiX device
 	// context will automatically clean up all the modules, program groups, pipelines, etc.
 	// associated with it. CudaBuffers handle cleaning up CUDA memory.
-	OptixEngine::OptixEngine(SceneData scene) :
+	OptixBackend::OptixBackend(SceneData scene) :
 		_cuda_ctx(pickCudaDevice()), _optix_ctx(_cuda_ctx.get()), _stream(), _module_comp_options(),
 		_pipeline_comp_options(), _pipeline_link_options(), _module(), _raygen_program(), _raygen_record(_stream.get()),
 		_miss_records(_stream.get()), _hitgroup_records(_stream.get()), _sbt(), _materials(_stream.get()),
@@ -145,17 +156,6 @@ namespace propagation::raytracing::optix
 		// Set up the compile and link options used by engine going forward.
 		// These are persisted as OptixPipelines need them, which are created later
 		// in ThreadContexts as pipelines aren't thread-safe, and the options must be consistent.
-
-		// If we're capping the scatter limit, warn the user.
-		if (params::rayTracingParams().scatter_limit + 1 != maxScatterLimit())
-		{
-			LOG(logging::Level::WARNING,
-				"Ray-tracing propagation model kernel was not built with support for a scatter limit of {}, this "
-				"build's maximum is {}. It's possible to edit the kernel's `MAX_SCATTER_LIMIT` and rebuild. This run "
-				"will use a scatter limit of {}.",
-				params::rayTracingParams().scatter_limit, maxScatterLimit(), maxScatterLimit());
-		}
-
 
 		_module_comp_options.maxRegisterCount = 128;
 		_module_comp_options.optLevel = OPTIX_COMPILE_OPTIMIZATION_DEFAULT;
@@ -177,7 +177,7 @@ namespace propagation::raytracing::optix
 		createSbt();
 	}
 
-	void OptixEngine::createDevicePrograms()
+	void OptixBackend::createDevicePrograms()
 	{
 		char log[2048];
 		size_t log_size = sizeof(log);
@@ -243,7 +243,7 @@ namespace propagation::raytracing::optix
 		OPTIX_LOG(log, log_size);
 	}
 
-	void OptixEngine::processAssets(SceneData scene)
+	void OptixBackend::processAssets(SceneData scene)
 	{
 		// ------------------------ Materials ------------------------ //
 
@@ -335,7 +335,7 @@ namespace propagation::raytracing::optix
 		CUDA_CHECK(cudaStreamSynchronize(_stream.get()));
 	}
 
-	void OptixEngine::createSbt()
+	void OptixBackend::createSbt()
 	{
 		// ----------------------------------- Build the SBT ----------------------------------- //
 
@@ -381,7 +381,7 @@ namespace propagation::raytracing::optix
 		CUDA_CHECK(cudaStreamSynchronize(_stream.get()));
 	}
 
-	std::unique_ptr<ThreadContext> OptixEngine::makeThreadContext(core::World* world)
+	std::unique_ptr<ThreadContext> OptixBackend::makeThreadContext(core::World* world) const
 	{
 		// Set the CUDA context for this thread.
 		//
@@ -457,49 +457,29 @@ namespace propagation::raytracing::optix
 		return ctx;
 	}
 
-	/// Builds a target's OptixInstance::transform (row-major 3x4, world = R * local + T) from its
-	/// position (translation) and az/el rotation. SVec3 only carries azimuth+elevation (a pointing
-	/// direction, like antenna boresight) — there's no roll/bank component, so this assumes roll
-	/// = 0. That's the best this data can give until the planned transform-hierarchy rework lands.
-	///
-	/// Mesh local-axis convention: +Y is "forward" (nose direction), +Z is "up", +X is "right" —
-	/// there's no other convention already established in this codebase to match against, so
-	/// meshes must be authored this way or they'll appear rotated.
+	/// Builds a target's OptixInstance::transform: `computeTargetTransform`'s column-major `Float3x4`
+	/// (world = R * local + T), transposed into OptiX's row-major 3x4 layout.
 	static void computeInstanceTransform(const radar::Target* target, const RealType t, float transform[12])
 	{
-		const auto pos = target->getPosition(t);
-		const auto rot = target->getRotation(t);
+		const Float3x4 m = raytracing::computeTargetTransform(*target, t);
 
-		const auto forward = normalize(Double3{
-			std::cos(rot.azimuth) * std::cos(rot.elevation),
-			std::sin(rot.azimuth) * std::cos(rot.elevation),
-			std::sin(rot.elevation),
-		});
+		transform[0] = m.x.x;
+		transform[1] = m.y.x;
+		transform[2] = m.z.x;
+		transform[3] = m.w.x;
 
-		Double3 world_up{0.0, 0.0, 1.0};
-		if (std::abs(dot(forward, world_up)) > 0.999)
-			world_up = Double3{1.0, 0.0, 0.0}; // forward ~parallel to world up; avoid a degenerate cross product
+		transform[4] = m.x.y;
+		transform[5] = m.y.y;
+		transform[6] = m.z.y;
+		transform[7] = m.w.y;
 
-		const auto right = normalize(cross(forward, world_up));
-		const auto up = cross(right, forward);
-
-		transform[0] = static_cast<float>(right.x);
-		transform[1] = static_cast<float>(forward.x);
-		transform[2] = static_cast<float>(up.x);
-		transform[3] = static_cast<float>(pos.x);
-
-		transform[4] = static_cast<float>(right.y);
-		transform[5] = static_cast<float>(forward.y);
-		transform[6] = static_cast<float>(up.y);
-		transform[7] = static_cast<float>(pos.y);
-
-		transform[8] = static_cast<float>(right.z);
-		transform[9] = static_cast<float>(forward.z);
-		transform[10] = static_cast<float>(up.z);
-		transform[11] = static_cast<float>(pos.z);
+		transform[8] = m.x.z;
+		transform[9] = m.y.z;
+		transform[10] = m.z.z;
+		transform[11] = m.w.z;
 	}
 
-	OptixTraversableHandle OptixEngine::buildOrRefitIAS(OptixThreadContext& ctx, RealType t)
+	OptixTraversableHandle OptixBackend::buildOrRefitIAS(OptixThreadContext& ctx, RealType t) const
 	{
 		for (size_t i = 0; i < ctx.instance_targets.size(); i++)
 		{
@@ -553,15 +533,18 @@ namespace propagation::raytracing::optix
 		return ctx.ias_handle;
 	}
 
-	std::vector<Contribution> OptixEngine::trace(ThreadContext* thread_context, TraceJob& job)
+	std::vector<Contribution> OptixBackend::trace(ThreadContext* thread_context, TraceJob& job) const
 	{
 		auto* ctx = dynamic_cast<OptixThreadContext*>(thread_context);
 		if (ctx == nullptr)
 			throw std::runtime_error("OptixEngine::trace did not receive a valid OptixThreadContext.");
 
 		const auto rays_per_source = params::rayTracingParams().raysPerSource();
+		const auto time_count = static_cast<uint32_t>(job.times.size());
+		const auto source_antenna_count = static_cast<uint32_t>(job.source_antennas.size()) / time_count;
+		const auto dest_antenna_count = static_cast<uint32_t>(job.dest_antennas.size()) / time_count;
 		const auto x_rays_per_source = rays_per_source;
-		const auto y_source_antennas = static_cast<uint32_t>(job.source_antennas.size());
+		const auto y_source_antennas = source_antenna_count;
 		const auto z_times = static_cast<uint32_t>(job.times.size());
 
 		DeviceBuffer<ActiveAntenna> source_antennas(ctx->stream.get());
@@ -583,20 +566,18 @@ namespace propagation::raytracing::optix
 
 		ctx->contribution_count.upload(0);
 		// Reserve lots of space for return contributions.
+		// The maximum number of contributions possible is the sum of
+		// max_direct = |sources| * |dests| * |times|
+		// max_indirect = |sources| * |dests| * |times| * |rays_per_source| * |max_scatter_limit|
+		// so
+		// max_all = |sources| * |dests| * |times| * (1 + |rays_per_source| * |max_scatter_limit|)
 		//
-		// The number of contribtions is going to be equal to (where E[.] is the expectation function):
-		// |sources| * |rays_per_source| * E[facet->dest is unshadowed] * |dests| * E[steps before hitting nothing]
-		// where
-		// - `E[facet->dest is unshadowed]` is likely to be under half
-		//      (half the triangles on average will face away from a random point, some face the point but are occluded)
-		// - `E[steps before hitting nothing]` is likely to be some tiny nonlinearly scaling proportion of scatter_limit
-		//
-		// These `E[facet->dest is unshadowed] * E[steps before hitting nothing]` are estimated to be bound by
-		// `scatter_limit/depreciation_factor`.
-		const size_t depreciation_factor = 1;
+		// It's certainly possible to reach this limit under certain circumstances, though typically only where
+		// max_scatter_limit is very low and rays are concentrated on a target at the boresight.
 		DeviceBuffer<Contribution> contributions(ctx->stream.get());
-		contributions.reserve(source_antennas.size() * dest_antennas.size() * rays_per_source * maxScatterLimit() /
-							  depreciation_factor);
+		const uint32_t capacity =
+			source_antenna_count * dest_antenna_count * time_count * (1 + rays_per_source * maxScatterLimit());
+		contributions.reserve(static_cast<size_t>(capacity));
 
 		LOG(logging::Level::DEBUG, "Contribution buffer capacity: {}", contributions.capacity());
 
@@ -604,6 +585,8 @@ namespace propagation::raytracing::optix
 			.iass = ctx->iass.ptr_t(),
 			.contribution_count = ctx->contribution_count.ptr_t(),
 			.contribution_capacity = static_cast<uint32_t>(contributions.capacity()),
+			.contributions = contributions.ptr_t(),
+
 			.sbr{
 				.scatter_limit = maxScatterLimit(),
 				.rays_per_source = rays_per_source,
@@ -617,12 +600,11 @@ namespace propagation::raytracing::optix
 				.antenna_models = _antenna_models.ptr_t(),
 				.antenna_gains = _antenna_gains.ptr_t(),
 				.source_antennas = source_antennas.ptr_t(),
-				.source_antenna_count = static_cast<uint32_t>(source_antennas.size()),
+				.source_antenna_count = source_antenna_count,
 				.dest_antennas = dest_antennas.ptr_t(),
-				.dest_antenna_count = static_cast<uint32_t>(dest_antennas.size()),
+				.dest_antenna_count = dest_antenna_count,
 				.rx_flags = rx_flags.ptr_t(),
 				.rx_to_tx = job.type == TraceJobType::FindRxFromTx,
-				.contributions = contributions.ptr_t(),
 			}};
 
 		ctx->params.upload(params);

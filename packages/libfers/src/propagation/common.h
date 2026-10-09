@@ -135,7 +135,7 @@ namespace propagation
 	{
 		const Real numerator = std::sqrt(tx_gain * rx_gain) * lambda;
 
-		Real denominator = 4.0 * PI_V<Real>;
+		Real denominator = Real(4.0) * PI_V<Real>;
 		if (!no_prop_loss)
 		{
 			denominator *= dist;

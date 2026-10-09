@@ -106,6 +106,9 @@ namespace propagation::raytracing::optix
 			return *this;
 		}
 
+		// NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast): CUDA Malloc API mixes integer and pointer types
+		// NOLINTBEGIN(performance-no-int-to-ptr): CUDA Malloc API mixes integer and pointer types
+
 		/**
 		 * @brief Ensures the buffer can hold at least `n` elements, reallocating only if the
 		 * current capacity is insufficient, otherwise the existing allocation (and its contents).
@@ -181,6 +184,9 @@ namespace propagation::raytracing::optix
 		 * This is typically useful when the size of the buffer changes due to device-side operations.
 		 */
 		void set_size(size_t size) { _size = size; }
+
+		// NOLINTEND(performance-no-int-to-ptr)
+		// NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 
 	private:
 		/// The stream operations are performed in.

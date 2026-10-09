@@ -13,9 +13,9 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <random>
 #include <ranges>
 #include <span>
+#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -41,16 +41,62 @@
 #include "radar/transmitter.h"
 #include "signal/radar_signal.h"
 
-#if defined(FERS_ENABLE_OPTIX)
+#ifdef FERS_ENABLE_OPTIX
 #include "optix/optix.h"
 #endif
 
+#ifdef FERS_ENABLE_EMBREE
+#include "embree/embree.h"
+#endif
 
 using namespace math;
 using namespace radar;
 
 namespace propagation::raytracing
 {
+	Float3x4 computeTargetTransform(const radar::Target& target, const RealType t)
+	{
+		const auto pos = target.getPosition(t);
+		const auto rot = target.getRotation(t);
+
+		const auto forward = normalize(Double3{
+			std::cos(rot.azimuth) * std::cos(rot.elevation),
+			std::sin(rot.azimuth) * std::cos(rot.elevation),
+			std::sin(rot.elevation),
+		});
+
+		Double3 world_up{0.0, 0.0, 1.0};
+		if (std::abs(dot(forward, world_up)) > 0.999)
+			world_up = Double3{1.0, 0.0, 0.0}; // forward ~parallel to world up; avoid a degenerate cross product
+
+		const auto right = normalize(cross(forward, world_up));
+		const auto up = cross(right, forward);
+
+		// `pos` is `math::Vec3` (the legacy general-purpose vector type `radar::Object::getPosition`
+		// returns), distinct from `right`/`forward`/`up`'s `propagation::Double3` - generic on `.x/.y/.z`
+		// so it accepts both.
+		const auto toFloat3 = [](const auto& v) {
+			return Float3{static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)};
+		};
+		return Float3x4{toFloat3(right), toFloat3(forward), toFloat3(up), toFloat3(pos)};
+	}
+
+	Float3x4 affineInverse(const Float3x4& m) noexcept
+	{
+		// m's columns (x, y, z) form an orthonormal rotation basis (see computeTargetTransform), so
+		// the inverse rotation is just the transpose, and the inverse translation falls out of
+		// distributing R^T across `world = R * local + T` solved for `local`.
+		const Float3 row0{m.x.x, m.y.x, m.z.x};
+		const Float3 row1{m.x.y, m.y.y, m.z.y};
+		const Float3 row2{m.x.z, m.y.z, m.z.z};
+		return Float3x4{row0, row1, row2, Float3{-dot(row0, m.w), -dot(row1, m.w), -dot(row2, m.w)}};
+	}
+
+	uint32_t maxScatterLimit() noexcept
+	{
+		return std::min<uint32_t>(MAX_SCATTER_LIMIT, params::rayTracingParams().scatter_limit);
+	}
+
 	template <std::ranges::forward_range I, typename Proj = std::identity>
 	static void buildRadarBuffer(const std::span<const RealType> times,
 								 const std::unordered_map<SimId, uint32_t>& antenna_id_to_index, const I& items,
@@ -96,7 +142,6 @@ namespace propagation::raytracing
 
 	ContributionGroups groupContributions(const std::vector<Contribution>& contributions)
 	{
-		std::mt19937_64 twister{};
 		ContributionGroups groups;
 		for (const auto& c : contributions)
 		{
@@ -154,7 +199,9 @@ namespace propagation::raytracing
 	}
 
 
-	RayTracingModel::RayTracingModel(core::World* world, RayTracingBackend backend) : _world(world)
+	RayTracingModel::RayTracingModel(core::World* world, params::RayTracingEnginePreference engine,
+									 pool::ThreadPool& pool) :
+		_world(world)
 	{
 		SceneData scene{};
 
@@ -186,14 +233,60 @@ namespace propagation::raytracing
 			scene.antenna_models.emplace_back(buildAntennaModel(*antenna, scene.antenna_gains, 180, 90));
 		}
 
-		switch (backend)
+		if (params::rayTracingParams().scatter_limit != maxScatterLimit())
 		{
-		case RayTracingBackend::OptiX:
+			LOG(logging::Level::WARNING,
+				"Ray-tracing propagation model kernel was not built with support for a scatter limit of {}, this "
+				"build's maximum is {}. It's possible to edit the kernel's `MAX_SCATTER_LIMIT` and rebuild. This run "
+				"will use a scatter limit of {}.",
+				params::rayTracingParams().scatter_limit, maxScatterLimit(), maxScatterLimit());
+		}
+
+		switch (engine)
+		{
+		case params::RayTracingEnginePreference::Auto:
+			LOG(logging::Level::INFO, "Attempting to initialise supported engines.");
 #ifdef FERS_ENABLE_OPTIX
-			_engine = std::unique_ptr<RayTracingEngine>(new optix::OptixEngine(std::move(scene)));
+			try
+			{
+				LOG(logging::Level::INFO, "Attempting to initialise OptiX back-end...");
+				_engine = std::unique_ptr<RayTracingBackend>(new optix::OptixBackend(std::move(scene)));
+				LOG(logging::Level::INFO, "OptiX back-end successfully initialised.");
+				break;
+			}
+			catch (std::runtime_error& error)
+			{
+				LOG(logging::Level::INFO, "OptiX back-end failed to initialise.\n  {}", error.what());
+			}
+#endif
+#ifdef FERS_ENABLE_EMBREE
+			try
+			{
+				LOG(logging::Level::INFO, "Attempting to initialise Embree back-end...");
+				_engine = std::unique_ptr<RayTracingBackend>(new embree::EmbreeBackend(std::move(scene), pool));
+				LOG(logging::Level::INFO, "Embree back-end successfully initialised.");
+				break;
+			}
+			catch (std::runtime_error& error)
+			{
+				LOG(logging::Level::INFO, "Embree back-end failed to initialise.\n  {}", error.what());
+			}
+#endif
+			throw std::runtime_error("No ray tracing engine back-ends could be initialised.");
+		case params::RayTracingEnginePreference::OptiX:
+#ifdef FERS_ENABLE_OPTIX
+			_engine = std::unique_ptr<RayTracingBackend>(new optix::OptixBackend(std::move(scene)));
+			LOG(logging::Level::INFO, "OptiX back-end initialised.");
 			break;
 #else
 			throw std::runtime_error("FERS was not built with OptiX support enabled.");
+#endif
+		case params::RayTracingEnginePreference::Embree:
+#ifdef FERS_ENABLE_EMBREE
+			_engine = std::unique_ptr<RayTracingBackend>(new embree::EmbreeBackend(std::move(scene), pool));
+			break;
+#else
+			throw std::runtime_error("FERS was not built with Embree support enabled.");
 #endif
 		}
 	}
@@ -280,21 +373,21 @@ namespace propagation::raytracing
 
 		auto contributions = _engine->trace(ctx, job);
 
-		double incoherent_sum = 0;
-		for (auto& contrib : contributions)
-			incoherent_sum += std::sqrt(
-				double(contrib.path_gain.re * contrib.path_gain.re + contrib.path_gain.im * contrib.path_gain.im));
-		LOG(logging::Level::DEBUG, "Incoherent sum: {}", incoherent_sum);
+		// double incoherent_sum = 0;
+		// for (auto& contrib : contributions)
+		// 	incoherent_sum += std::sqrt(
+		// 		double(contrib.path_gain.re * contrib.path_gain.re + contrib.path_gain.im * contrib.path_gain.im));
+		// LOG(logging::Level::DEBUG, "Incoherent sum: {}", incoherent_sum);
 
-		ComplexType coherent_sum{};
-		for (auto& contrib : contributions)
-			coherent_sum += ComplexType{contrib.path_gain.re, contrib.path_gain.im};
-		LOG(logging::Level::DEBUG, "Coherent sum arg: {}", std::arg(coherent_sum));
+		// ComplexType coherent_sum{};
+		// for (auto& contrib : contributions)
+		// 	coherent_sum += ComplexType{contrib.path_gain.re, contrib.path_gain.im};
+		// LOG(logging::Level::DEBUG, "Coherent sum arg: {}", std::arg(coherent_sum));
 
-		double total_area = 0;
-		for (auto& contrib : contributions)
-			total_area += double(contrib.area);
-		LOG(logging::Level::DEBUG, "Total patch area: {}", total_area);
+		// double total_area = 0;
+		// for (auto& contrib : contributions)
+		// 	total_area += double(contrib.area);
+		// LOG(logging::Level::DEBUG, "Total patch area: {}", total_area);
 
 		std::vector<PropagationPath> paths;
 		const auto groups = groupContributions(contributions);

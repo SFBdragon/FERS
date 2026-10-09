@@ -70,6 +70,33 @@ TEST_CASE("API set thread count clears stale error state on success", "[api][cor
 	REQUIRE(error.get() == nullptr);
 }
 
+TEST_CASE("API set ray tracing engine updates params and clears stale error state", "[api][core]")
+{
+	api_test::ParamGuard const guard;
+	api_test::clearLastError();
+
+	REQUIRE(fers_set_ray_tracing_engine(FERS_RT_ENGINE_OPTIX) == 0);
+	CHECK(params::rayTracingEnginePreference() == params::RayTracingEnginePreference::OptiX);
+	api_test::ApiString error = api_test::lastError();
+	REQUIRE(error.get() == nullptr);
+
+	REQUIRE(fers_set_ray_tracing_engine(FERS_RT_ENGINE_EMBREE) == 0);
+	CHECK(params::rayTracingEnginePreference() == params::RayTracingEnginePreference::Embree);
+
+	REQUIRE(fers_set_ray_tracing_engine(FERS_RT_ENGINE_AUTO) == 0);
+	CHECK(params::rayTracingEnginePreference() == params::RayTracingEnginePreference::Auto);
+}
+
+TEST_CASE("API set ray tracing engine rejects an out-of-range value", "[api][core]")
+{
+	api_test::ParamGuard const guard;
+	api_test::clearLastError();
+
+	REQUIRE(fers_set_ray_tracing_engine(static_cast<fers_ray_tracing_engine_t>(99)) != 0);
+	api_test::ApiString error = api_test::lastError();
+	REQUIRE(error.get() != nullptr);
+}
+
 TEST_CASE("API successful calls clear stale thread-local errors beyond thread-count changes", "[api][core]")
 {
 	api_test::Context const context;

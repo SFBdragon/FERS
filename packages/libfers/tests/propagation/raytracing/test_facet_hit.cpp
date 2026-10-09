@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "propagation/raytracing/sbr_impl.h"
+#include "propagation/raytracing/sbr_shared.h"
 
 using Catch::Matchers::WithinAbs;
 namespace rt = propagation::raytracing;
@@ -84,8 +85,7 @@ namespace
 	}
 
 	rt::SbrParams makeParams(const TestScene& scene, const std::vector<prop::CarrierModel<float>>& carriers,
-							 const std::vector<rt::ActiveAntenna>& dst_antennas, std::vector<rt::RxFlags>& rx_flags,
-							 std::vector<rt::Contribution>& contribs)
+							 const std::vector<rt::ActiveAntenna>& dst_antennas, std::vector<rt::RxFlags>& rx_flags)
 	{
 		rt::SbrParams params{};
 		params.scatter_limit = 4;
@@ -102,7 +102,6 @@ namespace
 		params.dest_antenna_count = static_cast<uint32_t>(dst_antennas.size());
 		params.rx_flags = rx_flags.data();
 		params.rx_to_tx = false;
-		params.contributions = contribs.data();
 		return params;
 	}
 
@@ -120,17 +119,15 @@ TEST_CASE("facetHit computes delay as the full source-to-hit-to-destination dist
 
 	const auto dst_antennas = makeDestAntennas();
 	std::vector<rt::RxFlags> rx_flags{static_cast<rt::RxFlags>(0)};
-	std::vector<rt::Contribution> contribs(1);
-	const auto params = makeParams(scene, carriers, dst_antennas, rx_flags, contribs);
+	const auto params = makeParams(scene, carriers, dst_antennas, rx_flags);
 
-	uint32_t next_idx = 0;
-	auto get_idx = [&next_idx] { return next_idx++; };
+	rt::Contribution out;
+	auto get_ptr = [&out] { return &out; };
 
-	(void)rt::facetHit(params, &ray, hit, unoccluded, get_idx);
+	(void)rt::facetHit(params, &ray, hit, unoccluded, get_ptr);
 
-	REQUIRE(next_idx == 1);
 	// go_dist (source to hit) = 5, po_dist (hit to destination) = 100, converted to a time delay.
-	REQUIRE_THAT(contribs[0].delay, WithinAbs(105.0 / prop::C<double>, 1e-15));
+	REQUIRE_THAT(out.delay, WithinAbs(105.0 / prop::C<double>, 1e-15));
 }
 
 TEST_CASE("facetHit's contribution scales linearly with ray weight in the sub-triangle regime",
@@ -146,14 +143,14 @@ TEST_CASE("facetHit's contribution scales linearly with ray weight in the sub-tr
 	auto run = [&](float weight) -> float
 	{
 		std::vector<rt::RxFlags> rx_flags{static_cast<rt::RxFlags>(0)};
-		std::vector<rt::Contribution> contribs(1);
-		const auto params = makeParams(scene, carriers, dst_antennas, rx_flags, contribs);
+		const auto params = makeParams(scene, carriers, dst_antennas, rx_flags);
+
+		rt::Contribution out;
+		auto get_ptr = [&out] { return &out; };
 
 		auto ray = makeIncidentRay(weight);
-		uint32_t idx = 0;
-		auto get_idx = [&idx] { return idx++; };
-		(void)rt::facetHit(params, &ray, hit, unoccluded, get_idx);
-		return prop::cabs(contribs[0].path_gain);
+		(void)rt::facetHit(params, &ray, hit, unoccluded, get_ptr);
+		return prop::cabs(out.path_gain);
 	};
 
 	const float mag1 = run(0.001f);
@@ -176,14 +173,14 @@ TEST_CASE("facetHit's contribution saturates once the tube footprint exceeds the
 	auto run = [&](float weight) -> float
 	{
 		std::vector<rt::RxFlags> rx_flags{static_cast<rt::RxFlags>(0)};
-		std::vector<rt::Contribution> contribs(1);
-		const auto params = makeParams(scene, carriers, dst_antennas, rx_flags, contribs);
+		const auto params = makeParams(scene, carriers, dst_antennas, rx_flags);
+
+		rt::Contribution out;
+		auto get_ptr = [&out] { return &out; };
 
 		auto ray = makeIncidentRay(weight);
-		uint32_t idx = 0;
-		auto get_idx = [&idx] { return idx++; };
-		(void)rt::facetHit(params, &ray, hit, unoccluded, get_idx);
-		return prop::cabs(contribs[0].path_gain);
+		(void)rt::facetHit(params, &ray, hit, unoccluded, get_ptr);
+		return prop::cabs(out.path_gain);
 	};
 
 	const float mag1 = run(1.0f);
@@ -247,7 +244,6 @@ TEST_CASE("facetHit extends the radiation cache across a second bounce without t
 													   .direction = prop::FloatAzEl{0.0f, 0.0f},
 													   .antenna_model_index = 0}};
 	std::vector<rt::RxFlags> rx_flags{static_cast<rt::RxFlags>(0)};
-	std::vector<rt::Contribution> contribs(2);
 
 	rt::SbrParams params{};
 	params.scatter_limit = 4;
@@ -264,21 +260,26 @@ TEST_CASE("facetHit extends the radiation cache across a second bounce without t
 	params.dest_antenna_count = static_cast<uint32_t>(dst_antennas.size());
 	params.rx_flags = rx_flags.data();
 	params.rx_to_tx = false;
-	params.contributions = contribs.data();
 
 	auto ray = makeIncidentRay(0.001f);
 
-	uint32_t next_idx = 0;
-	auto get_idx = [&next_idx] { return next_idx++; };
+	rt::Contribution out;
+	uint32_t write_count = 0;
+
+	auto get_ptr = [&write_count, &out]
+	{
+		write_count++;
+		return &out;
+	};
 
 	bool should_continue = false;
-	REQUIRE_NOTHROW(should_continue = rt::facetHit(params, &ray, scene.hitAt(0), unoccluded, get_idx));
+	REQUIRE_NOTHROW(should_continue = rt::facetHit(params, &ray, scene.hitAt(0), unoccluded, get_ptr));
 	REQUIRE(should_continue);
-	REQUIRE(next_idx == 0); // facet A doesn't face the destination - no contribution yet.
+	REQUIRE(write_count == 0); // facet A doesn't face the destination - no contribution yet.
 
-	REQUIRE_NOTHROW(rt::facetHit(params, &ray, scene.hitAt(1), unoccluded, get_idx));
-	REQUIRE(next_idx == 1);
+	REQUIRE_NOTHROW(rt::facetHit(params, &ray, scene.hitAt(1), unoccluded, get_ptr));
+	REQUIRE(write_count == 1);
 
 	// source->A (5) + A->B (10) + B->dest (60) = 75 units.
-	REQUIRE_THAT(contribs[0].delay, WithinAbs(75.0 / prop::C<double>, 1e-12));
+	REQUIRE_THAT(out.delay, WithinAbs(75.0 / prop::C<double>, 1e-12));
 }

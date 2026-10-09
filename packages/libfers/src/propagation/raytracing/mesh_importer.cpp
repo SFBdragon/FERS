@@ -48,8 +48,10 @@ namespace propagation::raytracing
 		TriangleMeshView mesh{};
 		mesh.vertex_count = ai_mesh->mNumVertices;
 		mesh.triangle_count = ai_mesh->mNumFaces;
-		mesh.vertex_buffer_offset = static_cast<uint32_t>(vertices.size());
+
+		// Compute the index buffer offsets before appending to the vectors.
 		mesh.index_buffer_index = static_cast<uint32_t>(indices.size());
+		const auto vertex_buffer_offset = static_cast<uint32_t>(vertices.size());
 
 		vertices.reserve(vertices.size() + mesh.vertex_count);
 		indices.reserve(indices.size() + mesh.triangle_count);
@@ -64,9 +66,8 @@ namespace propagation::raytracing
 		{
 			const aiFace face = ai_mesh->mFaces[i];
 			assert(face.mNumIndices == 3); // After aiProcess_Triangulate, always 3 indices
-			indices.emplace_back(mesh.vertex_buffer_offset + face.mIndices[0],
-								 mesh.vertex_buffer_offset + face.mIndices[1],
-								 mesh.vertex_buffer_offset + face.mIndices[2]);
+			indices.emplace_back(vertex_buffer_offset + face.mIndices[0], vertex_buffer_offset + face.mIndices[1],
+								 vertex_buffer_offset + face.mIndices[2]);
 		}
 
 		return mesh;

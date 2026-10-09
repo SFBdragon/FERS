@@ -69,13 +69,14 @@ namespace core
 				std::ceil(std::max<RealType>(0.0, params::endTime() - params::startTime()) * sample_rate));
 		}
 
-		[[nodiscard]] std::shared_ptr<propagation::PropagationModel> makePropagationModel(World* world)
+		[[nodiscard]] std::shared_ptr<propagation::PropagationModel> makePropagationModel(World* world,
+																						 pool::ThreadPool& pool)
 		{
 			switch (params::propagationModel())
 			{
 			case params::PropagationModelKind::SbrRayTracing:
 				return std::make_shared<propagation::raytracing::RayTracingModel>(
-					world, propagation::raytracing::RayTracingBackend::OptiX);
+					world, params::rayTracingEnginePreference(), pool);
 			case params::PropagationModelKind::RcsPointScatter:
 			default:
 				return std::make_shared<propagation::pointscatter::PointScatterModel>(world);
@@ -528,7 +529,7 @@ namespace core
 									   std::shared_ptr<OutputMetadataCollector> metadata_collector,
 									   ReceiverOutputSink* output_sink, std::function<bool()> cancel_callback,
 									   const bool eager_context_stream_open) :
-		_world(world), _pool(pool), _propagation(makePropagationModel(world)), _reporter(std::move(reporter)),
+		_world(world), _pool(pool), _propagation(makePropagationModel(world, pool)), _reporter(std::move(reporter)),
 		_metadata_collector(std::move(metadata_collector)), _output_sink(output_sink),
 		_cancel_callback(std::move(cancel_callback)), _eager_context_stream_open(eager_context_stream_open),
 		_last_report_time(std::chrono::steady_clock::now()), _next_context_heartbeat_time(params::startTime() + 1.0),

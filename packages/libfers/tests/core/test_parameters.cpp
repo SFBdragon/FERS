@@ -37,7 +37,7 @@ TEST_CASE("Parameters default values are consistent", "[core][parameters]")
 	REQUIRE(params::randomSeed() == 0u);
 	REQUIRE(params::adcBits() == 0u);
 	REQUIRE(params::renderFilterLength() == 33u);
-	REQUIRE(params::renderThreads() == 1u);
+	REQUIRE(params::workerThreads() == 1u);
 	REQUIRE(params::oversampleRatio() == 1u);
 	REQUIRE(params::coordinateFrame() == params::CoordinateFrame::ENU);
 	REQUIRE(params::rotationAngleUnit() == params::RotationAngleUnit::Degrees);
@@ -145,7 +145,7 @@ TEST_CASE("Parameters setThreads returns expected", "[core][parameters]")
 
 	const auto ok = params::setThreads(4);
 	REQUIRE(ok.has_value());
-	REQUIRE(params::renderThreads() == 4u);
+	REQUIRE(params::workerThreads() == 4u);
 }
 
 TEST_CASE("Parameters reset restores defaults", "[core][parameters]")

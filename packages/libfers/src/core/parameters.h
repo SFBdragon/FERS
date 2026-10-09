@@ -20,6 +20,7 @@
 #include <string_view>
 
 #include "config.h"
+#include "core/portable_utils.h"
 #include "logging.h"
 
 namespace params
@@ -54,6 +55,31 @@ namespace params
 		RcsPointScatter = 1, ///< Analytic point-target RCS/radar-equation model (default).
 		SbrRayTracing = 2, ///< GO+PO ray-tracing model against target meshes.
 	};
+
+	/**
+	 * @enum RayTracingEnginePreference
+	 * @brief Runtime override for which ray-tracing engine the SBR propagation model should use.
+	 */
+	enum class RayTracingEnginePreference : std::uint8_t
+	{
+		Auto = 0, ///< Auto-select: prefer OptiX, fall back to Embree (default).
+		OptiX = 1, ///< Require the OptiX engine.
+		Embree = 2, ///< Require the Embree engine.
+	};
+
+	inline const char* rayTracingEngineName(RayTracingEnginePreference engine)
+	{
+		switch (engine)
+		{
+		case RayTracingEnginePreference::Auto:
+			return "Auto";
+		case RayTracingEnginePreference::OptiX:
+			return "OptiX";
+		case RayTracingEnginePreference::Embree:
+			return "Embree";
+		}
+		return "Unknown";
+	}
 
 	struct PointScatterParameters
 	{
@@ -135,13 +161,15 @@ namespace params
 		std::optional<unsigned> random_seed; ///< Random seed for simulation.
 		unsigned adc_bits = 0; ///< ADC quantization bits.
 		unsigned filter_length = 33; ///< Default render filter length.
-		unsigned render_threads = 1; ///< Number of worker threads to use for parallel tasks.
+		std::optional<unsigned> worker_threads = std::nullopt; ///< Number of worker threads to use for parallel tasks.
 		std::string simulation_name; ///< The name of the simulation, from the XML.
 		unsigned oversample_ratio = 1; ///< Oversampling ratio.
 
 		PropagationModelKind propagation_model = PropagationModelKind::RcsPointScatter; ///< Active propagation model.
 		PointScatterParameters point_scatterer_params{}; ///< Point-scatterer (RCS) model parameters.
 		RayTracingParameters ray_tracing_params{}; ///< Ray-tracing (SBR) model parameters.
+		RayTracingEnginePreference ray_tracing_engine =
+			RayTracingEnginePreference::Auto; ///< Ray-tracing engine runtime override.
 
 		/**
 		 * @brief Resets the parameters to their default-constructed state.
@@ -211,7 +239,7 @@ namespace params
 	 * @brief Get the number of worker threads.
 	 * @return The number of worker threads.
 	 */
-	inline unsigned renderThreads() noexcept { return params.render_threads; }
+	inline unsigned workerThreads() noexcept { return params.worker_threads.value_or(core::countProcessors()); }
 
 	/**
 	 * @brief Get the oversampling ratio.
@@ -224,6 +252,12 @@ namespace params
 	 * @return The propagation model selected for this simulation.
 	 */
 	inline PropagationModelKind propagationModel() noexcept { return params.propagation_model; }
+
+	/**
+	 * @brief Get the ray-tracing engine runtime override.
+	 * @return The ray-tracing engine preference selected for this simulation.
+	 */
+	inline RayTracingEnginePreference rayTracingEnginePreference() noexcept { return params.ray_tracing_engine; }
 
 	/**
 	 * @brief Get the point-scatterer modelling parameters.
@@ -388,9 +422,19 @@ namespace params
 		{
 			return std::unexpected("Thread count must be >= 1");
 		}
-		params.render_threads = threads;
+		params.worker_threads = threads;
 		LOG(logging::Level::INFO, "Number of worker threads set to: {}", threads);
 		return {};
+	}
+
+	/**
+	 * @brief Set the ray-tracing engine runtime override.
+	 * @param engine The ray-tracing engine preference.
+	 */
+	inline void setRayTracingEnginePreference(const RayTracingEnginePreference engine) noexcept
+	{
+		params.ray_tracing_engine = engine;
+		LOG(logging::Level::INFO, "Ray tracing engine preference set to: {}", rayTracingEngineName(engine));
 	}
 
 	/**

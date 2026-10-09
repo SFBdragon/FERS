@@ -146,6 +146,14 @@ function(fers_configure_library_target target_name)
 		target_compile_definitions(${target_name} PRIVATE FERS_ENABLE_OPTIX)
 	endif ()
 
+	if (FERS_ENABLE_EMBREE)
+		# Same reasoning as FERS_ENABLE_OPTIX above: a bare compile definition so
+		# `#if defined(FERS_ENABLE_EMBREE)` / `#ifdef FERS_ENABLE_EMBREE` works.
+		# No add_dependencies() here - unlike OptiX's PTX embedding, Embree has no
+		# generated-header build step.
+		target_compile_definitions(${target_name} PRIVATE FERS_ENABLE_EMBREE)
+	endif ()
+
 	# --- Third-Party Dependencies ---
 	target_link_libraries(${target_name} PRIVATE
 						  ${FERS_NATIVE_LINK_DEPENDENCIES}
@@ -241,6 +249,10 @@ set(FERS_NATIVE_LINK_DEPENDENCIES
 
 if (FERS_ENABLE_OPTIX)
 	list(APPEND FERS_NATIVE_LINK_DEPENDENCIES ${FERS_OPTIX_LINK_LIBRARIES})
+endif ()
+
+if (FERS_ENABLE_EMBREE)
+	list(APPEND FERS_NATIVE_LINK_DEPENDENCIES ${FERS_EMBREE_LINK_LIBRARIES})
 endif ()
 
 if (WIN32)
