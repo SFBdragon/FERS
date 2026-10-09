@@ -116,23 +116,26 @@ namespace params
 			return 2.0 * PI * (1.0 - std::cos(boresight_width / 2.0));
 		}
 
-		/// Number of rays dedicated to the boresight cone, derived from `boresightSolidAngle()`
-		/// and `boresight_tube_solid_angle`.
-		[[nodiscard]] unsigned raysAtBoresightCap() const noexcept
+		/// Number of ray launch directions dedicated to the boresight cone,
+		/// derived from `boresightSolidAngle()` and `boresight_tube_solid_angle`.
+		[[nodiscard]] unsigned boresightDirections() const noexcept
 		{
 			return static_cast<unsigned>(std::llround(boresightSolidAngle() / boresight_tube_solid_angle));
 		}
 
-		/// Number of rays dedicated to outside the boresight cone, derived from the remaining
-		/// solid angle and `off_boresight_tube_solid_angle`.
-		[[nodiscard]] unsigned offBoresightRays() const noexcept
+		/// Number of ray launch directions dedicated to outside the boresight cone,
+		/// derived from the remaining solid angle and `off_boresight_tube_solid_angle`.
+		[[nodiscard]] unsigned offBoresightDirections() const noexcept
 		{
 			const RealType off_solid_angle = 4.0 * PI - boresightSolidAngle();
 			return static_cast<unsigned>(std::llround(off_solid_angle / off_boresight_tube_solid_angle));
 		}
 
 		/// Total number of rays to launch per source antenna.
-		[[nodiscard]] unsigned raysPerSource() const noexcept { return raysAtBoresightCap() + offBoresightRays(); }
+		[[nodiscard]] unsigned directionsPerSource() const noexcept
+		{
+			return boresightDirections() + offBoresightDirections();
+		}
 	};
 
 	/**

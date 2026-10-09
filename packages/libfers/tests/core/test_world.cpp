@@ -96,7 +96,7 @@ TEST_CASE("World stores and retrieves added objects", "[core][world]")
 	auto timing = std::make_unique<timing::PrototypeTiming>("Timing-A", 501);
 	world.add(std::move(timing));
 
-	world.add(core::MeshAsset{.id = 601, .name = "Mesh-A", .path = "/scenario/meshes/mesh-a.obj"});
+	world.add(core::MeshAsset{.id = 601, .name = "Mesh-A", .path = "/scenario/meshes/mesh-a.obj", .filename = ""});
 	world.add(core::MaterialAsset{.id = 701, .name = "Material-A", .relative_permittivity = 0.5, .conductivity = 0.0});
 
 	REQUIRE(world.getPlatforms().size() == 3);
@@ -390,8 +390,8 @@ TEST_CASE("World enforces unique ids for assets", "[core][world]")
 
 	SECTION("Mesh ids are unique")
 	{
-		world.add(core::MeshAsset{.id = 111, .name = "Mesh-1", .path = "mesh-1.obj"});
-		REQUIRE_THROWS_AS(world.add(core::MeshAsset{.id = 111, .name = "Mesh-2", .path = "mesh-2.obj"}),
+		world.add(core::MeshAsset{.id = 111, .name = "Mesh-1", .path = "mesh-1.obj", .filename = ""});
+		REQUIRE_THROWS_AS(world.add(core::MeshAsset{.id = 111, .name = "Mesh-2", .path = "mesh-2.obj", .filename = ""}),
 						  std::runtime_error);
 	}
 
@@ -418,7 +418,7 @@ TEST_CASE("World clear resets storage and state", "[core][world]")
 	world.add(std::make_unique<fers_signal::RadarSignal>("Wave-A", 1.0, 1.0e9, fers_signal::CwWaveform{}, 404));
 	world.add(std::make_unique<antenna::Isotropic>("Ant-A", 505));
 	world.add(std::make_unique<timing::PrototypeTiming>("Timing-A", 606));
-	world.add(core::MeshAsset{.id = 707, .name = "Mesh-A", .path = "mesh-a.obj"});
+	world.add(core::MeshAsset{.id = 707, .name = "Mesh-A", .path = "mesh-a.obj", .filename = ""});
 	world.add(core::MaterialAsset{.id = 808, .name = "Material-A", .relative_permittivity = 0.5, .conductivity = 0.0});
 
 	world.getEventQueue().push({1.0, core::EventType::TX_STREAMING_START, world.getTransmitters().front().get()});

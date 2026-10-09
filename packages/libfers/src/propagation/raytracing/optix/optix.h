@@ -169,6 +169,11 @@ namespace propagation::raytracing::optix
 		void createSbt();
 		OptixTraversableHandle buildOrRefitIAS(OptixThreadContext& ctx, RealType t) const;
 
+		/// Picks how many rays-per-source to launch per chunk, so that the exact worst-case
+		/// contribution buffer for one chunk's launch fits within currently-free GPU memory.
+		static uint32_t chunkRaysPerSource(uint32_t rays_per_source, uint32_t source_antenna_count,
+										   uint32_t dest_antenna_count, uint32_t time_count);
+
 		/// The engine's CUDA context handle.
 		CudaContext _cuda_ctx;
 		/// The engine's OptiX device context handle.

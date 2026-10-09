@@ -292,7 +292,7 @@ namespace propagation::raytracing
 
 		const uint32_t off_index = path_idx - params.boresight_rays;
 		// the above `if` ensures off_rays != 0, given that path_idx < rays_per_source
-		const uint32_t off_rays = params.rays_per_source - params.boresight_rays;
+		const uint32_t off_rays = params.directions_per_source - params.boresight_rays;
 		weight_out = 4 * PI_V<float> * (1 - f) / float(off_rays);
 
 		// calculate from far pole so (1+x) stays accurate near x = -1

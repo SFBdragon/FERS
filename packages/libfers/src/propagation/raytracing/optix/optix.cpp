@@ -7,6 +7,7 @@
 #include "optix.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cuda.h>
@@ -141,7 +142,12 @@ namespace propagation::raytracing::optix
 		OPTIX_CHECK(optixDeviceContextCreate(context, &opts, &_context));
 	}
 
-	static uint32_t maxTraceDepth() { return maxScatterLimit() + 1; }
+	// +1 per bounce for the indirect-ray recursion chain, +1 more because the deepest indirect
+	// closest-hit also nests its own shadow-ray `optixTrace` call one level deeper
+	// (`facetHit`'s destination loop casts a shadow ray before deciding whether to continue
+	// bouncing). Without that extra level, OptiX raises TRACE_DEPTH_EXCEEDED on any launch
+	// where a ray actually hits geometry.
+	static uint32_t maxTraceDepth() { return maxScatterLimit() + 2; }
 
 	// By initialising the CUDA and OptiX RAII wrappers first, they get automatically
 	// cleaned up if part of the initialization throws. Desctruction of the OptiX device
@@ -533,19 +539,44 @@ namespace propagation::raytracing::optix
 		return ctx.ias_handle;
 	}
 
+	uint32_t OptixBackend::chunkRaysPerSource(uint32_t rays_per_source, uint32_t source_antenna_count,
+											  uint32_t dest_antenna_count, uint32_t time_count)
+	{
+		// The exact worst case for a launch of `n` rays-per-source, mirroring the capacity
+		// formula below: a fixed direct-path term plus a term linear in `n`.
+		const uint64_t direct_count = static_cast<uint64_t>(source_antenna_count) * dest_antenna_count * time_count;
+		const uint64_t indirect_count = direct_count * maxScatterLimit();
+
+		size_t free_bytes{};
+		size_t total_bytes{};
+		CUDA_CHECK(cudaMemGetInfo(&free_bytes, &total_bytes));
+
+		// Safety margin
+		constexpr double usable_fraction = 0.8;
+		const auto usable_bytes = static_cast<uint64_t>(static_cast<double>(free_bytes) * usable_fraction);
+
+		const uint64_t direct_bytes = direct_count * sizeof(Contribution);
+		const uint64_t indirect_bytes = indirect_count * sizeof(Contribution);
+
+		if (indirect_bytes == 0 || usable_bytes <= direct_bytes)
+			return 1;
+
+		const uint64_t chunk_size = (usable_bytes - direct_bytes) / indirect_bytes;
+		return static_cast<uint32_t>(std::clamp<uint64_t>(chunk_size, 1, rays_per_source));
+	}
+
 	std::vector<Contribution> OptixBackend::trace(ThreadContext* thread_context, TraceJob& job) const
 	{
 		auto* ctx = dynamic_cast<OptixThreadContext*>(thread_context);
 		if (ctx == nullptr)
 			throw std::runtime_error("OptixEngine::trace did not receive a valid OptixThreadContext.");
 
-		const auto rays_per_source = params::rayTracingParams().raysPerSource();
+		const auto dirs_per_source = params::rayTracingParams().directionsPerSource();
 		const auto time_count = static_cast<uint32_t>(job.times.size());
 		const auto source_antenna_count = static_cast<uint32_t>(job.source_antennas.size()) / time_count;
 		const auto dest_antenna_count = static_cast<uint32_t>(job.dest_antennas.size()) / time_count;
-		const auto x_rays_per_source = rays_per_source;
 		const auto y_source_antennas = source_antenna_count;
-		const auto z_times = static_cast<uint32_t>(job.times.size());
+		const auto z_times = time_count;
 
 		DeviceBuffer<ActiveAntenna> source_antennas(ctx->stream.get());
 		source_antennas.upload(job.source_antennas);
@@ -564,33 +595,45 @@ namespace propagation::raytracing::optix
 			iass.push_back(buildOrRefitIAS(*ctx, t));
 		ctx->iass.upload(iass);
 
-		ctx->contribution_count.upload(0);
-		// Reserve lots of space for return contributions.
-		// The maximum number of contributions possible is the sum of
+		// Split the ray/path dimension into host-driven chunks so the contribution buffer's
+		// worst-case size stays bounded by available GPU memory, regardless of how large
+		// `rays_per_source` grows. Only the X (ray) launch dimension is chunked — Y/Z
+		// (antenna/time) stay as-is, since the worst-case formula below is linear in rays only.
+		const uint32_t chunk_size =
+			chunkRaysPerSource(dirs_per_source, source_antenna_count, dest_antenna_count, time_count);
+
+		// Reserve space for one chunk's worth of return contributions.
+		// The maximum number of contributions possible in one chunk's launch is the sum of
 		// max_direct = |sources| * |dests| * |times|
-		// max_indirect = |sources| * |dests| * |times| * |rays_per_source| * |max_scatter_limit|
+		// max_indirect = |sources| * |dests| * |times| * |chunk_size| * |max_scatter_limit|
 		// so
-		// max_all = |sources| * |dests| * |times| * (1 + |rays_per_source| * |max_scatter_limit|)
+		// max_all = |sources| * |dests| * |times| * (1 + |chunk_size| * |max_scatter_limit|)
 		//
 		// It's certainly possible to reach this limit under certain circumstances, though typically only where
 		// max_scatter_limit is very low and rays are concentrated on a target at the boresight.
 		DeviceBuffer<Contribution> contributions(ctx->stream.get());
 		const uint32_t capacity =
-			source_antenna_count * dest_antenna_count * time_count * (1 + rays_per_source * maxScatterLimit());
+			source_antenna_count * dest_antenna_count * time_count * (1 + chunk_size * maxScatterLimit());
 		contributions.reserve(static_cast<size_t>(capacity));
 
-		LOG(logging::Level::DEBUG, "Contribution buffer capacity: {}", contributions.capacity());
+		LOG(logging::Level::DEBUG, "Contribution buffer capacity: {} ({} ray(s)/chunk of {} total)",
+			contributions.capacity(), chunk_size, dirs_per_source);
+
+		// Allocate the counter pointer before `ptr_t()` is read into `params` below,
+		// if not allocated already (the first trace on this thread context).
+		ctx->contribution_count.reserve(1);
 
 		ShaderParams params{
 			.iass = ctx->iass.ptr_t(),
+			.contributions = contributions.ptr_t(),
 			.contribution_count = ctx->contribution_count.ptr_t(),
 			.contribution_capacity = static_cast<uint32_t>(contributions.capacity()),
-			.contributions = contributions.ptr_t(),
+			.direction_index_offset = 0,
 
 			.sbr{
 				.scatter_limit = maxScatterLimit(),
-				.rays_per_source = rays_per_source,
-				.boresight_rays = params::rayTracingParams().raysAtBoresightCap(),
+				.directions_per_source = dirs_per_source,
+				.boresight_rays = params::rayTracingParams().boresightDirections(),
 				.boresight_fraction = float(params::rayTracingParams().boresightSolidAngle() / (4.0 * PI)),
 				.vertices = _vertices.ptr_t(),
 				.indices = _indeces.ptr_t(),
@@ -607,34 +650,42 @@ namespace propagation::raytracing::optix
 				.rx_to_tx = job.type == TraceJobType::FindRxFromTx,
 			}};
 
-		ctx->params.upload(params);
-
-		OPTIX_CHECK(optixLaunch(ctx->pipeline, ctx->stream.get(),
-								/*! parameters and SBT */
-								ctx->params.ptr(), ctx->params.size_bytes(), &_sbt,
-								/*! dimensions of the launch: */
-								x_rays_per_source, y_source_antennas, z_times));
-
-		// Read back the device-side contribution write count.
-		ContributionCountType contribution_counter{};
-		ctx->contribution_count.download(contribution_counter);
-		const uint32_t contribution_writes = contribution_counter.load(cuda::memory_order_relaxed);
-
-		CUDA_CHECK(cudaStreamSynchronize(ctx->stream.get()));
-
-		LOG(logging::Level::DEBUG, "Contribution write count: {}", contribution_writes);
-
-		// Clamp defensively: if the device wrote more contributions than `ctx->contribs` was
-		// reserved for (see the `depreciation_factor` sizing estimate above), then the kernel
-		// began overwriting contributions, not writing more.
-		// Only download at most the full buffer, not the write count.
-		const auto contribution_count = std::min<size_t>(contribution_writes, contributions.capacity());
-		// TODO_SHAUN grow/reallocate `ctx->contribs` and re-launch instead of dropping contributions past capacity?
-
 		std::vector<Contribution> contribs;
-		contributions.set_size(contribution_count);
-		contributions.download(contribs);
-		CUDA_CHECK(cudaStreamSynchronize(ctx->stream.get()));
+		for (uint32_t offset = 0; offset < dirs_per_source; offset += chunk_size)
+		{
+			const uint32_t this_chunk = std::min(chunk_size, dirs_per_source - offset);
+
+			ctx->contribution_count.upload(0);
+			params.direction_index_offset = offset;
+			ctx->params.upload(params);
+
+			OPTIX_CHECK(optixLaunch(ctx->pipeline, ctx->stream.get(),
+									/*! parameters and SBT */
+									ctx->params.ptr(), ctx->params.size_bytes(), &_sbt,
+									/*! dimensions of the launch: */
+									this_chunk, y_source_antennas, z_times));
+
+			// Read back the device-side contribution write count.
+			ContributionCountType contribution_counter{};
+			ctx->contribution_count.download(contribution_counter);
+			const uint32_t contribution_writes = contribution_counter.load(cuda::memory_order_relaxed);
+
+			CUDA_CHECK(cudaStreamSynchronize(ctx->stream.get()));
+
+			LOG(logging::Level::DEBUG, "Contribution write count: {} (chunk offset {}, size {})", contribution_writes,
+				offset, this_chunk);
+
+			// Contribution buffer should not overflow. Capacity is computed as a worst-case.
+			assert(contribution_writes <= contributions.capacity());
+
+			std::vector<Contribution> chunk_contribs;
+			contributions.set_size(contribution_writes);
+			contributions.download(chunk_contribs);
+			CUDA_CHECK(cudaStreamSynchronize(ctx->stream.get()));
+
+			contribs.insert(contribs.end(), std::make_move_iterator(chunk_contribs.begin()),
+							std::make_move_iterator(chunk_contribs.end()));
+		}
 
 		return contribs;
 	}

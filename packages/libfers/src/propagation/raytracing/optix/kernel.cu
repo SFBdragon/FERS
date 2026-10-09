@@ -191,8 +191,8 @@ namespace propagation::raytracing::optix
 	extern "C" __global__ void __raygen__paths()
 	{
 		uint3 idx = optixGetLaunchIndex();
-		/// The ray/path index to launch.
-		unsigned int path_index = idx.x;
+		/// The launch direction index.
+		unsigned int path_index = idx.x + shader_params.direction_index_offset;
 		/// The "source" antenna to launch from. Could be a transmitter or receiver.
 		unsigned int antenna_index = idx.y;
 		/// The time-step index. Determines which IAS to use.
@@ -203,7 +203,8 @@ namespace propagation::raytracing::optix
 
 		// Zero-bounce direct-path check, piggybacked on spare X-lanes (dest_antenna_count is tiny).
 		// Looped, not `if`, so it stays correct even if rays_per_source < dest_antenna_count.
-		for (uint32_t d = path_index; d < shader_params.sbr.dest_antenna_count; d += shader_params.sbr.rays_per_source)
+		for (uint32_t d = path_index; d < shader_params.sbr.dest_antenna_count;
+			 d += shader_params.sbr.directions_per_source)
 		{
 			directPath(shader_params.sbr, antenna_index, d, t_index, shadow_test, getContributionPtr);
 		}

@@ -84,7 +84,9 @@ namespace propagation::raytracing
 
 		std::vector<CarrierModel<float>> carriers;
 
+		/// Buffer of ActiveAntenna indexed by `source_index + t_index * source_antenna_count`.
 		std::vector<ActiveAntenna> source_antennas;
+		/// Buffer of ActiveAntenna indexed by `dest_index + t_index * dest_antenna_count`.
 		std::vector<ActiveAntenna> dest_antennas;
 
 		std::vector<RxFlags> rx_flags;

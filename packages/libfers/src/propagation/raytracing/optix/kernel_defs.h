@@ -25,14 +25,16 @@ namespace propagation::raytracing::optix
 	{
 		/// The IASs for this run, per time. Indexed by launch Z dimension (time index).
 		OptixTraversableHandle* iass;
+		// Output buffer of contributions.
+		// Indexing this safely device-side requires platform-specific atomic counters.
+		Contribution* contributions;
 		/// The number of contributions already recorded. Indexes the contribution buffer.
 		ContributionCountType* contribution_count;
 		/// The capacity of the contribution buffer. Do not write beyond this.
 		uint32_t contribution_capacity;
-
-		// Output buffer of contributions.
-		// Indexing this safely device-side requires platform-specific atomic counters.
-		Contribution* contributions;
+		/// Direction index offset added to the launch's X index.
+		/// This allows for chunking over a sub-range of [0, sbr.directions_per_source).
+		uint32_t direction_index_offset;
 
 		/// The simulation engine's parameters.
 		SbrParams sbr;

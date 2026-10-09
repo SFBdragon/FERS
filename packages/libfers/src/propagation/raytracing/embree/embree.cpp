@@ -116,15 +116,15 @@ namespace propagation::raytracing::embree
 		if (ctx == nullptr)
 			throw std::runtime_error("EmbreeBackend::trace did not receive a valid EmbreeThreadContext.");
 
-		const auto rays_per_source = params::rayTracingParams().raysPerSource();
+		const auto rays_per_source = params::rayTracingParams().directionsPerSource();
 		const auto time_count = static_cast<uint32_t>(job.times.size());
 		const auto source_antenna_count = static_cast<uint32_t>(job.source_antennas.size() / job.times.size());
 		const auto dest_antenna_count = static_cast<uint32_t>(job.dest_antennas.size() / job.times.size());
 
 		SbrParams sbr{
 			.scatter_limit = maxScatterLimit(),
-			.rays_per_source = rays_per_source,
-			.boresight_rays = params::rayTracingParams().raysAtBoresightCap(),
+			.directions_per_source = rays_per_source,
+			.boresight_rays = params::rayTracingParams().boresightDirections(),
 			.boresight_fraction = float(params::rayTracingParams().boresightSolidAngle() / (4.0 * PI)),
 			.vertices = _vertices.data(),
 			.indices = _indices.data(),
@@ -143,7 +143,7 @@ namespace propagation::raytracing::embree
 
 		// Multiple chunks per worker thread, so that varying workloads per chunk are load-balanced
 		// across threads.
-		constexpr uint32_t paths_per_chunk = 256;
+		constexpr uint32_t paths_per_chunk = 1024;
 
 		std::vector<Contribution> contribs;
 

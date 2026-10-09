@@ -89,7 +89,7 @@ namespace
 	{
 		rt::SbrParams params{};
 		params.scatter_limit = 4;
-		params.rays_per_source = 1000;
+		params.directions_per_source = 1000;
 		params.vertices = scene.vertices.data();
 		params.indices = scene.indices.data();
 		params.materials = scene.materials.data();
@@ -247,7 +247,7 @@ TEST_CASE("facetHit extends the radiation cache across a second bounce without t
 
 	rt::SbrParams params{};
 	params.scatter_limit = 4;
-	params.rays_per_source = 1000;
+	params.directions_per_source = 1000;
 	params.vertices = scene.vertices.data();
 	params.indices = scene.indices.data();
 	params.materials = scene.materials.data();

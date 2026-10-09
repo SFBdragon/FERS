@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "core/config.h"
-#include "core/logging.h"
 #include "math/geometry_ops.h"
 
 namespace propagation::raytracing

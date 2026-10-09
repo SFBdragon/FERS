@@ -181,12 +181,12 @@ TEST_CASE("fibonacciDirFromX spaced evenly at dense boresight x", "[raytracing][
 TEST_CASE("boresightWeightedSample assigns per-regime weights that sum to 4*pi", "[raytracing][math]")
 {
 	rt::SbrParams params{};
-	params.rays_per_source = 1000;
+	params.directions_per_source = 1000;
 	params.boresight_rays = 200;
 	params.boresight_fraction = 0.1f;
 
 	double total_weight = 0.0;
-	for (uint32_t i = 0; i < params.rays_per_source; ++i)
+	for (uint32_t i = 0; i < params.directions_per_source; ++i)
 	{
 		float weight = 0.0f;
 		const auto dir = rt::boresightWeightedSample(params, i, weight);
@@ -204,7 +204,7 @@ TEST_CASE("boresightWeightedSample gives the denser (boresight) regime a smaller
 		  "[raytracing][math]")
 {
 	rt::SbrParams params{};
-	params.rays_per_source = 1000;
+	params.directions_per_source = 1000;
 	params.boresight_rays = 200;
 	params.boresight_fraction = 0.1f; // 10% of the sphere's solid angle holds 20% of the rays.
 
@@ -216,10 +216,10 @@ TEST_CASE("boresightWeightedSample gives the denser (boresight) regime a smaller
 	const float expected_boresight_weight =
 		4.0f * prop::PI_V<float> * params.boresight_fraction / float(params.boresight_rays);
 	const float expected_off_boresight_weight = 4.0f * prop::PI_V<float> * (1.0f - params.boresight_fraction) /
-		float(params.rays_per_source - params.boresight_rays);
+		float(params.directions_per_source - params.boresight_rays);
 
-	REQUIRE_THAT(boresight_weight, WithinAbs(expected_boresight_weight, 1e-9));
-	REQUIRE_THAT(off_boresight_weight, WithinAbs(expected_off_boresight_weight, 1e-9));
+	REQUIRE_THAT(boresight_weight, WithinAbs(double(expected_boresight_weight), 1e-9));
+	REQUIRE_THAT(off_boresight_weight, WithinAbs(double(expected_off_boresight_weight), 1e-9));
 	REQUIRE(boresight_weight < off_boresight_weight);
 }
 
@@ -243,15 +243,15 @@ TEST_CASE("computeTubePatch shrinks to the tube footprint when it's smaller than
 		rt::po::computeTubePatch(test_tri, test_norm, test_incoming_dir, test_tri_area, dist, solid_angle);
 
 	REQUIRE_THAT(patch.area, WithinAbs(0.01, 1e-6));
-	// Scaled toward, and centroid-centered on, the triangle's own centroid (which equals test_hit_pos
-	// for this right triangle - see its definition above).
+	// Scaled toward, and centroid-centered on, the triangle's own centroid
+	// (which equals test_hit_pos for this right triangle).
 	const double scale = std::sqrt(0.01 / 0.5);
-	for (int i = 0; i < 3; ++i)
+	for (size_t i = 0; i < 3; ++i)
 	{
-		const auto expected = scale * (test_tri[i] - test_hit_pos);
-		REQUIRE_THAT(patch.verts[i].x, WithinAbs(expected.x, 1e-6));
-		REQUIRE_THAT(patch.verts[i].y, WithinAbs(expected.y, 1e-6));
-		REQUIRE_THAT(patch.verts[i].z, WithinAbs(expected.z, 1e-6));
+		const auto expected = scale * (test_tri.at(i) - test_hit_pos);
+		REQUIRE_THAT(patch.verts.at(i).x, WithinAbs(expected.x, 1e-6));
+		REQUIRE_THAT(patch.verts.at(i).y, WithinAbs(expected.y, 1e-6));
+		REQUIRE_THAT(patch.verts.at(i).z, WithinAbs(expected.z, 1e-6));
 	}
 }
 
@@ -263,15 +263,15 @@ TEST_CASE("computeTubePatch clamps to the full triangle when the tube footprint 
 	const auto patch =
 		rt::po::computeTubePatch(test_tri, test_norm, test_incoming_dir, test_tri_area, dist, solid_angle);
 
-	REQUIRE_THAT(patch.area, WithinAbs(test_tri_area, 1e-9));
+	REQUIRE_THAT(patch.area, WithinAbs(double(test_tri_area), 1e-9));
 	// scale=1 here (no shrinking), but verts are still centroid-centered (which equals test_hit_pos
 	// for this right triangle - see its definition above).
 	for (size_t i = 0; i < 3; ++i)
 	{
-		const auto expected = test_tri[i] - test_hit_pos;
-		REQUIRE_THAT(patch.verts[i].x, WithinAbs(expected.x, 1e-6));
-		REQUIRE_THAT(patch.verts[i].y, WithinAbs(expected.y, 1e-6));
-		REQUIRE_THAT(patch.verts[i].z, WithinAbs(expected.z, 1e-6));
+		const auto expected = test_tri.at(i) - test_hit_pos;
+		REQUIRE_THAT(patch.verts.at(i).x, WithinAbs(expected.x, 1e-6));
+		REQUIRE_THAT(patch.verts.at(i).y, WithinAbs(expected.y, 1e-6));
+		REQUIRE_THAT(patch.verts.at(i).z, WithinAbs(expected.z, 1e-6));
 	}
 }
 

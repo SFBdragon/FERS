@@ -776,8 +776,8 @@ namespace serial::xml_parser_utils
 		LOG(logging::Level::INFO,
 			"Ray-tracing derived sampling: boresight cone={:.6g} sr ({} rays), off-boresight={:.6g} sr ({} "
 			"rays), total rays per source={}",
-			rt.boresightSolidAngle(), rt.raysAtBoresightCap(), 4.0 * PI - rt.boresightSolidAngle(),
-			rt.offBoresightRays(), rt.raysPerSource());
+			rt.boresightSolidAngle(), rt.boresightDirections(), 4.0 * PI - rt.boresightSolidAngle(),
+			rt.offBoresightDirections(), rt.directionsPerSource());
 	}
 
 	void parseParameters(const XmlElement& parameters, params::Parameters& params_out)

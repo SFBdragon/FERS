@@ -176,7 +176,7 @@ namespace propagation::raytracing
 		uint32_t scatter_limit;
 
 		/// Number of ray tubes launched per source antenna (the launch's X dimension).
-		uint32_t rays_per_source;
+		uint32_t directions_per_source;
 		/// The number of rays dedicated to the boresight fraction of the sphere.
 		/// This should be less than or equal to `rays_per_source`.
 		uint32_t boresight_rays;
