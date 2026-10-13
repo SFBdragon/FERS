@@ -84,16 +84,16 @@ namespace
 
 		const RealType edge = 1.0 / sample_rate;
 		const interp::InterpPoint first{.gain = 1.0, .rx_time = start_time, .delay = 0.0, .phase_delay = 0.0};
-		auto response = std::make_unique<serial::Response>(wave_ptr, first, edge, edge);
+		serial::ResponseBuilder builder(wave_ptr, first, edge, edge);
 		for (std::size_t i = 1; i < samples.size(); ++i)
 		{
-			response->addInterpPoint({.gain = 1.0,
-									  .rx_time = start_time + static_cast<RealType>(i) / sample_rate,
-									  .delay = 0.0,
-									  .phase_delay = 0.0},
-									 edge);
+			builder.addInterpPoint({.gain = 1.0,
+								   .rx_time = start_time + static_cast<RealType>(i) / sample_rate,
+								   .delay = 0.0,
+								   .phase_delay = 0.0},
+								  edge);
 		}
-		return response;
+		return std::make_unique<serial::Response>(std::move(builder));
 	}
 }
 

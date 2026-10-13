@@ -123,8 +123,10 @@ namespace fers_signal
 	ComplexType PulseWaveform::performConvolution(const long i, const RealType* filt, const long filtLength,
 												  const RealType amplitude, const long iSampleUnwrap) const noexcept
 	{
-		const long start = std::max(-filtLength / 2, -i);
-		const long end = std::min(filtLength / 2, static_cast<int>(getSampleCount()) - i);
+		// The convolution is centered on the delay-unwrapped sample index (i + iSampleUnwrap).
+		const long center = i + iSampleUnwrap;
+		const long start = std::max(-filtLength / 2, -center);
+		const long end = std::min(filtLength / 2, static_cast<int>(getSampleCount()) - center);
 
 		ComplexType accum(0.0, 0.0);
 

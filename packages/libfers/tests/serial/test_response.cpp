@@ -42,14 +42,11 @@ TEST_CASE("Response start/end time always pad a single real point by the caller-
 	const auto wave = makeSampledRadarSignal("wave", 1.0, {ComplexType{0.0, 0.0}}, 1000.0);
 	const interp::InterpPoint first{.gain = 1.0, .rx_time = 0.5, .delay = 0.0, .phase_delay = 0.0};
 	const RealType edge = 1.0 / params::simSamplingRate();
-	serial::Response const response(&wave, first, edge, edge);
+	serial::ResponseBuilder builder(&wave, first, edge, edge);
+	const serial::Response response(std::move(builder));
 
-	// Response does not materialize a synthetic lead point at construction, and no
-	// finalise() call is needed to add a trailing one. startTime()/endTime() report the
-	// real point's range padded by the caller-supplied interval on each side, computed
-	// fresh on every call. This holds even for a single-sample response, the common case
-	// for responses built from ephemeral ray-traced paths rather than a whole transmitted
-	// pulse.
+	// A single-sample response (the common case for ephemeral ray-traced paths rather than
+	// a whole transmitted pulse) still gets a lead/tail taper padding it on each side.
 	REQUIRE_THAT(response.startTime(), WithinAbs(0.5 - 1.0e-3, 1e-12));
 	REQUIRE_THAT(response.endTime(), WithinAbs(0.5 + 1.0e-3, 1e-12));
 	REQUIRE_THAT(response.getRxDuration(), WithinAbs(2.0e-3, 1e-12));
@@ -76,16 +73,14 @@ TEST_CASE("Response taper width and delay/phase extrapolate using the caller-sup
 	// fix: two adjacent path_id channels sharing a short grid gap must each taper by that
 	// same short interval, not by whatever their own last two points happen to be spaced by,
 	// or their tapers overlap (double-count) or gap right at the seam between them.
-	serial::Response response(&wave, p1, /*left_interval=*/0.2, /*right_interval=*/0.2);
-	response.addInterpPoint(p2, /*right_interval=*/0.2);
+	serial::ResponseBuilder builder(&wave, p1, /*left_interval=*/0.2, /*right_interval=*/0.2);
+	builder.addInterpPoint(p2, /*right_interval=*/0.2);
+	const serial::Response response(std::move(builder));
 
-	const auto tapered = response.taperedPoints();
-	const auto lead = *tapered.begin();
-	auto tail_it = tapered.begin();
-	++tail_it; // real[0] = p1
-	++tail_it; // real[1] = p2
-	++tail_it; // tail
-	const auto tail = *tail_it;
+	const auto points = response.points();
+	REQUIRE(points.size() == 4); // lead, p1, p2, tail
+	const auto lead = points[0];
+	const auto tail = points[3];
 
 	// Local rate = (delay2-delay1)/tx_gap = 0.5/0.5 = 1.0 delay-second per tx-second.
 	// Extrapolating 0.2 more tx-seconds carries 0.2 more delay with it either direction.
@@ -113,11 +108,14 @@ TEST_CASE("Response taper degenerates to the real point when its interval is 0",
 
 	// A 0 interval means this side sits at the transmission's actual start/end - nothing
 	// ever renders out there, so there's nothing meaningful to taper into.
-	serial::Response response(&wave, {.gain = 1.0, .rx_time = 5.0, .delay = 0.0, .phase_delay = 0.0},
-							  /*left_interval=*/0.0, /*right_interval=*/0.0);
-	response.addInterpPoint({.gain = 1.0, .rx_time = 5.001, .delay = 0.0, .phase_delay = 0.0},
-							/*right_interval=*/0.0);
+	serial::ResponseBuilder builder(&wave, {.gain = 1.0, .rx_time = 5.0, .delay = 0.0, .phase_delay = 0.0},
+									/*left_interval=*/0.0, /*right_interval=*/0.0);
+	builder.addInterpPoint({.gain = 1.0, .rx_time = 5.001, .delay = 0.0, .phase_delay = 0.0},
+						   /*right_interval=*/0.0);
+	const serial::Response response(std::move(builder));
 
+	// No taper point is materialized on either side - just the 2 real points.
+	REQUIRE(response.points().size() == 2);
 	REQUIRE_THAT(response.startTime(), WithinAbs(5.0, 1e-12));
 	REQUIRE_THAT(response.endTime(), WithinAbs(5.001, 1e-12));
 }
@@ -142,16 +140,17 @@ TEST_CASE("Response renderSlice reproduces the source waveform at zero delay", "
 	// adjacent real point's own rx_time, leaving the render loop's boundary sample with a
 	// degenerate zero-length interpolation span instead of a well-defined one.
 	const RealType edge = 1.0 / rate;
-	serial::Response response(&wave, first, edge, edge);
+	serial::ResponseBuilder builder(&wave, first, edge, edge);
 	// One real control point per native sample (matching how the point-scatter model
 	// covers a whole pulse) keeps gain == 1 across the entire buffer under test; a
 	// single real point would only hold full gain exactly at that one point; the very
 	// next native sample already falls inside the response's own trailing taper.
 	for (std::size_t i = 1; i < samples.size(); ++i)
 	{
-		response.addInterpPoint(
+		builder.addInterpPoint(
 			{.gain = 1.0, .rx_time = static_cast<RealType>(i) / rate, .delay = 0.0, .phase_delay = 0.0}, edge);
 	}
+	const serial::Response response(std::move(builder));
 
 	// At exactly zero fractional delay the render filter is an exact identity (its
 	// center tap is a bit-exact 1.0; every other tap is sinc(integer) ~ 0), so with
@@ -166,5 +165,32 @@ TEST_CASE("Response renderSlice reproduces the source waveform at zero delay", "
 	{
 		REQUIRE_THAT(data[i].real(), WithinAbs(samples[i].real(), 1e-9));
 		REQUIRE_THAT(data[i].imag(), WithinAbs(samples[i].imag(), 1e-9));
+	}
+}
+
+TEST_CASE("Response render keeps full gain at an untapered (zero-interval) edge sample", "[serial][response]")
+{
+	ParamGuard const guard;
+	params::setOversampleRatio(1);
+	params::setSimSamplingRate(1000.0);
+
+	// A pulsed response with no mid-transmission occlusion: both edges sit at the
+	// transmission's actual start/end, so left_interval/right_interval are 0 and there is
+	// nothing to taper. Every real point shares the same gain, so every rendered native
+	// sample - including the first and last - must come out at that same gain.
+	const std::vector<ComplexType> samples = {ComplexType{1.0, 0.0}, ComplexType{1.0, 0.0}, ComplexType{1.0, 0.0}};
+	const auto wave = makeSampledRadarSignal("wave", 1.0, samples, 1000.0);
+
+	serial::ResponseBuilder builder(&wave, {.gain = 1.0, .rx_time = 0.0, .delay = 0.0, .phase_delay = 0.0}, 0.0, 0.0);
+	builder.addInterpPoint({.gain = 1.0, .rx_time = 0.001, .delay = 0.0, .phase_delay = 0.0}, 0.0);
+	builder.addInterpPoint({.gain = 1.0, .rx_time = 0.002, .delay = 0.0, .phase_delay = 0.0}, 0.0);
+	const serial::Response response(std::move(builder));
+
+	const auto data = response.render(0.0);
+	REQUIRE(data.size() == 3);
+	for (auto i : data)
+	{
+		REQUIRE_THAT(i.real(), WithinAbs(1.0, 1e-9));
+		REQUIRE_THAT(i.imag(), WithinAbs(0.0, 1e-9));
 	}
 }

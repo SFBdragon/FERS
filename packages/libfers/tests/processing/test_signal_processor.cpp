@@ -37,8 +37,9 @@ namespace
 															   const RealType rx_time)
 	{
 		const RealType edge = 1.0 / params::simSamplingRate();
-		return std::make_unique<serial::Response>(
+		serial::ResponseBuilder builder(
 			&wave, interp::InterpPoint{.gain = 1.0, .rx_time = rx_time, .delay = 0.0, .phase_delay = 0.0}, edge, edge);
+		return std::make_unique<serial::Response>(std::move(builder));
 	}
 
 	RealType meanOfChannel(const std::vector<ComplexType>& window, bool realChannel)

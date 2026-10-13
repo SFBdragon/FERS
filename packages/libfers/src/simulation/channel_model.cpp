@@ -651,7 +651,7 @@ namespace simulation
 
 		struct OpenResponse
 		{
-			std::unique_ptr<serial::Response> response;
+			serial::ResponseBuilder builder;
 			Receiver* receiver;
 			size_t last_index;
 		};
@@ -668,7 +668,8 @@ namespace simulation
 			{
 				if (it->second.last_index + 1 != i)
 				{
-					routeResponse(it->second.receiver, std::move(it->second.response));
+					routeResponse(it->second.receiver,
+								 std::make_unique<serial::Response>(std::move(it->second.builder)));
 					it = responses.erase(it);
 				}
 				else
@@ -692,14 +693,14 @@ namespace simulation
 
 				if (const auto found = responses.find(path.path_id); found != responses.end())
 				{
-					found->second.response->addInterpPoint(point, right_interval);
+					found->second.builder.addInterpPoint(point, right_interval);
 					found->second.last_index = i;
 				}
 				else
 				{
 					responses.insert({
 						path.path_id,
-						{std::make_unique<serial::Response>(tx.getSignal(), point, left_interval, right_interval),
+						{serial::ResponseBuilder(tx.getSignal(), point, left_interval, right_interval),
 						 path.receiver, i},
 					});
 				}
@@ -708,7 +709,7 @@ namespace simulation
 
 		for (auto& [k, v] : responses)
 		{
-			routeResponse(v.receiver, std::move(v.response));
+			routeResponse(v.receiver, std::make_unique<serial::Response>(std::move(v.builder)));
 		}
 		responses.clear(); // To be explicit: the items are invalidated by the above.
 	}

@@ -339,6 +339,70 @@ TEST_CASE("PulseWaveform render responds to fractional delay", "[signal][radar]"
 	REQUIRE_THAT(data[sample_index].imag(), WithinAbs(expected.imag(), 1e-6));
 }
 
+TEST_CASE("PulseWaveform render does not clip taps near the buffer edge when the delay unwrap is negative",
+		  "[signal][radar]")
+{
+	ParamGuard const guard;
+	params::setOversampleRatio(1);
+
+	const long filter_length = static_cast<long>(params::renderFilterLength());
+	const unsigned sample_count = static_cast<unsigned>(filter_length) * 4;
+	const std::vector<ComplexType> input(sample_count, ComplexType{1.0, 0.0});
+
+	fers_signal::PulseWaveform signal;
+	signal.load(input, sample_count, 1.0);
+
+	// A single control point keeps the delay (and so the fractional/integer split below)
+	// identical for every rendered sample, isolating the convolution boundary clamp from any
+	// taper or interpolation effects. 0.3 is deliberately a fractional delay whose
+	// idelay = round(0.3) = 0 leaves a *positive* remainder (0.3), so fdelay = -(0.3 - 0)
+	// floors to int_part = -1: the render loop ends up centering its filter one native sample
+	// *before* the nominal index it's rendering (iSampleUnwrap == -1).
+	constexpr RealType delay = 0.3;
+	const std::vector<interp::InterpPoint> points = {{1.0, 0.0, delay, 0.0}};
+
+	const auto data = signal.render(points, points.front().rx_time, 0.0, 1.0);
+	REQUIRE(data.size() == sample_count);
+
+	const long idelay = std::lround(delay);
+	RealType fdelay = -(delay - static_cast<RealType>(idelay));
+	const RealType int_part = std::floor(fdelay);
+	fdelay -= int_part;
+	const long i_sample_unwrap = static_cast<long>(int_part);
+	REQUIRE(i_sample_unwrap == -1);
+
+	const auto& interp = interp::InterpFilter::getInstance();
+	const auto filter = interp.getFilter(fdelay);
+
+	// Ground-truth oracle: sum every filter tap whose data index (the delay-unwrapped center
+	// plus the tap offset) actually falls inside the buffer - with no assumption about how the
+	// implementation bounds its own loop. This is exactly what `performConvolution` must
+	// compute; before the fix its outer loop bounds were derived from the un-unwrapped sample
+	// index, which silently dropped in-range taps near the trailing edge of the buffer.
+	const auto expectedAt = [&](const long sample_index) {
+		const long center = sample_index + i_sample_unwrap;
+		ComplexType sum{0.0, 0.0};
+		for (long j = -filter_length / 2; j < filter_length / 2; ++j)
+		{
+			const long idx = center + j;
+			if (idx >= 0 && idx < static_cast<long>(sample_count))
+			{
+				sum += filter[static_cast<std::size_t>(j + filter_length / 2)] * input[static_cast<std::size_t>(idx)];
+			}
+		}
+		return sum;
+	};
+
+	// The last few native samples sit closest to the trailing edge and are exactly where a
+	// mis-bounded clamp drops valid taps.
+	for (long i = static_cast<long>(sample_count) - 3; i < static_cast<long>(sample_count); ++i)
+	{
+		const auto expected = expectedAt(i);
+		REQUIRE_THAT(data[static_cast<std::size_t>(i)].real(), WithinAbs(expected.real(), 1e-9));
+		REQUIRE_THAT(data[static_cast<std::size_t>(i)].imag(), WithinAbs(expected.imag(), 1e-9));
+	}
+}
+
 TEST_CASE("PulseWaveform renderSlice matches cropped full response with padding", "[signal][radar]")
 {
 	ParamGuard const guard;
