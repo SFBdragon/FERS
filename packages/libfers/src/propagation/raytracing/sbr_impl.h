@@ -10,6 +10,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 
 #include "antenna/antenna_gain.h"
 #include "propagation/common.h"
@@ -454,17 +455,17 @@ namespace propagation::raytracing
 		}
 
 		/// Numerically stable unnormalised sinc = sin(x)/x with the limit at sin(0) = 1.
-		HC_FN float sinc(float x, float tol = 1e-5f) { return fabsf(x) < tol ? 1.0f : sinf(x) / x; }
+		HC_FN float sinc(float x, float tol = 1e-5f) { return std::abs(x) < tol ? 1.0f : std::sin(x) / x; }
 
 		/// Gordon's formula for computing the Physical Optics phase integral.
 		HC_FN CFloat phaseIntegral(const TubePatch& patch, const Float3& norm, const Float3& u_inc,
 								   const Float3& u_scat, float wavenumber)
 		{
 			/// Scattering vector, representing phase difference across patch.
-			Float3 scatter = wavenumber * (u_scat - u_inc);
+			const Float3 scatter = wavenumber * (u_scat - u_inc);
 			/// In-plane component of the scattering vector.
-			Float3 scatter_inplane = scatter - dot(scatter, norm) * norm;
-			float scatter_inplane2 = length2(scatter_inplane);
+			const Float3 scatter_inplane = scatter - dot(scatter, norm) * norm;
+			const float scatter_inplane2 = length2(scatter_inplane);
 
 			// Handle the near-specular case.
 			// The normalized phase integral is I = A
@@ -480,7 +481,7 @@ namespace propagation::raytracing
 			CFloat acc{0.0f};
 			for (size_t i = 0; i < 3; i++)
 			{
-				float re = dot(cross(scatter, norm), delta_vs.at(i)) * sinc(0.5f * dot(scatter, delta_vs.at(i)));
+				const float re = dot(cross(scatter, norm), delta_vs.at(i)) * sinc(0.5f * dot(scatter, delta_vs.at(i)));
 				acc = acc + re * cexp_i(dot(scatter, mid_vs.at(i)));
 			}
 
@@ -683,10 +684,8 @@ namespace propagation::raytracing
 		const double two_times_facet_area = length(dnormal);
 		Float3 u_norm = Float3{dnormal / two_times_facet_area};
 		float facet_area = float(two_times_facet_area) / 2;
-
-		const float back_face = dot(u_inc, u_norm) <= 0 ? 1.0f : -1.0f;
-		u_norm = u_norm * back_face;
-		facet_area *= back_face;
+		// Flip the normal to face the incoming ray.
+		u_norm = dot(u_inc, u_norm) <= 0 ? u_norm : -u_norm;
 
 		// Compute the reflected ray direction.
 		const Float3 back = -u_inc;
@@ -705,6 +704,11 @@ namespace propagation::raytracing
 		path->surface_materials.at(path->ray_count - 1) = &params.materials[hit.material_index];
 		path->hash = hash_mix(path->hash, hit.triangle_index); // Add the current facet to the path hash
 		path->length = go_path_len;
+
+		// Ray-tube PO integration patch.
+		// The ray tube footprint is governed by the incident path geometry
+		// (`u_inc`, `go_path_len`, `weight`) not the destination antenna position.
+		const auto patch = po::computeTubePatch(verts, u_norm, u_inc, facet_area, float(go_path_len), path->weight);
 
 		// Determine PO contributions from this path and this ray's tube patch on this facet.
 		for (uint32_t dst_idx = 0; dst_idx < params.dest_antenna_count; dst_idx++)
@@ -746,11 +750,6 @@ namespace propagation::raytracing
 				// Updates the path's cached surface current to the current hit point.
 				go::computeGoRadiation(params, path, frequency);
 
-				// Ray-tube PO integration patch.
-				// This is the part of the PO calculation that isn't symmetric under propagation direction.
-				const Float3& prop_po_inc = params.rx_to_tx ? -u_scat : u_inc; // TODO_SHAUN I think this is wrong
-				const auto patch =
-					po::computeTubePatch(verts, u_norm, prop_po_inc, facet_area, float(go_path_len), path->weight);
 				// The scattering vector `w = k (u_inc - u_scat)` computation is identical between
 				// (u_inc, u_scat) and (-u_scat, -u_inc) so we just pass in the trace directions here.
 				const CFloat3 radiation_sqrt_gs =
@@ -814,7 +813,7 @@ namespace propagation::raytracing
 		const auto& dst_antenna = params.dest_antennas[dst_idx];
 		const double path_len = length(dst_antenna.position - src_antenna.position);
 		const double prop_time = path_len / C<double>;
-		const Float3 u_dir = Float3{normalize(src_antenna.position - dst_antenna.position)};
+		const Float3 u_dir = Float3{normalize(dst_antenna.position - src_antenna.position)};
 
 		if (path_len < 1e-2)
 		{

@@ -602,12 +602,18 @@ namespace propagation::raytracing::optix
 		const uint32_t chunk_size =
 			chunkRaysPerSource(dirs_per_source, source_antenna_count, dest_antenna_count, time_count);
 
-		// Reserve space for one chunk's worth of return contributions.
-		// The maximum number of contributions possible in one chunk's launch is the sum of
+		// No sources, destinations, or times to trace. No returns possible. Skip the launch entirely.
+		if (source_antenna_count == 0 || dest_antenna_count == 0 || time_count == 0)
+		{
+			return {};
+		}
+
+		// The maximum number of contributions possible in one batch is the sum of
 		// max_direct = |sources| * |dests| * |times|
-		// max_indirect = |sources| * |dests| * |times| * |chunk_size| * |max_scatter_limit|
-		// so
-		// max_all = |sources| * |dests| * |times| * (1 + |chunk_size| * |max_scatter_limit|)
+		// and
+		// max_indirect = |sources| * |dests| * |times| * |direction_per_source| * |max_scatter_limit|
+		// which is
+		// max_all = |sources| * |dests| * |times| * (1 + |direction_per_source| * |max_scatter_limit|)
 		//
 		// It's certainly possible to reach this limit under certain circumstances, though typically only where
 		// max_scatter_limit is very low and rays are concentrated on a target at the boresight.
