@@ -289,7 +289,7 @@ namespace propagation::pointscatter
 	{
 		CarrierModel<RealType> carrier;
 		carrier.kind = CarrierModelKind::Constant;
-		carrier.params.constant.frequency = params::c() / transmitter.getSignal()->getCarrier();
+		carrier.params.constant.frequency = transmitter.getSignal()->getCarrier();
 
 		std::vector<PathsAtTime> timesteps;
 
