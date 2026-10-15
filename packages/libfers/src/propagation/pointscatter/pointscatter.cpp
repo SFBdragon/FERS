@@ -283,7 +283,7 @@ namespace propagation::pointscatter
 		};
 	}
 
-	std::vector<PathsAtTime> PointScatterModel::findTxToRxPaths(ThreadContext* /* ctx */,
+	std::vector<PathsAtTime> PointScatterModel::traceFromTransmitter(ThreadContext* /* ctx */,
 																const radar::Transmitter& transmitter,
 																const std::vector<RealType>& times) const
 	{
@@ -299,9 +299,9 @@ namespace propagation::pointscatter
 
 			for (const auto& receiver : _world->getReceivers())
 			{
-				// Note, we're not setting the PropagationPath source index as the caller of findTxToRxPaths
+				// Note, we're not setting the PropagationPath source index as the caller of traceFromTransmitter
 				// only gives us a Transmitter, not an ActiveStreamingSource.
-				// findTxToRxPaths is used for pulsed radar instead of continuous, so this works.
+				// traceFromTransmitter is used for pulsed radar instead of continuous, so this works.
 
 				if (!receiver->checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
 				{
@@ -341,7 +341,7 @@ namespace propagation::pointscatter
 	};
 
 	std::vector<PropagationPath>
-	PointScatterModel::findRxFromTxPaths(ThreadContext* /* ctx */, radar::Receiver* receiver,
+	PointScatterModel::traceFromReceiver(ThreadContext* /* ctx */, radar::Receiver* receiver,
 										 const std::vector<core::ActiveStreamingSource>& sources,
 										 RealType rx_time) const
 	{

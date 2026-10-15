@@ -185,7 +185,7 @@ namespace propagation::raytracing::optix
 
 
 	/// This function is where we're going to for each radar "source"
-	/// (transmitter or receiver antenna, depending on findTxToRxPaths or findRxFromTxPaths)
+	/// (transmitter or receiver antenna, depending on traceFromTransmitter or traceFromReceiver)
 	/// and each time step and generate lots of rays to trace through the scene and
 	/// determine contributions to each of the "sinks" (receivers or transmitters, respectively).
 	extern "C" __global__ void __raygen__paths()

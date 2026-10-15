@@ -59,8 +59,8 @@ namespace propagation::raytracing
 
 	enum class TraceJobType : uint8_t
 	{
-		FindTxToRx = 0,
-		FindRxFromTx = 1,
+		FromTx = 0,
+		FromRx = 1,
 	};
 
 	struct SceneData
@@ -172,12 +172,12 @@ namespace propagation::raytracing
 
 		[[nodiscard]] std::unique_ptr<ThreadContext> makeThreadContext() const override;
 
-		[[nodiscard]] std::vector<PathsAtTime> findTxToRxPaths(ThreadContext* ctx,
-															   const radar::Transmitter& transmitter,
-															   const std::vector<RealType>& times) const override;
+		[[nodiscard]] std::vector<PathsAtTime> traceFromTransmitter(ThreadContext* ctx,
+																	const radar::Transmitter& transmitter,
+																	const std::vector<RealType>& times) const override;
 
 		[[nodiscard]] std::vector<PropagationPath>
-		findRxFromTxPaths(ThreadContext* ctx, radar::Receiver* receiver,
+		traceFromReceiver(ThreadContext* ctx, radar::Receiver* receiver,
 						  const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const override;
 
 		[[nodiscard]] unsigned int maxPropagationLegs() const noexcept override;

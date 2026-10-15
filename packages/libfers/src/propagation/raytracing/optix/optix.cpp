@@ -653,7 +653,7 @@ namespace propagation::raytracing::optix
 				.dest_antennas = dest_antennas.ptr_t(),
 				.dest_antenna_count = dest_antenna_count,
 				.rx_flags = rx_flags.ptr_t(),
-				.rx_to_tx = job.type == TraceJobType::FindRxFromTx,
+				.rx_to_tx = job.type == TraceJobType::FromRx,
 			}};
 
 		std::vector<Contribution> contribs;
@@ -674,9 +674,8 @@ namespace propagation::raytracing::optix
 			// Read back the device-side contribution write count.
 			ContributionCountType contribution_counter{};
 			ctx->contribution_count.download(contribution_counter);
-			const uint32_t contribution_writes = contribution_counter.load(cuda::memory_order_relaxed);
-
 			CUDA_CHECK(cudaStreamSynchronize(ctx->stream.get()));
+			const uint32_t contribution_writes = contribution_counter.load(cuda::memory_order_relaxed);
 
 			LOG(logging::Level::DEBUG, "Contribution write count: {} (chunk offset {}, size {})", contribution_writes,
 				offset, this_chunk);

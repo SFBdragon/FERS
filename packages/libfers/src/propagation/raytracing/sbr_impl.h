@@ -73,18 +73,20 @@ namespace propagation::raytracing
 		/// of the path while being proportional to the electric field.
 		/// All geometric optics and physical optics physics performed is linear with
 		/// respect to the electric field, and thus the results remain physical.
-		CFloat3 electric_unit_reflected{};
-		/// This is the sum of the reflected and incident electric polarisations.
-		/// Same units as `electric_unit_reflected`.
-		CFloat3 electric_unit_total{};
-		/// This is the
-		/// `norm x ((u_inc x e_i) + (u_refl x e_r))`
-		/// which is
-		/// `norm x (Z0 * magnetic_unit_total)`
-		/// which is the surface current (unit-ified) multiplied by Z0.
-		///
-		/// This remains in units of `electric_unit_reflected`.
-		CFloat3 n_cross_magnetic_unit_total{};
+		CFloat3 incident_field{};
+		CFloat3 reflected_field{};
+		float src_power_gain{};
+		// /// This is the sum of the reflected and incident electric polarisations.
+		// /// Same units as `electric_unit_reflected`.
+		// CFloat3 electric_unit_total{};
+		// /// This is the
+		// /// `norm x ((u_inc x e_i) + (u_refl x e_r))`
+		// /// which is
+		// /// `norm x (Z0 * magnetic_unit_total)`
+		// /// which is the surface current (unit-ified) multiplied by Z0.
+		// ///
+		// /// This remains in units of `electric_unit_reflected`.
+		// CFloat3 n_cross_magnetic_unit_total{};
 
 		/// The carrier frequency for which the cached radiation and surface current are valid.
 		float carrier_frequency = -1.0f;
@@ -488,13 +490,20 @@ namespace propagation::raytracing
 			return mul_i(acc) / scatter_inplane2;
 		}
 
-		HC_FN CFloat3 facetScatteredRadiation(const TubePatch& patch, const Float3& u_norm, const Float3& u_inc,
-											  const Float3& u_scat, const RadiationCache& cache, const float wavenumber)
+		HC_FN CFloat3 vectorScatteringAmplitude(const TubePatch& patch, const Float3& u_norm, const Float3& u_inc,
+												const Float3& u_scat, const Float3& u_refl, const CFloat3& e_inc,
+												const CFloat3& e_refl, const float wavenumber)
 		{
 			const CFloat phase_integral = phaseIntegral(patch, u_norm, u_inc, u_scat, wavenumber);
 
-			const CFloat3 e_total = cache.electric_unit_total;
-			const CFloat3 n_x_m_total = cache.n_cross_magnetic_unit_total;
+			const CFloat3 e_total = e_inc + e_refl;
+
+			// Js ~ normal x (h_inc + h_refl)
+			// h = k x e
+			const CFloat3 m_inc = cross(u_inc, e_inc);
+			const CFloat3 m_refl = cross(u_refl, e_refl);
+			const CFloat3 n_x_m_total = cross(u_norm, m_inc + m_refl);
+
 			const CFloat3 field_vector = cross(u_scat, cross(u_norm, e_total) - cross(u_scat, n_x_m_total));
 
 			// -jk/4/pi
@@ -505,6 +514,16 @@ namespace propagation::raytracing
 
 	namespace go
 	{
+		/// Compute the reflected ray direction given the incident direction (into the surface)
+		/// and surface normal at the point of incidence.
+		HC_FN Float3 reflect(const Float3& u_inc, const Float3& u_norm)
+		{
+			const Float3 back = -u_inc;
+			const Float3 cent = dot(u_norm, back) * u_norm;
+			const Float3 u_refl = 2.0f * cent - back;
+			return u_refl;
+		}
+
 		HC_FN void complexSnellsLaw(const Float3& norm, const Float3& k_in, CFloat n2, CFloat& gamma_tm_out,
 									CFloat& gamma_te_out)
 		{
@@ -544,14 +563,14 @@ namespace propagation::raytracing
 		/// Reflect Cartesian radiation vector off a facet specularly
 		/// using geometric optics and Fresnel equations to enforce
 		/// interface conditions.
-		HC_FN void fresnelGoReflection(CFloat3& radiation, const Float3& norm, const Float3& u_inc,
-									   const Float3& u_refl, const Material* mat, float frequency)
+		HC_FN CFloat3 fresnelGoReflection(const CFloat3& e_inc, const Float3& u_norm, const Float3& u_inc,
+										  const Float3& u_refl, const Material* mat, float frequency)
 		{
 			// This implements Fresnel equations for solving the reflected
 			// field given an incident electric plane wave on a planar surface.
 
 			// Compute the indident basis.
-			const auto basis = incidencePlaneBasis(norm, u_inc);
+			const auto basis = incidencePlaneBasis(u_norm, u_inc);
 			const auto e_tm_out = cross(basis.e_te, u_refl);
 
 			const auto relative_permittivity = mat->relative_permittivity;
@@ -561,12 +580,12 @@ namespace propagation::raytracing
 			if (mat->conductivity != INFINITY) // if not a PEC
 			{
 				const Complex n2 = indexOfRefraction(relative_permittivity, conductivity, frequency);
-				complexSnellsLaw(norm, u_inc, n2, gamma_tm, gamma_te);
+				complexSnellsLaw(u_norm, u_inc, n2, gamma_tm, gamma_te);
 			}
 
-			const Complex elec_te = dot(radiation, basis.e_te);
-			const Complex elec_tm = dot(radiation, basis.e_tm_in);
-			radiation = basis.e_te * (gamma_te * elec_te) + e_tm_out * (gamma_tm * elec_tm);
+			const Complex elec_te = dot(e_inc, basis.e_te);
+			const Complex elec_tm = dot(e_inc, basis.e_tm_in);
+			return basis.e_te * (gamma_te * elec_te) + e_tm_out * (gamma_tm * elec_tm);
 		}
 
 
@@ -586,13 +605,15 @@ namespace propagation::raytracing
 			// TODO: Consider whether a tolerance on the wavenumber matching is acceptable, rather than exact-match.
 
 
-			CFloat3 radiation = path->cache.electric_unit_reflected;
+			CFloat3 reflected_field = path->cache.reflected_field;
 			uint32_t ray_index = path->cache.depth;
 
 			if (path->cache.carrier_frequency != frequency)
 			{
 				// The radiation cache isn't for the correct carrier.
 				// Re-compute the full radiation path, starting with sampling the source antenna properties.
+
+				ray_index = 0;
 
 				const ActiveAntenna& antenna =
 					params.source_antennas[path->source_index + path->time_index * params.source_antenna_count];
@@ -601,45 +622,35 @@ namespace propagation::raytracing
 				const Float3 local_dir = path->local_emmission_direction;
 				const CFloat3 pol = propagation::antennaPolarizationVector(model.horizontal_pol, model.vertical_pol,
 																		   antenna.direction, local_dir);
+				reflected_field = pol;
+
 				// Gain from the source antenna.
 				const float src_local_az = atan2f(local_dir.y, local_dir.x);
 				const float src_local_el = asinf(local_dir.z);
 				const float wavelength = C<float> / frequency;
-				const float gain = sampleAntennaModel(params, model, local_dir, src_local_az, src_local_el, wavelength);
-				const float amplitude = std::sqrt(gain);
-
-				radiation = pol * amplitude;
-				ray_index = 0;
+				const float power_gain =
+					sampleAntennaModel(params, model, local_dir, src_local_az, src_local_el, wavelength);
+				path->cache.src_power_gain = power_gain;
 			}
 
-			CFloat3 electric_inc;
+			CFloat3 incident_field;
 			for (; ray_index < path->ray_count; ray_index++)
 			{
 				if (ray_index + 1 == path->ray_count)
 				{
-					electric_inc = radiation;
+					incident_field = reflected_field;
 				}
 
-				fresnelGoReflection(radiation, path->surface_normals.at(ray_index),
-									path->trace_directions.at(ray_index), path->trace_directions.at(ray_index + 1),
-									path->surface_materials.at(ray_index), frequency);
+				reflected_field = fresnelGoReflection(
+					reflected_field, path->surface_normals.at(ray_index), path->trace_directions.at(ray_index),
+					path->trace_directions.at(ray_index + 1), path->surface_materials.at(ray_index), frequency);
 			}
 
 			// If the radiation vector was updated for any reason, we need to recompute the surface current.
 			if (path->cache.carrier_frequency != frequency || path->cache.depth != path->ray_count)
 			{
-				const CFloat3 electric_unit_total = electric_inc + radiation;
-
-				// Js ~ normal x (h_inc + h_refl)
-				// h = k x e
-				const CFloat3 magnetic_inc = cross(path->trace_directions.at(ray_index - 1), electric_inc);
-				const CFloat3 magnetic_refl = cross(path->trace_directions.at(ray_index), radiation);
-				const CFloat3 n_cross_magnetic_unit_total =
-					cross(path->surface_normals.at(ray_index - 1), magnetic_inc + magnetic_refl);
-
-				path->cache.electric_unit_reflected = radiation;
-				path->cache.electric_unit_total = electric_unit_total;
-				path->cache.n_cross_magnetic_unit_total = n_cross_magnetic_unit_total;
+				path->cache.incident_field = incident_field;
+				path->cache.reflected_field = reflected_field;
 				path->cache.depth = path->ray_count;
 				path->cache.carrier_frequency = frequency;
 			}
@@ -688,20 +699,19 @@ namespace propagation::raytracing
 		u_norm = dot(u_inc, u_norm) <= 0 ? u_norm : -u_norm;
 
 		// Compute the reflected ray direction.
-		const Float3 back = -u_inc;
-		const Float3 cent = dot(u_norm, back) * u_norm;
-		const Float3 u_refl = 2.0f * cent - back;
+		const Float3 u_refl = go::reflect(u_inc, u_norm);
 
 		// Compute the additional propagation distance.
 		const double ray_len = dot(pos - path->path_vertices.at(path->ray_count), Double3{u_inc});
 		const double go_path_len = path->length + ray_len;
+		const auto* material = &params.materials[hit.material_index];
 
 		// Update path
 		path->ray_count += 1;
 		path->path_vertices.at(path->ray_count) = pos;
 		path->trace_directions.at(path->ray_count) = u_refl;
 		path->surface_normals.at(path->ray_count - 1) = u_norm;
-		path->surface_materials.at(path->ray_count - 1) = &params.materials[hit.material_index];
+		path->surface_materials.at(path->ray_count - 1) = material;
 		path->hash = hash_mix(path->hash, hit.triangle_index); // Add the current facet to the path hash
 		path->length = go_path_len;
 
@@ -727,71 +737,77 @@ namespace propagation::raytracing
 			const float t_shadow = shadow_test(Float3{pos}, u_scat);
 			const double po_len = length(dst.position - pos);
 
-			// If t_shadow is less that the scaled by |po_seg|, so if it's greater than one, the
-			// nearest object is over |po_seg| away, in which case the
-			// destination isn't occuded.
-			if (t_shadow >= float(po_len))
+			// If t_shadow is less than po_len, the nearest object is less than po_len away,
+			// in which case the destination is occuded: skip.
+			if (t_shadow < float(po_len))
+				continue;
+
+			// Perform the PO computation for the scattered field from the facet, over the ray
+			// tube's patch (clipped to the triangle - see above), not the whole triangle.
+
+			const double path_len = go_path_len + po_len;
+			const double prop_time = path_len / C<double>;
+
+			// We have a full path now.
+			// Therefore we know the transmitter, TX time, and thus also the carrier.
+			const uint32_t tx_index = params.rx_to_tx ? dst_idx : path->source_index;
+			const double tx_time = params.times[path->time_index] - (params.rx_to_tx ? prop_time : 0);
+			const CarrierModel<float>& carrier = params.carrier_models[tx_index];
+			const float frequency = sampleCarrierFrequency(carrier, tx_time);
+			const float wavenumber = 2 * PI_V<float> / C<float> * frequency;
+			const float wavelength = C<float> / frequency;
+
+			// Compute the destination antenna gain and polarisation into the path.
+			const AntennaModel& dst_model = params.antenna_models[dst.antenna_model_index];
+			// Note that this points from the antenna outward. Negative of the scatter direction to the destination.
+			const Float3 dst_local_dir = rotateWorldToLocal(dst.direction, -u_scat);
+			const float dst_local_az = atan2f(dst_local_dir.y, dst_local_dir.x);
+			const float dst_local_el = asinf(std::clamp(dst_local_dir.z, -1.0f, 1.0f));
+			const float dst_gain =
+				sampleAntennaModel(params, dst_model, dst_local_dir, dst_local_az, dst_local_el, wavelength);
+			const CFloat3 dst_pol = antennaPolarizationVector(dst_model.horizontal_pol, dst_model.vertical_pol,
+															  dst.direction, dst_local_dir);
+
+			// Updates the path's field cache data.
+			go::computeGoRadiation(params, path, frequency);
+
+			// The PO bit is tricky, because some inputs aren't reciprocol by tracing direction.
+			const Float3 po_u_inc = params.rx_to_tx ? -u_scat : u_inc;
+			const Float3 po_u_scat = params.rx_to_tx ? -u_inc : u_scat;
+			const Float3 po_u_refl = params.rx_to_tx ? go::reflect(-u_scat, u_norm) : u_refl;
+			const CFloat3 po_e_inc = params.rx_to_tx ? dst_pol : path->cache.incident_field;
+			const CFloat3 po_e_refl = params.rx_to_tx
+				? go::fresnelGoReflection(po_e_inc, u_norm, po_u_inc, po_u_refl, material, frequency)
+				: path->cache.reflected_field;
+
+			const CFloat3 po_e_scat = po::vectorScatteringAmplitude(patch, u_norm, po_u_inc, po_u_scat, po_u_refl,
+																	po_e_inc, po_e_refl, wavenumber);
+
+			// We need to compute the path gain now using the PO scatter and GO fields.
+
+			// The normalised field/polarisation vector to link up with. This complements `po_e_inc`.
+			const CFloat3 po_e_linkup = params.rx_to_tx ? path->cache.incident_field : dst_pol;
+			// Note that these vector point into each other, so they should not be conjugated.
+			const CFloat linkage = dot_no_conj(po_e_scat, po_e_linkup);
+
+			// a_p = sqrt(G_t G_r) * lambda / (4 pi) * linkage * (1 / (R_GO * R_PO))
+			CFloat path_gain =
+				(std::sqrt(path->cache.src_power_gain * dst_gain) * wavelength / (4.0f * PI_V<float>)) * linkage;
+
+			// Apply GO sphere spreading loss and PO distance loss unless requested not to.
+			const uint32_t rx_index = params.rx_to_tx ? path->source_index : dst_idx;
+			if ((params.rx_flags[rx_index] & RxFlags::FLAG_NOSPREADING) == 0)
 			{
-				// Perform the PO computation for the scattered field from the facet, over the ray
-				// tube's patch (clipped to the triangle - see above), not the whole triangle.
-
-				const double path_len = go_path_len + po_len;
-				const double prop_time = path_len / C<double>;
-
-				// We have a full path now.
-				// Therefore we know the transmitter, TX time, and thus also the carrier.
-				const uint32_t tx_index = params.rx_to_tx ? dst_idx : path->source_index;
-				const double tx_time = params.times[path->time_index] - (params.rx_to_tx ? prop_time : 0);
-				const CarrierModel<float>& carrier = params.carrier_models[tx_index];
-				const float frequency = sampleCarrierFrequency(carrier, tx_time);
-				const float wavenumber = 2 * PI_V<float> / C<float> * frequency;
-				const float wavelength = C<float> / frequency;
-
-				// Updates the path's cached surface current to the current hit point.
-				go::computeGoRadiation(params, path, frequency);
-
-				// The scattering vector `w = k (u_inc - u_scat)` computation is identical between
-				// (u_inc, u_scat) and (-u_scat, -u_inc) so we just pass in the trace directions here.
-				const CFloat3 radiation_sqrt_gs =
-					po::facetScatteredRadiation(patch, u_norm, u_inc, u_scat, path->cache, wavenumber);
-
-				// Weight by the destination antenna's gain towards this facet.
-				const AntennaModel& dst_model = params.antenna_models[dst.antenna_model_index];
-				// Note that this points from the antenna outward. Negative of the scatter direction to the destination.
-				const Float3 dst_local_dir = rotateWorldToLocal(dst.direction, -u_scat);
-				const float dst_local_az = atan2f(dst_local_dir.y, dst_local_dir.x);
-				const float dst_local_el = asinf(std::clamp(dst_local_dir.z, -1.0f, 1.0f));
-				const float dst_gain =
-					sampleAntennaModel(params, dst_model, dst_local_dir, dst_local_az, dst_local_el, wavelength);
-
-				const CFloat3 dst_pol = antennaPolarizationVector(dst_model.horizontal_pol, dst_model.vertical_pol,
-																  dst.direction, dst_local_dir);
-
-				const float effective_length = wavelength * std::sqrt(dst_gain);
-
-				// Standard antenna-reciprocity polarisation-loss-factor product.
-				// Valid because `pol` was evaluated at `-u_scat` above
-				// (the antenna's own as-if-transmitting-back-toward-the-source direction).
-				// Don't "fix" this by conjugating.
-				CFloat path_gain = dot_no_conj(radiation_sqrt_gs, dst_pol) * effective_length / (4.0f * PI_V<float>);
-				// a_p = sqrt(G_t G_r) * lambda / (4 pi) * (e_s dot p_r) * (1 / (R_GO + R_PO))
-
-				// Optionally apply sphere spreading gain loss.
-				const uint32_t rx_index = params.rx_to_tx ? path->source_index : dst_idx;
-				if ((params.rx_flags[rx_index] & RxFlags::FLAG_NOSPREADING) == 0)
-				{
-					path_gain = path_gain / (float(go_path_len) * float(po_len));
-				}
-
-				// Add a contribution to the sink.
-				Contribution* contrib = get_contrib_ptr();
-				contrib->path_gain = path_gain;
-				contrib->delay = prop_time;
-				contrib->dest_index = dst_idx;
-				contrib->path_id = hash_mix(path->hash, dst_idx);
-				contrib->source_times_index = path->source_index + params.source_antenna_count * path->time_index;
-				contrib->area = patch.area;
+				path_gain = path_gain / (float(go_path_len) * float(po_len));
 			}
+
+			// Add a contribution to the sink.
+			Contribution* contrib = get_contrib_ptr();
+			contrib->path_gain = path_gain;
+			contrib->delay = prop_time;
+			contrib->dest_index = dst_idx;
+			contrib->path_id = hash_mix(path->hash, dst_idx);
+			contrib->source_times_index = path->source_index + params.source_antenna_count * path->time_index;
 		}
 
 		return path->ray_count < params.scatter_limit;

@@ -647,7 +647,7 @@ namespace simulation
 
 		// This internally computes the paths for each timestep.
 		// The timestepping is internal to allow for batching across timesteps.
-		const auto timesteps_paths = prop.findTxToRxPaths(ctx, tx, times);
+		const auto timesteps_paths = prop.traceFromTransmitter(ctx, tx, times);
 
 		struct OpenResponse
 		{

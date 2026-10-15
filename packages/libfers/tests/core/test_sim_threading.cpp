@@ -728,7 +728,7 @@ TEST_CASE("SimulationEngine calculates mathematically correct CW physics", "[cor
 			core::makeActiveSource(tx, 0.0, std::numeric_limits<RealType>::max())};
 
 		ComplexType actual_total{0.0, 0.0};
-		for (const auto& path : prop.findRxFromTxPaths(nullptr, rx, sources, 0.0))
+		for (const auto& path : prop.traceFromReceiver(nullptr, rx, sources, 0.0))
 		{
 			actual_total +=
 				path.gain * std::polar(RealType(1.0), -2.0 * PI * tx->getSignal()->getCarrier() * path.delay);
@@ -758,7 +758,7 @@ TEST_CASE("SimulationEngine calculates mathematically correct CW physics", "[cor
 			core::makeActiveSource(tx, 0.0, std::numeric_limits<RealType>::max())};
 
 		ComplexType actual_total{0.0, 0.0};
-		for (const auto& path : prop.findRxFromTxPaths(nullptr, rx, sources, 0.0))
+		for (const auto& path : prop.traceFromReceiver(nullptr, rx, sources, 0.0))
 		{
 			actual_total +=
 				path.gain * std::polar(RealType(1.0), -2.0 * PI * tx->getSignal()->getCarrier() * path.delay);
@@ -1306,7 +1306,7 @@ TEST_CASE("SimulationEngine processStreamingPhysics uses buffered shared timing 
 	const std::vector<core::ActiveStreamingSource> sources = {
 		core::makeActiveSource(tx_ptr, params::startTime(), params::endTime())};
 	ComplexType expected{0.0, 0.0};
-	for (const auto& path : prop.findRxFromTxPaths(nullptr, rx_ptr, sources, 0.5))
+	for (const auto& path : prop.traceFromReceiver(nullptr, rx_ptr, sources, 0.5))
 	{
 		const auto& source = sources[path.source_index];
 		expected += simulation::calculateStreamingPathContribution(source, rx_ptr, path, 0.5, &lookup);
@@ -1371,7 +1371,7 @@ TEST_CASE("SimulationEngine phase-noise lookup covers pre-start retarded streami
 	const propagation::pointscatter::PointScatterModel prop(world.get());
 	const std::vector<core::ActiveStreamingSource> sources = {core::makeActiveSource(tx_ptr, -0.2, params::endTime())};
 	ComplexType expected{0.0, 0.0};
-	for (const auto& path : prop.findRxFromTxPaths(nullptr, rx_ptr, sources, 0.1))
+	for (const auto& path : prop.traceFromReceiver(nullptr, rx_ptr, sources, 0.1))
 	{
 		const auto& source = sources[path.source_index];
 		expected += simulation::calculateStreamingPathContribution(source, rx_ptr, path, 0.1, &expected_lookup);

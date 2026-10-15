@@ -76,12 +76,12 @@ namespace propagation::pointscatter
 	public:
 		PointScatterModel(core::World* world);
 
-		[[nodiscard]] std::vector<PathsAtTime> findTxToRxPaths(ThreadContext* ctx,
+		[[nodiscard]] std::vector<PathsAtTime> traceFromTransmitter(ThreadContext* ctx,
 															   const radar::Transmitter& transmitter,
 															   const std::vector<RealType>& times) const override;
 
 		[[nodiscard]] std::vector<PropagationPath>
-		findRxFromTxPaths(ThreadContext* ctx, radar::Receiver* receiver,
+		traceFromReceiver(ThreadContext* ctx, radar::Receiver* receiver,
 						  const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const override;
 
 		[[nodiscard]] unsigned int maxPropagationLegs() const noexcept override

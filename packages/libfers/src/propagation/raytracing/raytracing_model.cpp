@@ -296,11 +296,11 @@ namespace propagation::raytracing
 		return _engine->makeThreadContext(_world);
 	}
 
-	std::vector<PathsAtTime> RayTracingModel::findTxToRxPaths(ThreadContext* ctx, const Transmitter& transmitter,
-															  const std::vector<RealType>& times) const
+	std::vector<PathsAtTime> RayTracingModel::traceFromTransmitter(ThreadContext* ctx, const Transmitter& transmitter,
+																   const std::vector<RealType>& times) const
 	{
 		TraceJob job{};
-		job.type = TraceJobType::FindTxToRx;
+		job.type = TraceJobType::FromTx;
 		job.world = _world;
 		job.times = times;
 
@@ -338,7 +338,7 @@ namespace propagation::raytracing
 
 			auto group_delay = contributionGroupDelay(group);
 			auto path = aggregateContributionGroup(group, group_delay, carrier_freq);
-			path.source_index = 0; // Undefined for findTxToRxPaths, matching PointScatterModel
+			path.source_index = 0; // Undefined for traceFromTransmitter, matching PointScatterModel
 			path.receiver = receivers[dest_index].get();
 			paths_at_time[time_idx].paths.push_back(path);
 		}
@@ -347,14 +347,14 @@ namespace propagation::raytracing
 	};
 
 	std::vector<PropagationPath>
-	RayTracingModel::findRxFromTxPaths(ThreadContext* ctx, radar::Receiver* receiver,
+	RayTracingModel::traceFromReceiver(ThreadContext* ctx, radar::Receiver* receiver,
 									   const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const
 	{
 		// TODO_SHAUN time batching? receiver batching?
 		const RealType times = rx_time;
 
 		TraceJob job{};
-		job.type = TraceJobType::FindRxFromTx;
+		job.type = TraceJobType::FromRx;
 		job.world = _world;
 		job.times = std::span(&times, 1);
 

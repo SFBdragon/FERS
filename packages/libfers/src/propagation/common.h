@@ -53,7 +53,8 @@ namespace propagation
 			sinPhi = local_dir.z * invR;
 		}
 		const Real cosTheta = local_dir.x;
-		const Real sinTheta = std::sqrt(Real(1.0) - cosTheta * cosTheta);
+		// This clamp is necessary to avoid NaNs.
+		const Real sinTheta = std::sqrt(std::max(Real(0.0), Real(1.0) - cosTheta * cosTheta));
 
 		const Real3<Real> theta_hat{-sinTheta, cosTheta * cosPhi, cosTheta * sinPhi};
 		const Real3<Real> phi_hat{Real(0.0), -sinPhi, cosPhi};

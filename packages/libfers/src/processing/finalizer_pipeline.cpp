@@ -133,7 +133,7 @@ namespace processing::pipeline
 		RealType t_sample = actual_start;
 		for (auto& window_sample : window)
 		{
-			const auto paths = prop.findRxFromTxPaths(ctx, receiver, streaming_sources, t_sample);
+			const auto paths = prop.traceFromReceiver(ctx, receiver, streaming_sources, t_sample);
 			ComplexType streaming_interference_sample{0.0, 0.0};
 			for (const auto& path : paths)
 			{

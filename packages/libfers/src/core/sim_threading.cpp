@@ -1344,7 +1344,7 @@ namespace core
 														  : simulation::StreamingTimingPhaseMode::TransmitterOnly);
 
 
-		const auto paths = _propagation->findRxFromTxPaths(_main_prop_ctx.get(), rx, streaming_sources, rx_time);
+		const auto paths = _propagation->traceFromReceiver(_main_prop_ctx.get(), rx, streaming_sources, rx_time);
 
 		ComplexType total_sample{0.0, 0.0};
 		for (const auto& path : paths)

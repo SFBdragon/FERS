@@ -41,7 +41,7 @@ namespace propagation
 		/// A unique, stable ID for a continuously-varying channel over time.
 		uint64_t path_id;
 
-		/// The streaaming source index for the path's transmitter, if `findRxFromTxPaths` is used. Otherwise undefined.
+		/// The streaaming source index for the path's transmitter, if `traceFromReceiver` is used. Otherwise undefined.
 		size_t source_index;
 		/// The receiver of the path.
 		radar::Receiver* receiver;
@@ -72,12 +72,20 @@ namespace propagation
 		/// Default: no context needed.
 		[[nodiscard]] virtual std::unique_ptr<ThreadContext> makeThreadContext() const { return nullptr; }
 
-		[[nodiscard]] virtual std::vector<PathsAtTime> findTxToRxPaths(ThreadContext* ctx,
-																	   const radar::Transmitter& transmitter,
-																	   const std::vector<RealType>& times) const = 0;
+		/// Traces forward from one transmitter, at a sequence of times, to all receivers.
+		///
+		/// Used for pulsed transmitters: a pulse has a well-defined start/duration, so batching forward
+		/// across times and receivers for a single transmitter is the efficient shape.
+		[[nodiscard]] virtual std::vector<PathsAtTime>
+		traceFromTransmitter(ThreadContext* ctx, const radar::Transmitter& transmitter,
+							 const std::vector<RealType>& times) const = 0;
 
+		/// Traces backward from one receiver, at one time, to all currently active streaming sources.
+		///
+		/// Used for continuous/streaming receivers: there's no discrete pulse event to batch over, so
+		/// this is sampled one receiver-timestep at a time against whichever sources are currently active.
 		[[nodiscard]] virtual std::vector<PropagationPath>
-		findRxFromTxPaths(ThreadContext* ctx, radar::Receiver* receiver,
+		traceFromReceiver(ThreadContext* ctx, radar::Receiver* receiver,
 						  const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const = 0;
 
 		/// Conservative upper bound on the number of tx-to-rx path legs this model can produce for a

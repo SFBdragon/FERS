@@ -138,7 +138,7 @@ namespace propagation::raytracing::embree
 			.dest_antennas = job.dest_antennas.data(),
 			.dest_antenna_count = dest_antenna_count,
 			.rx_flags = job.rx_flags.data(),
-			.rx_to_tx = job.type == TraceJobType::FindRxFromTx,
+			.rx_to_tx = job.type == TraceJobType::FromRx,
 		};
 
 		// Multiple chunks per worker thread, so that varying workloads per chunk are load-balanced

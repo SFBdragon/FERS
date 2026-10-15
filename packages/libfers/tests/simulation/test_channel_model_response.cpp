@@ -54,7 +54,7 @@ namespace
 		}
 
 		[[nodiscard]] std::vector<propagation::PathsAtTime>
-		findTxToRxPaths(propagation::ThreadContext*, const radar::Transmitter&,
+		traceFromTransmitter(propagation::ThreadContext*, const radar::Transmitter&,
 						const std::vector<RealType>& times) const override
 		{
 			std::vector<propagation::PathsAtTime> result(times.size());
@@ -74,7 +74,7 @@ namespace
 		}
 
 		[[nodiscard]] std::vector<propagation::PropagationPath>
-		findRxFromTxPaths(propagation::ThreadContext*, radar::Receiver*,
+		traceFromReceiver(propagation::ThreadContext*, radar::Receiver*,
 						  const std::vector<core::ActiveStreamingSource>&, RealType) const override
 		{
 			return {};

@@ -149,13 +149,10 @@ namespace propagation::raytracing
 		uint32_t source_times_index{};
 		/// Which destination antenna was reached.
 		///
-		/// forward tracing (FindTxToRx) traces from one transmitter to all receivers, so this is an
-		/// index into receivers; backward tracing (FindRxFromTx) traces from one receiver to all
+		/// forward tracing (traceFromTransmitter) traces from one transmitter to all receivers, so this is an
+		/// index into receivers; backward tracing (traceFromReceiver) traces from one receiver to all
 		/// active streaming sources, so this is an index into those sources.
 		uint32_t dest_index{};
-
-		// TODO_SHAUN remove
-		float area{};
 	};
 
 	enum RxFlags : uint8_t
@@ -224,12 +221,12 @@ namespace propagation::raytracing
 
 		/// Whether we're tracing backwards from receivers to transmitters.
 		///
-		/// forward/findTxToRxPaths
+		/// forward/traceFromTransmitter
 		/// - one transmitter
 		/// - at a sequence of times
 		/// - to all receivers
 		///
-		/// backward/findRxFromTxPaths
+		/// backward/traceFromReceiver
 		/// - currently one receiver, but that should probably change
 		/// - currently one time, but that should probably change
 		/// - to all active streaming sources
