@@ -87,7 +87,7 @@ namespace
 		std::uint32_t registerStream(const core::ReceiverStreamDescriptor& stream) override
 		{
 			descriptor = stream;
-			return stream_id;
+			return stream_id++;
 		}
 		void openStream(std::uint32_t id, RealType first_sample_time) override
 		{
@@ -100,6 +100,7 @@ namespace
 			sample_starts.push_back(block.sample_start);
 			sample_rates.push_back(block.sample_rate);
 			blocks.emplace_back(block.samples.begin(), block.samples.end());
+			block_receiver_ids.push_back(block.stream.receiver_id);
 		}
 		void submitBlocks(const std::span<const core::ReceiverSampleBlock> submitted_blocks) override
 		{
@@ -123,6 +124,7 @@ namespace
 		std::vector<RealType> sample_rates;
 		std::vector<RealType> heartbeat_times;
 		std::vector<std::vector<ComplexType>> blocks;
+		std::vector<SimId> block_receiver_ids;
 		std::vector<std::size_t> batch_sizes;
 	};
 
@@ -130,6 +132,29 @@ namespace
 	{
 		for (std::size_t block_index = 0; block_index < sink.blocks.size(); ++block_index)
 		{
+			const auto start = sink.sample_starts[block_index];
+			const auto& block = sink.blocks[block_index];
+			const auto end = start + static_cast<std::uint64_t>(block.size());
+			if (sample_index >= start && sample_index < end)
+			{
+				return block[static_cast<std::size_t>(sample_index - start)];
+			}
+		}
+		return {};
+	}
+
+	// Like `sampleAt`, but restricted to blocks submitted for one specific receiver - needed once
+	// more than one receiver shares a sink, since `sample_start` indices aren't unique across
+	// receivers (each receiver's stream is indexed from its own 0).
+	ComplexType sampleAtForReceiver(const RecordingOutputSink& sink, const SimId receiver_id,
+									const std::uint64_t sample_index)
+	{
+		for (std::size_t block_index = 0; block_index < sink.blocks.size(); ++block_index)
+		{
+			if (sink.block_receiver_ids[block_index] != receiver_id)
+			{
+				continue;
+			}
 			const auto start = sink.sample_starts[block_index];
 			const auto& block = sink.blocks[block_index];
 			const auto end = start + static_cast<std::uint64_t>(block.size());
@@ -728,7 +753,7 @@ TEST_CASE("SimulationEngine calculates mathematically correct CW physics", "[cor
 			core::makeActiveSource(tx, 0.0, std::numeric_limits<RealType>::max())};
 
 		ComplexType actual_total{0.0, 0.0};
-		for (const auto& path : prop.traceFromReceiver(nullptr, rx, sources, 0.0))
+		for (const auto& path : prop.traceFromReceivers(nullptr, {rx}, sources, 0.0).at(rx))
 		{
 			actual_total +=
 				path.gain * std::polar(RealType(1.0), -2.0 * PI * tx->getSignal()->getCarrier() * path.delay);
@@ -758,7 +783,7 @@ TEST_CASE("SimulationEngine calculates mathematically correct CW physics", "[cor
 			core::makeActiveSource(tx, 0.0, std::numeric_limits<RealType>::max())};
 
 		ComplexType actual_total{0.0, 0.0};
-		for (const auto& path : prop.traceFromReceiver(nullptr, rx, sources, 0.0))
+		for (const auto& path : prop.traceFromReceivers(nullptr, {rx}, sources, 0.0).at(rx))
 		{
 			actual_total +=
 				path.gain * std::polar(RealType(1.0), -2.0 * PI * tx->getSignal()->getCarrier() * path.delay);
@@ -1306,7 +1331,7 @@ TEST_CASE("SimulationEngine processStreamingPhysics uses buffered shared timing 
 	const std::vector<core::ActiveStreamingSource> sources = {
 		core::makeActiveSource(tx_ptr, params::startTime(), params::endTime())};
 	ComplexType expected{0.0, 0.0};
-	for (const auto& path : prop.traceFromReceiver(nullptr, rx_ptr, sources, 0.5))
+	for (const auto& path : prop.traceFromReceivers(nullptr, {rx_ptr}, sources, 0.5).at(rx_ptr))
 	{
 		const auto& source = sources[path.source_index];
 		expected += simulation::calculateStreamingPathContribution(source, rx_ptr, path, 0.5, &lookup);
@@ -1315,6 +1340,105 @@ TEST_CASE("SimulationEngine processStreamingPhysics uses buffered shared timing 
 
 	REQUIRE_THAT(actual.real(), WithinAbs(expected.real(), 1e-6));
 	REQUIRE_THAT(actual.imag(), WithinAbs(expected.imag(), 1e-6));
+}
+
+TEST_CASE("SimulationEngine traces multiple active streaming receivers independently", "[core][threading][streaming]")
+{
+	// Test for batching `traceFromReceivers` across every active receiver in one call
+	// (appendActiveReceiverStreamingSamples): with two receivers at different ranges from the same
+	// transmitter, each receiver's rendered sample must still match that receiver's own
+	// independently-computed path, not get mixed up with the other receiver's.
+	ParamGuard const guard;
+	params::setRate(10.0);
+	params::setOversampleRatio(1);
+	params::setTime(0.0, 1.0);
+	params::setC(10.0);
+
+	auto world = std::make_unique<core::World>();
+
+	auto tx_plat = std::make_unique<radar::Platform>("TxPlat", 10);
+	setupStaticPlatform(*tx_plat, math::Vec3{0.0, 0.0, 0.0});
+	auto rx1_plat = std::make_unique<radar::Platform>("RxPlat1", 11);
+	setupStaticPlatform(*rx1_plat, math::Vec3{1.5, 0.0, 0.0});
+	auto rx2_plat = std::make_unique<radar::Platform>("RxPlat2", 12);
+	setupStaticPlatform(*rx2_plat, math::Vec3{0.0, 2.5, 0.0});
+
+	auto proto_timing = std::make_unique<timing::PrototypeTiming>("Clock", 1);
+	proto_timing->setFrequency(1.0);
+	auto timing = std::make_shared<timing::Timing>("ClockInstance", 42, 1);
+	timing->initializeModel(proto_timing.get());
+	const auto lookup = makeLookup(timing);
+
+	auto antenna = std::make_unique<antenna::Isotropic>("IsoAnt", 2);
+	auto signal = std::make_unique<fers_signal::RadarSignal>("CWWave", 1.0, 1.0, fers_signal::CwWaveform{}, 3);
+
+	auto tx = std::make_unique<radar::Transmitter>(tx_plat.get(), "Tx", radar::OperationMode::CW_MODE, 4);
+	tx->setTiming(timing);
+	tx->setAntenna(antenna.get());
+	tx->setSignal(signal.get());
+
+	auto rx1 = std::make_unique<radar::Receiver>(rx1_plat.get(), "Rx1", 42, radar::OperationMode::CW_MODE, 5);
+	rx1->setTiming(timing);
+	rx1->setAntenna(antenna.get());
+	rx1->setActive(true);
+
+	auto rx2 = std::make_unique<radar::Receiver>(rx2_plat.get(), "Rx2", 42, radar::OperationMode::CW_MODE, 6);
+	rx2->setTiming(timing);
+	rx2->setAntenna(antenna.get());
+	rx2->setActive(true);
+
+	auto* tx_ptr = tx.get();
+	auto* rx1_ptr = rx1.get();
+	auto* rx2_ptr = rx2.get();
+
+	world->add(std::move(tx_plat));
+	world->add(std::move(rx1_plat));
+	world->add(std::move(rx2_plat));
+	world->add(std::move(proto_timing));
+	world->add(std::move(antenna));
+	world->add(std::move(signal));
+	world->add(std::move(tx));
+	world->add(std::move(rx1));
+	world->add(std::move(rx2));
+
+	world->getSimulationState().t_current = 0.0;
+
+	pool::ThreadPool pool(1);
+	RecordingOutputSink sink;
+	core::SimulationEngine engine(world.get(), pool, nullptr, ".", nullptr, &sink);
+	engine.handleTxStreamingStart(core::makeActiveSource(tx_ptr, params::startTime(), params::endTime()));
+	engine.processStreamingPhysics(0.6);
+	engine.handleRxStreamingEnd(rx1_ptr);
+	engine.handleRxStreamingEnd(rx2_ptr);
+
+	const propagation::pointscatter::PointScatterModel prop(world.get());
+	const std::vector<core::ActiveStreamingSource> sources = {
+		core::makeActiveSource(tx_ptr, params::startTime(), params::endTime())};
+
+	ComplexType expected1{0.0, 0.0};
+	for (const auto& path : prop.traceFromReceivers(nullptr, {rx1_ptr}, sources, 0.5).at(rx1_ptr))
+	{
+		expected1 +=
+			simulation::calculateStreamingPathContribution(sources[path.source_index], rx1_ptr, path, 0.5, &lookup);
+	}
+	ComplexType expected2{0.0, 0.0};
+	for (const auto& path : prop.traceFromReceivers(nullptr, {rx2_ptr}, sources, 0.5).at(rx2_ptr))
+	{
+		expected2 +=
+			simulation::calculateStreamingPathContribution(sources[path.source_index], rx2_ptr, path, 0.5, &lookup);
+	}
+
+	// Different ranges (1.5 vs 2.5) must give genuinely different delay/gain - otherwise this test
+	// couldn't actually distinguish a batching mix-up from a coincidence.
+	REQUIRE(std::abs(expected1 - expected2) > 1e-6);
+
+	const ComplexType actual1 = sampleAtForReceiver(sink, rx1_ptr->getId(), 5);
+	const ComplexType actual2 = sampleAtForReceiver(sink, rx2_ptr->getId(), 5);
+
+	REQUIRE_THAT(actual1.real(), WithinAbs(expected1.real(), 1e-6));
+	REQUIRE_THAT(actual1.imag(), WithinAbs(expected1.imag(), 1e-6));
+	REQUIRE_THAT(actual2.real(), WithinAbs(expected2.real(), 1e-6));
+	REQUIRE_THAT(actual2.imag(), WithinAbs(expected2.imag(), 1e-6));
 }
 
 TEST_CASE("SimulationEngine phase-noise lookup covers pre-start retarded streaming emissions", "[core][threading]")
@@ -1371,7 +1495,7 @@ TEST_CASE("SimulationEngine phase-noise lookup covers pre-start retarded streami
 	const propagation::pointscatter::PointScatterModel prop(world.get());
 	const std::vector<core::ActiveStreamingSource> sources = {core::makeActiveSource(tx_ptr, -0.2, params::endTime())};
 	ComplexType expected{0.0, 0.0};
-	for (const auto& path : prop.traceFromReceiver(nullptr, rx_ptr, sources, 0.1))
+	for (const auto& path : prop.traceFromReceivers(nullptr, {rx_ptr}, sources, 0.1).at(rx_ptr))
 	{
 		const auto& source = sources[path.source_index];
 		expected += simulation::calculateStreamingPathContribution(source, rx_ptr, path, 0.1, &expected_lookup);

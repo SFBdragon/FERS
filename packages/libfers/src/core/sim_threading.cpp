@@ -26,6 +26,7 @@
 #include <format>
 #include <limits>
 #include <optional>
+#include <unordered_map>
 #include <utility>
 
 #include "core/simulation_state.h"
@@ -839,19 +840,36 @@ namespace core
 		const auto& sources = _world->getSimulationState().active_streaming_transmitters;
 		_streaming_source_live_this_sample.assign(sources.size(), false);
 
+		std::vector<radar::Receiver*> live_receivers;
 		bool all_streaming_receivers_active = true;
 		for (const auto& receiver_ptr : _world->getReceivers())
 		{
-			if (isStreamingReceiver(receiver_ptr.get()) && !receiver_ptr->isActive())
+			if (!isStreamingReceiver(receiver_ptr.get()))
+			{
+				continue;
+			}
+			if (!receiver_ptr->isActive())
 			{
 				all_streaming_receivers_active = false;
-				break;
+				continue;
 			}
+			live_receivers.push_back(receiver_ptr.get());
 		}
 
+		// Every receiver live this sample is traced together in a batch against the same scene.
+		std::unordered_map<radar::Receiver*, std::vector<propagation::PropagationPath>> paths_by_receiver;
+		if (!live_receivers.empty())
+		{
+			paths_by_receiver = _propagation->traceFromReceivers(_main_prop_ctx.get(), live_receivers, sources, t_step);
+		}
+
+		const std::vector<propagation::PropagationPath> no_paths;
 		for (std::size_t receiver_index = 0; receiver_index < _world->getReceivers().size(); ++receiver_index)
 		{
-			appendReceiverStreamingSample(receiver_index, sample_index, t_step);
+			auto* receiver_ptr = _world->getReceivers()[receiver_index].get();
+			const auto it = paths_by_receiver.find(receiver_ptr);
+			appendReceiverStreamingSample(receiver_index, sample_index, t_step,
+										  it != paths_by_receiver.end() ? it->second : no_paths);
 		}
 
 		// Only Tier 2 (exact, per-sample) cleanup when every streaming-mode receiver was actually
@@ -872,7 +890,8 @@ namespace core
 	}
 
 	void SimulationEngine::appendReceiverStreamingSample(const std::size_t receiver_index,
-														 const std::size_t sample_index, const RealType t_step)
+														 const std::size_t sample_index, const RealType t_step,
+														 const std::vector<propagation::PropagationPath>& paths)
 	{
 		const auto& receiver_ptr = _world->getReceivers()[receiver_index];
 		if (!isStreamingReceiver(receiver_ptr.get()) || !receiver_ptr->isActive())
@@ -882,7 +901,7 @@ namespace core
 
 		const auto& active_streaming_transmitters = _world->getSimulationState().active_streaming_transmitters;
 		ComplexType const sample =
-			calculateStreamingSample(receiver_ptr.get(), t_step, active_streaming_transmitters,
+			calculateStreamingSample(receiver_ptr.get(), t_step, active_streaming_transmitters, paths,
 									 _streaming_tracker_caches[receiver_index], _streaming_source_live_this_sample);
 		if (receiver_ptr->hasFmcwIfResamplingSink())
 		{
@@ -1324,6 +1343,7 @@ namespace core
 
 	ComplexType SimulationEngine::calculateStreamingSample(Receiver* rx, const RealType rx_time,
 														   const std::vector<ActiveStreamingSource>& streaming_sources,
+														   const std::vector<propagation::PropagationPath>& paths,
 														   ReceiverTrackerCache& tracker_cache,
 														   std::vector<bool>& source_live_this_sample) const
 	{
@@ -1342,9 +1362,6 @@ namespace core
 												   : (rx->getDechirpMode() == Receiver::DechirpMode::Ideal
 														  ? simulation::StreamingTimingPhaseMode::None
 														  : simulation::StreamingTimingPhaseMode::TransmitterOnly);
-
-
-		const auto paths = _propagation->traceFromReceiver(_main_prop_ctx.get(), rx, streaming_sources, rx_time);
 
 		ComplexType total_sample{0.0, 0.0};
 		for (const auto& path : paths)

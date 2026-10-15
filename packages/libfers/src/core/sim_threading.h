@@ -193,6 +193,7 @@ namespace core
 		/// strategy by `pruneConfirmedDeadStreamingSources`.
 		[[nodiscard]] ComplexType calculateStreamingSample(radar::Receiver* rx, const RealType rx_time,
 														   const std::vector<ActiveStreamingSource>& streaming_sources,
+														   const std::vector<propagation::PropagationPath>& paths,
 														   ReceiverTrackerCache& tracker_cache,
 														   std::vector<bool>& source_live_this_sample) const;
 
@@ -241,8 +242,9 @@ namespace core
 		/// Adds one sample to every active streaming receiver.
 		void appendActiveReceiverStreamingSamples(std::size_t sample_index, RealType t_step);
 
-		/// Adds one sample to a single active streaming receiver.
-		void appendReceiverStreamingSample(std::size_t receiver_index, std::size_t sample_index, RealType t_step);
+		/// Adds one sample to a single active streaming receiver, from propagation paths.
+		void appendReceiverStreamingSample(std::size_t receiver_index, std::size_t sample_index, RealType t_step,
+										   const std::vector<propagation::PropagationPath>& paths);
 
 		/// Builds and attaches IF resampling sinks for configured FMCW receivers.
 		void initializeFmcwIfResamplers();

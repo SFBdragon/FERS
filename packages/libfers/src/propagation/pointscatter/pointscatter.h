@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <unordered_map>
 #include <vector>
 
 #include "core/config.h"
@@ -80,9 +81,9 @@ namespace propagation::pointscatter
 															   const radar::Transmitter& transmitter,
 															   const std::vector<RealType>& times) const override;
 
-		[[nodiscard]] std::vector<PropagationPath>
-		traceFromReceiver(ThreadContext* ctx, radar::Receiver* receiver,
-						  const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const override;
+		[[nodiscard]] std::unordered_map<radar::Receiver*, std::vector<PropagationPath>>
+		traceFromReceivers(ThreadContext* ctx, const std::vector<radar::Receiver*>& receivers,
+						   const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const override;
 
 		[[nodiscard]] unsigned int maxPropagationLegs() const noexcept override
 		{

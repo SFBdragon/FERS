@@ -144,7 +144,7 @@ TEST_CASE("direct path computes correct Friis power for isotropic antennas", "[p
 	const propagation::pointscatter::PointScatterModel prop(&world);
 
 	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
-	const auto paths = prop.traceFromReceiver(nullptr, &rx, {source}, 0.0);
+	const auto paths = prop.traceFromReceivers(nullptr, {&rx}, {source}, 0.0).at(&rx);
 	const auto* path = findDirectPath(paths, tx, rx);
 	REQUIRE(path != nullptr);
 
@@ -186,7 +186,7 @@ TEST_CASE("direct path Friis equation with different distances", "[propagation][
 	core::World world1;
 	const propagation::pointscatter::PointScatterModel prop1(&world1);
 	const auto source1 = core::makeActiveSource(&tx1, 0.0, 1.0);
-	const auto paths1 = prop1.traceFromReceiver(nullptr, &rx1, {source1}, 0.0);
+	const auto paths1 = prop1.traceFromReceivers(nullptr, {&rx1}, {source1}, 0.0).at(&rx1);
 	const auto* path1 = findDirectPath(paths1, tx1, rx1);
 	REQUIRE(path1 != nullptr);
 
@@ -208,7 +208,7 @@ TEST_CASE("direct path Friis equation with different distances", "[propagation][
 	core::World world2;
 	const propagation::pointscatter::PointScatterModel prop2(&world2);
 	const auto source2 = core::makeActiveSource(&tx2, 0.0, 1.0);
-	const auto paths2 = prop2.traceFromReceiver(nullptr, &rx2, {source2}, 0.0);
+	const auto paths2 = prop2.traceFromReceivers(nullptr, {&rx2}, {source2}, 0.0).at(&rx2);
 	const auto* path2 = findDirectPath(paths2, tx2, rx2);
 	REQUIRE(path2 != nullptr);
 
@@ -256,7 +256,7 @@ TEST_CASE("direct path with noproploss flag ignores distance in power", "[propag
 	core::World world;
 	const propagation::pointscatter::PointScatterModel prop(&world);
 	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
-	const auto paths = prop.traceFromReceiver(nullptr, &rx, {source}, 0.0);
+	const auto paths = prop.traceFromReceivers(nullptr, {&rx}, {source}, 0.0).at(&rx);
 	const auto* path = findDirectPath(paths, tx, rx);
 	REQUIRE(path != nullptr);
 
@@ -302,7 +302,7 @@ TEST_CASE("direct path phase is proportional to carrier frequency", "[propagatio
 	core::World world1;
 	const propagation::pointscatter::PointScatterModel prop1(&world1);
 	const auto source1 = core::makeActiveSource(&tx1, 0.0, 1.0);
-	const auto paths1 = prop1.traceFromReceiver(nullptr, &rx1, {source1}, 0.0);
+	const auto paths1 = prop1.traceFromReceivers(nullptr, {&rx1}, {source1}, 0.0).at(&rx1);
 	const auto* path1 = findDirectPath(paths1, tx1, rx1);
 	REQUIRE(path1 != nullptr);
 
@@ -323,7 +323,7 @@ TEST_CASE("direct path phase is proportional to carrier frequency", "[propagatio
 	core::World world2;
 	const propagation::pointscatter::PointScatterModel prop2(&world2);
 	const auto source2 = core::makeActiveSource(&tx2, 0.0, 1.0);
-	const auto paths2 = prop2.traceFromReceiver(nullptr, &rx2, {source2}, 0.0);
+	const auto paths2 = prop2.traceFromReceivers(nullptr, {&rx2}, {source2}, 0.0).at(&rx2);
 	const auto* path2 = findDirectPath(paths2, tx2, rx2);
 	REQUIRE(path2 != nullptr);
 
@@ -378,7 +378,7 @@ TEST_CASE("direct path at 3D separation produces correct distance and delay", "[
 	core::World world;
 	const propagation::pointscatter::PointScatterModel prop(&world);
 	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
-	const auto paths = prop.traceFromReceiver(nullptr, &rx, {source}, 0.0);
+	const auto paths = prop.traceFromReceivers(nullptr, {&rx}, {source}, 0.0).at(&rx);
 	const auto* path = findDirectPath(paths, tx, rx);
 	REQUIRE(path != nullptr);
 
@@ -418,7 +418,7 @@ TEST_CASE("direct path power scales with lambda squared", "[propagation][pointsc
 	core::World world1;
 	const propagation::pointscatter::PointScatterModel prop1(&world1);
 	const auto source1 = core::makeActiveSource(&tx1, 0.0, 1.0);
-	const auto paths1 = prop1.traceFromReceiver(nullptr, &rx1, {source1}, 0.0);
+	const auto paths1 = prop1.traceFromReceivers(nullptr, {&rx1}, {source1}, 0.0).at(&rx1);
 	const auto* path1 = findDirectPath(paths1, tx1, rx1);
 	REQUIRE(path1 != nullptr);
 
@@ -442,7 +442,7 @@ TEST_CASE("direct path power scales with lambda squared", "[propagation][pointsc
 	core::World world2;
 	const propagation::pointscatter::PointScatterModel prop2(&world2);
 	const auto source2 = core::makeActiveSource(&tx2, 0.0, 1.0);
-	const auto paths2 = prop2.traceFromReceiver(nullptr, &rx2, {source2}, 0.0);
+	const auto paths2 = prop2.traceFromReceivers(nullptr, {&rx2}, {source2}, 0.0).at(&rx2);
 	const auto* path2 = findDirectPath(paths2, tx2, rx2);
 	REQUIRE(path2 != nullptr);
 
@@ -507,7 +507,7 @@ TEST_CASE("bistatic path handler computes correct bistatic power for isotropic a
 	world.add(radar::createIsoTarget(&tgt_plat, "tgt", rcs, 42));
 	const propagation::pointscatter::PointScatterModel prop(&world);
 	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
-	const auto paths = prop.traceFromReceiver(nullptr, &rx, {source}, 0.0);
+	const auto paths = prop.traceFromReceivers(nullptr, {&rx}, {source}, 0.0).at(&rx);
 	const auto* path = findBistaticPath(paths, tx, *world.getTargets().front(), rx);
 	REQUIRE(path != nullptr);
 
@@ -555,7 +555,7 @@ TEST_CASE("targets with no RCS contribute no bistatic path", "[propagation][poin
 	world.add(std::make_unique<radar::Target>(&tgt_plat, "tgt")); // geometry-only, no RCS attached
 	const propagation::pointscatter::PointScatterModel prop(&world);
 	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
-	const auto paths = prop.traceFromReceiver(nullptr, &rx, {source}, 0.0);
+	const auto paths = prop.traceFromReceivers(nullptr, {&rx}, {source}, 0.0).at(&rx);
 
 	REQUIRE(findBistaticPath(paths, tx, *world.getTargets().front(), rx) == nullptr);
 	REQUIRE(paths.empty());
@@ -596,7 +596,7 @@ TEST_CASE("bistatic path power scales linearly with RCS", "[propagation][pointsc
 	world1.add(radar::createIsoTarget(&tgt_plat1, "tgt1", 5.0, 42));
 	const propagation::pointscatter::PointScatterModel prop1(&world1);
 	const auto source1 = core::makeActiveSource(&tx1, 0.0, 1.0);
-	const auto paths1 = prop1.traceFromReceiver(nullptr, &rx1, {source1}, 0.0);
+	const auto paths1 = prop1.traceFromReceivers(nullptr, {&rx1}, {source1}, 0.0).at(&rx1);
 	const auto* path1 = findBistaticPath(paths1, tx1, *world1.getTargets().front(), rx1);
 	REQUIRE(path1 != nullptr);
 
@@ -622,7 +622,7 @@ TEST_CASE("bistatic path power scales linearly with RCS", "[propagation][pointsc
 	world2.add(radar::createIsoTarget(&tgt_plat2, "tgt2", 10.0, 42));
 	const propagation::pointscatter::PointScatterModel prop2(&world2);
 	const auto source2 = core::makeActiveSource(&tx2, 0.0, 1.0);
-	const auto paths2 = prop2.traceFromReceiver(nullptr, &rx2, {source2}, 0.0);
+	const auto paths2 = prop2.traceFromReceivers(nullptr, {&rx2}, {source2}, 0.0).at(&rx2);
 	const auto* path2 = findBistaticPath(paths2, tx2, *world2.getTargets().front(), rx2);
 	REQUIRE(path2 != nullptr);
 
@@ -671,7 +671,7 @@ TEST_CASE("bistatic path delay is sum of Tx-Tgt and Tgt-Rx distances divided by 
 	world.add(radar::createIsoTarget(&tgt_plat, "tgt", 1.0, 42));
 	const propagation::pointscatter::PointScatterModel prop(&world);
 	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
-	const auto paths = prop.traceFromReceiver(nullptr, &rx, {source}, 0.0);
+	const auto paths = prop.traceFromReceivers(nullptr, {&rx}, {source}, 0.0).at(&rx);
 	const auto* path = findBistaticPath(paths, tx, *world.getTargets().front(), rx);
 	REQUIRE(path != nullptr);
 
@@ -719,7 +719,7 @@ TEST_CASE("bistatic path with noproploss flag ignores distance in power", "[prop
 	world.add(radar::createIsoTarget(&tgt_plat, "tgt", rcs, 42));
 	const propagation::pointscatter::PointScatterModel prop(&world);
 	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
-	const auto paths = prop.traceFromReceiver(nullptr, &rx, {source}, 0.0);
+	const auto paths = prop.traceFromReceivers(nullptr, {&rx}, {source}, 0.0).at(&rx);
 	const auto* path = findBistaticPath(paths, tx, *world.getTargets().front(), rx);
 	REQUIRE(path != nullptr);
 
@@ -761,7 +761,7 @@ TEST_CASE("bistatic path power follows R^-4 for monostatic geometry", "[propagat
 	world1.add(radar::createIsoTarget(&tgt_plat1, "tgt1", 1.0, 42));
 	const propagation::pointscatter::PointScatterModel prop1(&world1);
 	const auto source1 = core::makeActiveSource(&tx1, 0.0, 1.0);
-	const auto paths1 = prop1.traceFromReceiver(nullptr, &rx1, {source1}, 0.0);
+	const auto paths1 = prop1.traceFromReceivers(nullptr, {&rx1}, {source1}, 0.0).at(&rx1);
 	const auto* path1 = findBistaticPath(paths1, tx1, *world1.getTargets().front(), rx1);
 	REQUIRE(path1 != nullptr);
 
@@ -787,7 +787,7 @@ TEST_CASE("bistatic path power follows R^-4 for monostatic geometry", "[propagat
 	world2.add(radar::createIsoTarget(&tgt_plat2, "tgt2", 1.0, 42));
 	const propagation::pointscatter::PointScatterModel prop2(&world2);
 	const auto source2 = core::makeActiveSource(&tx2, 0.0, 1.0);
-	const auto paths2 = prop2.traceFromReceiver(nullptr, &rx2, {source2}, 0.0);
+	const auto paths2 = prop2.traceFromReceivers(nullptr, {&rx2}, {source2}, 0.0).at(&rx2);
 	const auto* path2 = findBistaticPath(paths2, tx2, *world2.getTargets().front(), rx2);
 	REQUIRE(path2 != nullptr);
 
@@ -859,7 +859,7 @@ TEST_CASE("bistatic path with 3D geometry computes correct bistatic range (polar
 	world.add(radar::createIsoTarget(&tgt_plat, "tgt", rcs, 42));
 	const propagation::pointscatter::PointScatterModel prop(&world);
 	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
-	const auto paths = prop.traceFromReceiver(nullptr, &rx, {source}, 0.0);
+	const auto paths = prop.traceFromReceivers(nullptr, {&rx}, {source}, 0.0).at(&rx);
 	const auto* path = findBistaticPath(paths, tx, *world.getTargets().front(), rx);
 	REQUIRE(path != nullptr);
 
@@ -921,7 +921,7 @@ TEST_CASE("bistatic path with 3D geometry computes correct bistatic range (non-p
 	world.add(radar::createIsoTarget(&tgt_plat, "tgt", rcs, 42));
 	const propagation::pointscatter::PointScatterModel prop(&world);
 	const auto source = core::makeActiveSource(&tx, 0.0, 1.0);
-	const auto paths = prop.traceFromReceiver(nullptr, &rx, {source}, 0.0);
+	const auto paths = prop.traceFromReceivers(nullptr, {&rx}, {source}, 0.0).at(&rx);
 	const auto* path = findBistaticPath(paths, tx, *world.getTargets().front(), rx);
 	REQUIRE(path != nullptr);
 

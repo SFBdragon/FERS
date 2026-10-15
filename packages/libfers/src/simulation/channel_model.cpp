@@ -701,7 +701,7 @@ namespace simulation
 					responses.insert({
 						path.path_id,
 						{serial::ResponseBuilder(tx.getSignal(), point, left_interval, right_interval),
-						 path.receiver, i},
+						 &path.receiver, i},
 					});
 				}
 			}

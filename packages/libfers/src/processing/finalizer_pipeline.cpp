@@ -130,10 +130,13 @@ namespace processing::pipeline
 
 		prepareWindowTrackerCache(tracker_cache, streaming_sources.size());
 
+		const std::vector<radar::Receiver*> receivers{receiver};
+
 		RealType t_sample = actual_start;
 		for (auto& window_sample : window)
 		{
-			const auto paths = prop.traceFromReceiver(ctx, receiver, streaming_sources, t_sample);
+			const auto paths_by_receiver = prop.traceFromReceivers(ctx, receivers, streaming_sources, t_sample);
+			const auto& paths = paths_by_receiver.at(receiver);
 			ComplexType streaming_interference_sample{0.0, 0.0};
 			for (const auto& path : paths)
 			{

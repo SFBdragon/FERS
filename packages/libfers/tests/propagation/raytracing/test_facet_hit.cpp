@@ -283,3 +283,56 @@ TEST_CASE("facetHit extends the radiation cache across a second bounce without t
 	// source->A (5) + A->B (10) + B->dest (60) = 75 units.
 	REQUIRE_THAT(out.delay, WithinAbs(75.0 / prop::C<double>, 1e-12));
 }
+
+TEST_CASE("directPath applies RxFlags: FLAG_NODIRECT", "[raytracing][direct_path]")
+{
+	// Regression test. directPath used to pick the rx_flags index as
+	// `rx_to_tx ? dst_idx : src_idx`, so for forward tracing (rx_to_tx=false, one tx fanning out to
+	// many receivers) it always read rx_flags[src_idx] = rx_flags[0] regardless of which receiver
+	// (dst_idx) was actually being evaluated - silently applying receiver 0's FLAG_NODIRECT to every
+	// receiver. It must match facetHit's `rx_to_tx ? source_index : dst_idx` formula instead.
+	const auto carriers = makeCarriers();
+	const std::vector<rt::AntennaModel> antenna_models{{.kind = rt::AntennaKind::Isotropic,
+														.efficiency = 1.0,
+														.params = {},
+														.horizontal_pol = prop::CFloat{1.0f, 0.0f},
+														.vertical_pol = prop::CFloat{0.0f, 0.0f}}};
+	const std::vector<rt::ActiveAntenna> source_antennas{
+		{.position = prop::Double3{0.0, 0.0, 0.0}, .direction = prop::FloatAzEl{0.0f, 0.0f}, .antenna_model_index = 0}};
+	// Two destinations at the same range so they'd otherwise produce identical contributions.
+	const std::vector<rt::ActiveAntenna> dst_antennas{{.position = prop::Double3{100.0, 0.0, 0.0},
+													   .direction = prop::FloatAzEl{0.0f, 0.0f},
+													   .antenna_model_index = 0},
+													  {.position = prop::Double3{0.0, 100.0, 0.0},
+													   .direction = prop::FloatAzEl{0.0f, 0.0f},
+													   .antenna_model_index = 0}};
+	// Destination 0 has direct paths disabled; destination 1 does not.
+	std::vector<rt::RxFlags> rx_flags{rt::RxFlags::FLAG_NODIRECT, static_cast<rt::RxFlags>(0)};
+
+	rt::SbrParams params{};
+	params.times = times.data();
+	params.carrier_models = carriers.data();
+	params.antenna_models = antenna_models.data();
+	params.source_antennas = source_antennas.data();
+	params.source_antenna_count = static_cast<uint32_t>(source_antennas.size());
+	params.dest_antennas = dst_antennas.data();
+	params.dest_antenna_count = static_cast<uint32_t>(dst_antennas.size());
+	params.rx_flags = rx_flags.data();
+	params.rx_to_tx = false;
+
+	auto run = [&](uint32_t dst_idx) -> uint32_t
+	{
+		uint32_t write_count = 0;
+		rt::Contribution out;
+		auto get_ptr = [&write_count, &out]
+		{
+			write_count++;
+			return &out;
+		};
+		rt::directPath(params, /*src_idx=*/0, dst_idx, /*time_idx=*/0, unoccluded, get_ptr);
+		return write_count;
+	};
+
+	REQUIRE(run(0) == 0); // Destination 0: FLAG_NODIRECT set - suppressed.
+	REQUIRE(run(1) == 1); // Destination 1: no flags - produces a contribution.
+}

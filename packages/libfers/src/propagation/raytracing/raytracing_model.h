@@ -133,15 +133,14 @@ namespace propagation::raytracing
 	[[nodiscard]] RealType contributionGroupDelay(const std::vector<const Contribution*>& group);
 
 	/**
-	 * @brief Coherently sums a group of `Contribution`s that share a `path_id` key
-	 * (same source, facet sequence, and destination) into a single `PropagationPath`.
+	 * @brief Coherently sums a group of `Contribution`s.
 	 *
 	 * @param group Non-empty. All contributions must share the same `source_times_index`/`dest_index`/`path_id`.
 	 * @param group_delay The reference delay (typically `contributionGroupDelay(group)`) used to align phases.
 	 * @param carrier_frequency The carrier frequency (Hz) shared by every contribution in `group`.
 	 */
-	[[nodiscard]] PropagationPath aggregateContributionGroup(const std::vector<const Contribution*>& group,
-															 RealType group_delay, RealType carrier_frequency);
+	[[nodiscard]] ComplexType aggregateContributionGroup(const std::vector<const Contribution*>& group,
+														 RealType group_delay, RealType carrier_frequency);
 
 
 	class RayTracingBackend
@@ -176,9 +175,9 @@ namespace propagation::raytracing
 																	const radar::Transmitter& transmitter,
 																	const std::vector<RealType>& times) const override;
 
-		[[nodiscard]] std::vector<PropagationPath>
-		traceFromReceiver(ThreadContext* ctx, radar::Receiver* receiver,
-						  const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const override;
+		[[nodiscard]] std::unordered_map<radar::Receiver*, std::vector<PropagationPath>>
+		traceFromReceivers(ThreadContext* ctx, const std::vector<radar::Receiver*>& receivers,
+						   const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const override;
 
 		[[nodiscard]] unsigned int maxPropagationLegs() const noexcept override;
 

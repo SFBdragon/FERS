@@ -67,14 +67,14 @@ namespace propagation::raytracing
 
 		Double3 world_up{0.0, 0.0, 1.0};
 		if (std::abs(dot(forward, world_up)) > 0.999)
-			world_up = Double3{1.0, 0.0, 0.0}; // forward ~parallel to world up; avoid a degenerate cross product
+		{
+			// Where forward is ~ parallel to world up, avoid a degenerate cross product.
+			world_up = Double3{1.0, 0.0, 0.0};
+		}
 
 		const auto right = normalize(cross(forward, world_up));
 		const auto up = cross(right, forward);
 
-		// `pos` is `math::Vec3` (the legacy general-purpose vector type `radar::Object::getPosition`
-		// returns), distinct from `right`/`forward`/`up`'s `propagation::Double3` - generic on `.x/.y/.z`
-		// so it accepts both.
 		const auto toFloat3 = [](const auto& v) {
 			return Float3{static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)};
 		};
@@ -125,18 +125,21 @@ namespace propagation::raytracing
 		}
 	}
 
-	static void buildRxFlags(core::World* world, TraceJob& job_out) noexcept
+	template <std::ranges::forward_range I, typename Proj = std::identity>
+	static void buildRxFlags(const I& items, std::vector<RxFlags>& flags_out, Proj proj = {}) noexcept
 	{
-		job_out.rx_flags.reserve(world->getReceivers().size());
-		for (const auto& rx : world->getReceivers())
+		flags_out.clear();
+		for (auto& item : items)
 		{
+			const radar::Receiver& rx = std::invoke(proj, item);
+
 			uint8_t flags = 0;
-			if (rx->checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS))
+			if (rx.checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS))
 				flags |= RxFlags::FLAG_NOSPREADING;
-			if (rx->checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
+			if (rx.checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
 				flags |= RxFlags::FLAG_NODIRECT;
 
-			job_out.rx_flags.push_back(static_cast<RxFlags>(flags));
+			flags_out.push_back(static_cast<RxFlags>(flags));
 		}
 	}
 
@@ -162,8 +165,8 @@ namespace propagation::raytracing
 		return reference_delay;
 	}
 
-	[[nodiscard]] PropagationPath aggregateContributionGroup(const std::vector<const Contribution*>& group,
-															 RealType group_delay, RealType carrier_frequency)
+	[[nodiscard]] ComplexType aggregateContributionGroup(const std::vector<const Contribution*>& group,
+														 RealType group_delay, RealType carrier_frequency)
 	{
 		assert(!group.empty());
 
@@ -191,11 +194,7 @@ namespace propagation::raytracing
 			summed_voltage += v * std::exp(ComplexType{0.0, angle});
 		}
 
-		PropagationPath path{};
-		path.delay = group_delay;
-		path.gain = summed_voltage;
-		path.path_id = group.front()->path_id;
-		return path;
+		return summed_voltage;
 	}
 
 
@@ -315,7 +314,7 @@ namespace propagation::raytracing
 		buildRadarBuffer(job.times, _antenna_id_to_index, _world->getReceivers(), job.dest_antennas,
 						 [&](auto& rx) -> const radar::Radar& { return *rx; });
 
-		buildRxFlags(_world, job);
+		buildRxFlags(_world->getReceivers(), job.rx_flags, [&](auto& rx) -> const radar::Receiver& { return *rx; });
 
 		auto contributions = _engine->trace(ctx, job);
 
@@ -335,22 +334,25 @@ namespace propagation::raytracing
 			assert(dest_index < receivers.size());
 
 			const RealType carrier_freq = transmitter.getSignal()->getCarrier();
+			const auto group_delay = contributionGroupDelay(group);
+			const auto gain = aggregateContributionGroup(group, group_delay, carrier_freq);
 
-			auto group_delay = contributionGroupDelay(group);
-			auto path = aggregateContributionGroup(group, group_delay, carrier_freq);
-			path.source_index = 0; // Undefined for traceFromTransmitter, matching PointScatterModel
-			path.receiver = receivers[dest_index].get();
-			paths_at_time[time_idx].paths.push_back(path);
+			paths_at_time[time_idx].paths.push_back(PropagationPath{
+				.delay = group_delay,
+				.gain = gain,
+				.path_id = group.front()->path_id,
+				.source_index = 0, // Undefined for traceFromTransmitter
+				.receiver = *receivers[dest_index],
+			});
 		}
 
 		return paths_at_time;
 	};
 
-	std::vector<PropagationPath>
-	RayTracingModel::traceFromReceiver(ThreadContext* ctx, radar::Receiver* receiver,
-									   const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const
+	std::unordered_map<radar::Receiver*, std::vector<PropagationPath>>
+	RayTracingModel::traceFromReceivers(ThreadContext* ctx, const std::vector<radar::Receiver*>& receivers,
+										const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const
 	{
-		// TODO_SHAUN time batching? receiver batching?
 		const RealType times = rx_time;
 
 		TraceJob job{};
@@ -363,49 +365,48 @@ namespace propagation::raytracing
 			job.carriers.push_back(buildPropagationCarrier<float>(source));
 		}
 
-		buildRadarBuffer(job.times, _antenna_id_to_index, std::span<radar::Receiver, 1>(receiver, 1),
-						 job.source_antennas);
+		buildRadarBuffer(job.times, _antenna_id_to_index, receivers, job.source_antennas,
+						 [](auto* rx) -> const radar::Radar& { return *rx; });
 
 		buildRadarBuffer(job.times, _antenna_id_to_index, sources, job.dest_antennas,
 						 [&](auto& src) -> const radar::Radar& { return *src.transmitter; });
 
-		buildRxFlags(_world, job);
+		buildRxFlags(receivers, job.rx_flags, [](auto* rx) -> const radar::Receiver& { return *rx; });
 
 		auto contributions = _engine->trace(ctx, job);
 
-		// double incoherent_sum = 0;
-		// for (auto& contrib : contributions)
-		// 	incoherent_sum += std::sqrt(
-		// 		double(contrib.path_gain.re * contrib.path_gain.re + contrib.path_gain.im * contrib.path_gain.im));
-		// LOG(logging::Level::DEBUG, "Incoherent sum: {}", incoherent_sum);
-
-		// ComplexType coherent_sum{};
-		// for (auto& contrib : contributions)
-		// 	coherent_sum += ComplexType{contrib.path_gain.re, contrib.path_gain.im};
-		// LOG(logging::Level::DEBUG, "Coherent sum arg: {}", std::arg(coherent_sum));
-
-		// double total_area = 0;
-		// for (auto& contrib : contributions)
-		// 	total_area += double(contrib.area);
-		// LOG(logging::Level::DEBUG, "Total patch area: {}", total_area);
-
-		std::vector<PropagationPath> paths;
-		const auto groups = groupContributions(contributions);
-		paths.reserve(groups.size());
-		for (const auto& [key, group] : groups)
+		std::unordered_map<radar::Receiver*, std::vector<PropagationPath>> paths_by_receiver;
+		for (const auto& receiver : receivers)
 		{
-			const auto tx_index = static_cast<uint32_t>(key.coarse);
-			assert(tx_index < sources.size());
-
-			auto group_delay = contributionGroupDelay(group);
-			auto carrier_frequency = RealType(sampleCarrierFrequency(job.carriers[tx_index], rx_time - group_delay));
-			auto path = aggregateContributionGroup(group, group_delay, carrier_frequency);
-			path.source_index = tx_index;
-			path.receiver = receiver;
-			paths.push_back(path);
+			// Ensure every passed-in receiver has an entry.
+			paths_by_receiver[receiver];
 		}
 
-		return paths;
+		for (const auto& [key, group] : groupContributions(contributions))
+		{
+			// `source_times_index = source_index + source_antenna_count * time_index`; time_index is
+			// always 0 here (one shared `rx_time`), so this is directly the receiver's index.
+			const auto rx_index = static_cast<uint32_t>(key.coarse >> 32);
+			const auto tx_index = static_cast<uint32_t>(key.coarse);
+			assert(rx_index < receivers.size());
+			assert(tx_index < sources.size());
+
+			auto* receiver = receivers[rx_index];
+			const auto group_delay = contributionGroupDelay(group);
+			const auto carrier_frequency =
+				RealType(sampleCarrierFrequency(job.carriers[tx_index], rx_time - group_delay));
+			const auto gain = aggregateContributionGroup(group, group_delay, carrier_frequency);
+
+			paths_by_receiver[receiver].push_back(PropagationPath{
+				.delay = group_delay,
+				.gain = gain,
+				.path_id = group.front()->path_id,
+				.source_index = tx_index,
+				.receiver = *receiver,
+			});
+		}
+
+		return paths_by_receiver;
 	}
 
 	unsigned int RayTracingModel::maxPropagationLegs() const noexcept

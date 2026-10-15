@@ -817,7 +817,7 @@ namespace propagation::raytracing
 	HC_FN void directPath(const SbrParams& params, uint32_t src_idx, uint32_t dst_idx, uint32_t time_idx,
 						  ShadowTest shadow_test, GetContribPtr get_contrib_ptr)
 	{
-		const auto rx_idx = params.rx_to_tx ? dst_idx : src_idx;
+		const auto rx_idx = params.rx_to_tx ? src_idx : dst_idx;
 		const auto rx_flags = params.rx_flags[rx_idx];
 
 		if ((rx_flags & RxFlags::FLAG_NODIRECT) != 0)

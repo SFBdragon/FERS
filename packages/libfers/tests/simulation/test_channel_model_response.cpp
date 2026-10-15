@@ -67,15 +67,15 @@ namespace
 																			.gain = ComplexType{1.0, 0.0},
 																			.path_id = 1,
 																			.source_index = 0,
-																			.receiver = _receiver});
+																			.receiver = *_receiver});
 				}
 			}
 			return result;
 		}
 
-		[[nodiscard]] std::vector<propagation::PropagationPath>
-		traceFromReceiver(propagation::ThreadContext*, radar::Receiver*,
-						  const std::vector<core::ActiveStreamingSource>&, RealType) const override
+		[[nodiscard]] std::unordered_map<radar::Receiver*, std::vector<propagation::PropagationPath>>
+		traceFromReceivers(propagation::ThreadContext*, const std::vector<radar::Receiver*>&,
+						   const std::vector<core::ActiveStreamingSource>&, RealType) const override
 		{
 			return {};
 		}

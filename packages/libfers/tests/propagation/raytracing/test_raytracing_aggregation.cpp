@@ -31,12 +31,10 @@ TEST_CASE("aggregateContributionGroup passes a single contribution through uncha
 	const auto c = makeContribution(prop::CFloat(2.0f, -1.0f), 7.5, 42);
 	const std::vector<const rt::Contribution*> group{&c};
 
-	const auto path = rt::aggregateContributionGroup(group, /*group_delay=*/7.5, /*carrier_frequency=*/1e9);
+	const auto gain = rt::aggregateContributionGroup(group, /*group_delay=*/7.5, /*carrier_frequency=*/1e9);
 
-	REQUIRE_THAT(path.delay, WithinAbs(7.5, 1e-9));
-	REQUIRE_THAT(path.gain.real(), WithinAbs(2.0, 1e-9));
-	REQUIRE_THAT(path.gain.imag(), WithinAbs(-1.0, 1e-9));
-	REQUIRE(path.path_id == 42);
+	REQUIRE_THAT(gain.real(), WithinAbs(2.0, 1e-9));
+	REQUIRE_THAT(gain.imag(), WithinAbs(-1.0, 1e-9));
 }
 
 TEST_CASE("contributionGroupDelay returns the group's minimum - the most direct path", "[raytracing][aggregation]")
@@ -58,11 +56,11 @@ TEST_CASE("aggregateContributionGroup sums same-delay contributions coherently",
 	const auto c2 = makeContribution(prop::CFloat(1.0f, 0.0f), 1.0);
 	const std::vector<const rt::Contribution*> group{&c1, &c2};
 
-	const auto path =
-		rt::aggregateContributionGroup(group, rt::contributionGroupDelay(group), /*carrier_frequency=*/1e9);
+	const auto gain = rt::aggregateContributionGroup(group, rt::contributionGroupDelay(group),
+													 /*carrier_frequency=*/1e9);
 
-	REQUIRE_THAT(path.gain.real(), WithinAbs(2.0, 1e-9));
-	REQUIRE_THAT(path.gain.imag(), WithinAbs(0.0, 1e-9));
+	REQUIRE_THAT(gain.real(), WithinAbs(2.0, 1e-9));
+	REQUIRE_THAT(gain.imag(), WithinAbs(0.0, 1e-9));
 }
 
 TEST_CASE("aggregateContributionGroup coherently sums a half-period delay offset destructively",
@@ -76,10 +74,11 @@ TEST_CASE("aggregateContributionGroup coherently sums a half-period delay offset
 	const auto c2 = makeContribution(prop::CFloat(1.0f, 0.0f), base_delay + period / 2.0);
 	const std::vector<const rt::Contribution*> group{&c1, &c2};
 
-	const auto path = rt::aggregateContributionGroup(group, rt::contributionGroupDelay(group), carrier_freq_hz);
+	const auto delay = rt::contributionGroupDelay(group);
+	const auto gain = rt::aggregateContributionGroup(group, delay, carrier_freq_hz);
 
-	REQUIRE_THAT(path.delay, WithinAbs(base_delay, 1e-15));
-	REQUIRE_THAT(std::abs(path.gain), WithinAbs(0.0, 1e-6));
+	REQUIRE_THAT(delay, WithinAbs(base_delay, 1e-15));
+	REQUIRE_THAT(std::abs(gain), WithinAbs(0.0, 1e-6));
 }
 
 TEST_CASE("aggregateContributionGroup coherently sums a full-period delay offset constructively",
@@ -93,9 +92,9 @@ TEST_CASE("aggregateContributionGroup coherently sums a full-period delay offset
 	const auto c2 = makeContribution(prop::CFloat(1.0f, 0.0f), base_delay + period); // one full cycle later
 	const std::vector<const rt::Contribution*> group{&c1, &c2};
 
-	const auto path = rt::aggregateContributionGroup(group, rt::contributionGroupDelay(group), carrier_freq_hz);
+	const auto gain = rt::aggregateContributionGroup(group, rt::contributionGroupDelay(group), carrier_freq_hz);
 
-	REQUIRE_THAT(std::abs(path.gain), WithinAbs(2.0, 1e-6));
+	REQUIRE_THAT(std::abs(gain), WithinAbs(2.0, 1e-6));
 }
 
 // --- groupContributions -----------------------------------------------------------------------

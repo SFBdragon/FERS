@@ -91,7 +91,7 @@ namespace
 			.gain = gain,
 			.path_id = 0,
 			.source_index = 0,
-			.receiver = rx,
+			.receiver = *rx,
 		};
 	}
 
@@ -103,7 +103,7 @@ namespace
 			.gain = gain,
 			.path_id = 1,
 			.source_index = 0,
-			.receiver = rx,
+			.receiver = *rx,
 		};
 	}
 }

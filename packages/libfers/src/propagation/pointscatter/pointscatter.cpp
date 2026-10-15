@@ -36,10 +36,10 @@ namespace propagation::pointscatter
 	 * @param lambda The signal wavelength.
 	 * @return The linear gain value.
 	 */
-	static RealType computeAntennaGain(const radar::Radar* radar, const math::Vec3& direction_vec, RealType time,
+	static RealType computeAntennaGain(const radar::Radar& radar, const math::Vec3& direction_vec, RealType time,
 									   RealType lambda)
 	{
-		return radar->getGain(math::SVec3(direction_vec), radar->getRotation(time), lambda);
+		return radar.getGain(math::SVec3(direction_vec), radar.getRotation(time), lambda);
 	}
 
 	Complex3<RealType> computeAntennaPolarisation(const radar::Radar& radar, const math::Vec3& direction, RealType time)
@@ -61,7 +61,7 @@ namespace propagation::pointscatter
 	 * @param time The time at which to find propagation paths. May be at reception or transmission time.
 	 * @param tx_time True if time is a transmission time, otherwise it's considered to be the receiving time.
 	 */
-	static std::optional<PropagationPath> directPath(const radar::Transmitter& tx, radar::Receiver* rx,
+	static std::optional<PropagationPath> directPath(const radar::Transmitter& tx, radar::Receiver& rx,
 													 const RealType time, const bool is_tx_time,
 													 const CarrierModel<RealType>& carrier,
 													 const RealType segment_start)
@@ -74,13 +74,13 @@ namespace propagation::pointscatter
 		// 2. If independent but on the same platform, distance is 0. Far-field logic (1/R^2)
 		//    diverges. We skip calculation, assuming no direct coupling/interference for
 		//    co-located far-field antennas.
-		if (tx.getPlatform() == rx->getPlatform())
+		if (tx.getPlatform() == rx.getPlatform())
 		{
 			return std::nullopt;
 		}
 
 		const auto p_tx = tx.getPosition(time);
-		const auto p_rx = rx->getPosition(time); // Assumption: v_rx << c
+		const auto p_rx = rx.getPosition(time); // Assumption: v_rx << c
 		const auto tx_to_rx = p_rx - p_tx;
 		const auto tx_to_rx_dist = tx_to_rx.length();
 
@@ -100,17 +100,17 @@ namespace propagation::pointscatter
 		const RealType lambda = params::c() / frequency;
 
 		// Tx Gain: Direction Tx -> Rx
-		const auto tx_gain = computeAntennaGain(&tx, tx_to_rx, tx_time, lambda);
+		const auto tx_gain = computeAntennaGain(tx, tx_to_rx, tx_time, lambda);
 		// Rx Gain: Direction Rx -> Tx
 		const auto rx_gain = computeAntennaGain(rx, -tx_to_rx, rx_time, lambda);
 
-		const bool no_loss = rx->checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
+		const bool no_loss = rx.checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
 		ComplexType gain = computeDirectPathGain(tx_gain, rx_gain, lambda, tx_to_rx_dist, no_loss);
 
 		if (params::pointScatterParams().polarimetric)
 		{
 			const auto tx_pol = computeAntennaPolarisation(tx, tx_to_rx, tx_time);
-			const auto rx_pol = computeAntennaPolarisation(*rx, -tx_to_rx, tx_time);
+			const auto rx_pol = computeAntennaPolarisation(rx, -tx_to_rx, tx_time);
 			const auto linkage = dot_no_conj(tx_pol, rx_pol);
 
 			// TODO_SHAUN remove
@@ -122,7 +122,7 @@ namespace propagation::pointscatter
 		return PropagationPath{
 			.delay = delay,
 			.gain = gain,
-			.path_id = hash_mix(hash_mix(HASH_SEED, tx.getId()), rx->getId()),
+			.path_id = hash_mix(hash_mix(HASH_SEED, tx.getId()), rx.getId()),
 			.source_index{},
 			.receiver = rx,
 		};
@@ -184,7 +184,7 @@ namespace propagation::pointscatter
 		return ComplexType{linkage.re, linkage.im};
 	}
 
-	static std::optional<PropagationPath> reflectedPath(const radar::Transmitter& tx, radar::Receiver* rx,
+	static std::optional<PropagationPath> reflectedPath(const radar::Transmitter& tx, radar::Receiver& rx,
 														const radar::Target& target, const RealType time,
 														const bool is_tx_time, const CarrierModel<RealType>& carrier,
 														const RealType segment_start)
@@ -193,14 +193,14 @@ namespace propagation::pointscatter
 		// If calculating reflected path and target is co-located with either Tx or Rx:
 		// Skip to avoid singularity. Simulating a radar tracking its own platform
 		// requires near-field clutter models, not point-target RCS models.
-		if (target.getPlatform() == tx.getPlatform() || target.getPlatform() == rx->getPlatform())
+		if (target.getPlatform() == tx.getPlatform() || target.getPlatform() == rx.getPlatform())
 		{
 			return std::nullopt;
 		}
 
 		const auto p_tx = tx.getPosition(time);
 		const auto p_tgt = target.getPosition(time);
-		const auto p_rx = rx->getPosition(time);
+		const auto p_rx = rx.getPosition(time);
 		const auto tx_to_tgt = p_tgt - p_tx;
 		const auto tx_to_tgt_dist = tx_to_tgt.length();
 		const auto tgt_to_rx = p_rx - p_tgt;
@@ -212,7 +212,7 @@ namespace propagation::pointscatter
 		{
 			LOG(logging::Level::TRACE,
 				"Skipping reflected path calculation for Target {} co-located with Transmitter {} or Receiver {}",
-				target.getName(), tx.getName(), rx->getName());
+				target.getName(), tx.getName(), rx.getName());
 
 			return std::nullopt;
 		}
@@ -240,11 +240,11 @@ namespace propagation::pointscatter
 		const RealType rcs = *rcs_opt;
 
 		// Tx Gain: Direction Tx -> Tgt
-		const auto tx_gain = computeAntennaGain(&tx, tx_to_tgt, tx_time, lambda);
+		const auto tx_gain = computeAntennaGain(tx, tx_to_tgt, tx_time, lambda);
 		// Rx Gain: Direction Rx -> Tgt
 		const auto rx_gain = computeAntennaGain(rx, -tgt_to_rx, rx_time, lambda);
 
-		const bool no_prop_loss = rx->checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
+		const bool no_prop_loss = rx.checkFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
 		ComplexType gain =
 			computeReflectedPathGain(tx_gain, rx_gain, rcs, lambda, tx_to_tgt_dist, tgt_to_rx_dist, no_prop_loss);
 
@@ -262,14 +262,13 @@ namespace propagation::pointscatter
 					"Skipping reflected path calculation for Target between Tx {} and Rx {}. Rx is in the "
 					"forward-scatter direction from Tx through the target, which is not handled as a bistatic "
 					"reflection path for RCS point targets",
-					tx.getName(), rx->getName());
+					tx.getName(), rx.getName());
 
 				return std::nullopt;
 			}
 
-			const ComplexType linkage = computePolarimetricReflectedLinkage(tx, *rx, tx_to_tgt, tgt_to_rx,
-																			 tx_to_tgt_dist, tgt_to_rx_dist, tx_time,
-																			 rx_time);
+			const ComplexType linkage = computePolarimetricReflectedLinkage(
+				tx, rx, tx_to_tgt, tgt_to_rx, tx_to_tgt_dist, tgt_to_rx_dist, tx_time, rx_time);
 
 			gain *= linkage;
 		}
@@ -277,7 +276,7 @@ namespace propagation::pointscatter
 		return PropagationPath{
 			.delay = delay,
 			.gain = gain,
-			.path_id = hash_mix(hash_mix(hash_mix(HASH_SEED, tx.getId()), target.getId()), rx->getId()),
+			.path_id = hash_mix(hash_mix(hash_mix(HASH_SEED, tx.getId()), target.getId()), rx.getId()),
 			.source_index{},
 			.receiver = rx,
 		};
@@ -306,7 +305,7 @@ namespace propagation::pointscatter
 				if (!receiver->checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
 				{
 					// Calculate the direct path contribution, if any.
-					const auto opt = directPath(transmitter, receiver.get(), current_time, true, carrier, current_time);
+					const auto opt = directPath(transmitter, *receiver, current_time, true, carrier, current_time);
 
 					if (opt != std::nullopt)
 					{
@@ -324,7 +323,7 @@ namespace propagation::pointscatter
 
 					// Calculate bistatic reflection contribution, if any.
 					const auto opt =
-						reflectedPath(transmitter, receiver.get(), *target, current_time, true, carrier, current_time);
+						reflectedPath(transmitter, *receiver, *target, current_time, true, carrier, current_time);
 
 					if (opt != std::nullopt)
 					{
@@ -340,53 +339,58 @@ namespace propagation::pointscatter
 		return timesteps;
 	};
 
-	std::vector<PropagationPath>
-	PointScatterModel::traceFromReceiver(ThreadContext* /* ctx */, radar::Receiver* receiver,
-										 const std::vector<core::ActiveStreamingSource>& sources,
-										 RealType rx_time) const
+	std::unordered_map<radar::Receiver*, std::vector<PropagationPath>>
+	PointScatterModel::traceFromReceivers(ThreadContext* /* ctx */, const std::vector<radar::Receiver*>& receivers,
+										  const std::vector<core::ActiveStreamingSource>& sources,
+										  RealType rx_time) const
 	{
-		std::vector<PropagationPath> paths;
+		std::unordered_map<radar::Receiver*, std::vector<PropagationPath>> paths_by_receiver;
 
-		for (size_t s = 0; s < sources.size(); s++)
+		for (const auto& receiver : receivers)
 		{
-			const auto& source = sources[s];
-			const auto carrier = buildPropagationCarrier<RealType>(source);
+			auto& paths = paths_by_receiver[receiver]; // Ensures an entry even if no paths are found.
 
-			if (!receiver->checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
+			for (size_t s = 0; s < sources.size(); s++)
 			{
-				// Calculate the direct path contribution, if any.
-				const auto opt =
-					directPath(*source.transmitter, receiver, rx_time, false, carrier, source.segment_start);
+				const auto& source = sources[s];
+				const auto carrier = buildPropagationCarrier<RealType>(source);
 
-				if (opt != std::nullopt)
+				if (!receiver->checkFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT))
 				{
-					auto path = opt.value();
-					path.source_index = s;
-					paths.push_back(path);
-				}
-			}
+					// Calculate the direct path contribution, if any.
+					const auto opt =
+						directPath(*source.transmitter, *receiver, rx_time, false, carrier, source.segment_start);
 
-			for (const auto& target : _world->getTargets())
-			{
-				if (target->getRcsSpec() == nullptr)
-				{
-					continue;
+					if (opt != std::nullopt)
+					{
+						auto path = opt.value();
+						path.source_index = s;
+						paths.push_back(path);
+					}
 				}
 
-				// Calculate bistatic reflection contribution, if any.
-				const auto opt = reflectedPath(*source.transmitter, receiver, *target, rx_time, false, carrier,
-											   source.segment_start);
-
-				if (opt != std::nullopt)
+				for (const auto& target : _world->getTargets())
 				{
-					auto path = opt.value();
-					path.source_index = s;
-					paths.push_back(path);
+					if (target->getRcsSpec() == nullptr)
+					{
+						continue;
+					}
+
+					// Calculate bistatic reflection contribution, if any.
+					const auto opt = reflectedPath(*source.transmitter, *receiver, *target, rx_time, false, carrier,
+												   source.segment_start);
+
+					if (opt != std::nullopt)
+					{
+						auto path = opt.value();
+						path.source_index = s;
+						paths.push_back(path);
+					}
 				}
 			}
 		}
 
-		return paths;
+		return paths_by_receiver;
 	}
 
 	PointScatterModel::PointScatterModel(core::World* world) : _world(world) {}

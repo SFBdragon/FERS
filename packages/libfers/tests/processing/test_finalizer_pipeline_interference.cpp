@@ -58,13 +58,13 @@ namespace
 	}
 
 	// Sums the same path->contribution pipeline applyStreamingInterference itself uses
-	// (PropagationModel::traceFromReceiver + calculateStreamingPathContribution), for one
+	// (PropagationModel::traceFromReceivers + calculateStreamingPathContribution), for one
 	// sample time.
 	ComplexType expectedStreamingSample(const propagation::PropagationModel& prop, radar::Receiver* receiver,
 										const std::vector<core::ActiveStreamingSource>& sources, const RealType t)
 	{
 		ComplexType total{0.0, 0.0};
-		for (const auto& path : prop.traceFromReceiver(nullptr, receiver, sources, t))
+		for (const auto& path : prop.traceFromReceivers(nullptr, {receiver}, sources, t).at(receiver))
 		{
 			total += simulation::calculateStreamingPathContribution(sources[path.source_index], receiver, path, t);
 		}

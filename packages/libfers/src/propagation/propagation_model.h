@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 #include "core/config.h"
@@ -41,11 +42,11 @@ namespace propagation
 		/// A unique, stable ID for a continuously-varying channel over time.
 		uint64_t path_id;
 
-		/// The streaaming source index for the path's transmitter, if `traceFromReceiver` is used. Otherwise undefined.
+		/// The streaaming source index for the path's transmitter, if `traceFromReceivers` is used.
+		/// Otherwise undefined.
 		size_t source_index;
 		/// The receiver of the path.
-		radar::Receiver* receiver;
-		// ^ It's mutable so that calculateResponses can stuff the reponse into the receiver.
+		radar::Receiver& receiver;
 	};
 
 	struct ThreadContext
@@ -66,27 +67,23 @@ namespace propagation
 	public:
 		virtual ~PropagationModel();
 
-		// TODO_SHAUN document
-
 		/// Called once per worker thread that will call the methods below.
 		/// Default: no context needed.
 		[[nodiscard]] virtual std::unique_ptr<ThreadContext> makeThreadContext() const { return nullptr; }
 
 		/// Traces forward from one transmitter, at a sequence of times, to all receivers.
 		///
-		/// Used for pulsed transmitters: a pulse has a well-defined start/duration, so batching forward
-		/// across times and receivers for a single transmitter is the efficient shape.
+		/// Used for pulsed-mode transmitters, to receivers.
 		[[nodiscard]] virtual std::vector<PathsAtTime>
 		traceFromTransmitter(ThreadContext* ctx, const radar::Transmitter& transmitter,
 							 const std::vector<RealType>& times) const = 0;
 
-		/// Traces backward from one receiver, at one time, to all currently active streaming sources.
+		/// Traces backward from a batch of receivers, at one time, to all currently active streaming sources.
 		///
-		/// Used for continuous/streaming receivers: there's no discrete pulse event to batch over, so
-		/// this is sampled one receiver-timestep at a time against whichever sources are currently active.
-		[[nodiscard]] virtual std::vector<PropagationPath>
-		traceFromReceiver(ThreadContext* ctx, radar::Receiver* receiver,
-						  const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const = 0;
+		/// Used for receivers, from CW-family streaming sources.
+		[[nodiscard]] virtual std::unordered_map<radar::Receiver*, std::vector<PropagationPath>>
+		traceFromReceivers(ThreadContext* ctx, const std::vector<radar::Receiver*>& receivers,
+						   const std::vector<core::ActiveStreamingSource>& sources, RealType rx_time) const = 0;
 
 		/// Conservative upper bound on the number of tx-to-rx path legs this model can produce for a
 		/// single path (direct = 1 leg, each additional bounce/reflection adds 1 leg). Used to bound
