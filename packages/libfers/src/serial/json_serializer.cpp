@@ -855,7 +855,7 @@ namespace antenna
 		if (pol.horizontal != ComplexType(1.0, 0.0) || pol.vertical != ComplexType(0.0, 0.0))
 		{
 			j["boresight_polarisation"] = {{"h", {{"re", pol.horizontal.real()}, {"im", pol.horizontal.imag()}}},
-											{"v", {{"re", pol.vertical.real()}, {"im", pol.vertical.imag()}}}};
+										   {"v", {{"re", pol.vertical.real()}, {"im", pol.vertical.imag()}}}};
 		}
 	}
 
@@ -1094,6 +1094,11 @@ namespace params
 			j["randomseed"] = p.random_seed.value();
 		}
 
+		if (p.cw_coarse_sample_rate.has_value())
+		{
+			j["cwSimSamplingRate"] = p.cw_coarse_sample_rate.value();
+		}
+
 		j["origin"] = {
 			{"latitude", p.origin_latitude}, {"longitude", p.origin_longitude}, {"altitude", p.origin_altitude}};
 
@@ -1114,6 +1119,7 @@ namespace params
 		p.rate = j.at("rate").get<RealType>();
 		p.c = j.value("c", Parameters::DEFAULT_C);
 		p.sim_sampling_rate = j.value("simSamplingRate", 1000.0);
+		p.cw_coarse_sample_rate = j.value<std::optional<RealType>>("cwSimSamplingRate", std::nullopt);
 		p.adc_bits = j.value("adc_bits", 0u);
 		p.oversample_ratio = j.value("oversample", 1u);
 		params::validateOversampleRatio(p.oversample_ratio);
@@ -1644,7 +1650,8 @@ namespace
 
 			if (model_type == "chisquare" || model_type == "gamma")
 			{
-				auto model = std::make_unique<radar::RcsChiSquare>(rcs->getRngEngine(), model_json.at("k").get<RealType>());
+				auto model =
+					std::make_unique<radar::RcsChiSquare>(rcs->getRngEngine(), model_json.at("k").get<RealType>());
 				rcs->setFluctuationModel(std::move(model));
 			}
 			else if (model_type == "constant")
@@ -2367,8 +2374,7 @@ namespace serial
 		// Reuse the existing RCS's seed if there was one, so re-posting the same RCS type keeps
 		// its fluctuation-sampling RNG stream; otherwise draw a fresh seed.
 		const auto* existing_rcs = existing_tgt->getRcsSpec();
-		const unsigned seed =
-			existing_rcs != nullptr ? existing_rcs->getSeed() : static_cast<unsigned>(masterSeeder());
+		const unsigned seed = existing_rcs != nullptr ? existing_rcs->getSeed() : static_cast<unsigned>(masterSeeder());
 
 		if (!j.contains("rcs"))
 		{

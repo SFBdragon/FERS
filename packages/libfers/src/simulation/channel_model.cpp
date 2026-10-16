@@ -543,6 +543,130 @@ namespace simulation
 		return sample(tx_timing, tx_time) - sample(rx_timing, rx_time);
 	}
 
+	void updateCoarseStreamingCache(core::ReceiverTrackerCache& cache,
+									const std::vector<propagation::PropagationPath>& next_paths,
+									const RealType interval_start_time, const RealType sample_time)
+	{
+		for (const auto& path : next_paths)
+		{
+			auto& per_source = cache.coarse_path_samples[path.source_index];
+			const RealType gain_mag = std::sqrt(std::norm(path.gain));
+			const RealType raw_phase = std::arg(path.gain);
+
+			const auto [it, inserted] = per_source.try_emplace(path.path_id);
+			auto& entry = it->second;
+
+			RealType hi_phase = raw_phase;
+			if (inserted)
+			{
+				// New path found.
+				// Only one sample to extrapolate from, so add a zero-gain copy.
+				// This mirrors serial::Response's simpleTaperPoint fallback.
+				entry.t_lo = interval_start_time;
+				entry.delay_lo = path.delay;
+				entry.gain_mag_lo = 0.0;
+				entry.gain_phase_lo = raw_phase;
+			}
+			else
+			{
+				// Unwrap the fresh phase relative to the previous "hi" so interpolation doesn't see
+				// a +/-2pi jump across samples.
+				hi_phase = raw_phase + 2.0 * PI * std::round((entry.gain_phase_hi - raw_phase) / (2.0 * PI));
+
+				entry.t_lo = entry.t_hi;
+				entry.delay_lo = entry.delay_hi;
+				entry.gain_mag_lo = entry.gain_mag_hi;
+				entry.gain_phase_lo = entry.gain_phase_hi;
+			}
+
+			entry.t_hi = sample_time;
+			entry.delay_hi = path.delay;
+			entry.gain_mag_hi = gain_mag;
+			entry.gain_phase_hi = hi_phase;
+		}
+
+		// Every path touched above just had its `t_hi` set to `sample_time`. Anything still holding
+		// an older value wasn't in `next_paths` this round, so it's either tapering out (its first
+		// missed round: extrapolate a zero-gain "hi" from its own existing lo/hi, mirroring
+		// serial::Response's extrapolateTaperPoint, computed directly in rx-time since this grid has
+		// no Doppler-induced tx-time/rx-time gap to reconcile) or already fully tapered (drop it).
+		for (auto& per_source : cache.coarse_path_samples)
+		{
+			for (auto it = per_source.begin(); it != per_source.end();)
+			{
+				auto& entry = it->second;
+				if (entry.t_hi == sample_time)
+				{
+					++it;
+					continue;
+				}
+
+				if (entry.gain_mag_hi == 0.0)
+				{
+					it = per_source.erase(it);
+					continue;
+				}
+
+				const RealType dt = entry.t_hi - entry.t_lo;
+				RealType new_delay = entry.delay_hi;
+				RealType new_phase = entry.gain_phase_hi;
+				if (dt != 0.0)
+				{
+					const RealType extend = sample_time - entry.t_hi;
+					new_delay = entry.delay_hi + (entry.delay_hi - entry.delay_lo) / dt * extend;
+					new_phase = entry.gain_phase_hi + (entry.gain_phase_hi - entry.gain_phase_lo) / dt * extend;
+				}
+
+				entry.t_lo = entry.t_hi;
+				entry.delay_lo = entry.delay_hi;
+				entry.gain_mag_lo = entry.gain_mag_hi;
+				entry.gain_phase_lo = entry.gain_phase_hi;
+
+				entry.t_hi = sample_time;
+				entry.delay_hi = new_delay;
+				entry.gain_mag_hi = 0.0;
+				entry.gain_phase_hi = new_phase;
+
+				++it;
+			}
+		}
+	}
+
+	std::vector<propagation::PropagationPath> interpolateCoarseStreamingPaths(const core::ReceiverTrackerCache& cache,
+																			  radar::Receiver& receiver,
+																			  const RealType rx_time)
+	{
+		std::vector<propagation::PropagationPath> paths;
+
+		for (std::size_t source_index = 0; source_index < cache.coarse_path_samples.size(); ++source_index)
+		{
+			for (const auto& [path_id, entry] : cache.coarse_path_samples[source_index])
+			{
+				RealType delay = entry.delay_hi;
+				RealType gain_mag = entry.gain_mag_hi;
+				RealType gain_phase = entry.gain_phase_hi;
+
+				if (entry.t_hi != entry.t_lo)
+				{
+					const RealType frac = (rx_time - entry.t_lo) / (entry.t_hi - entry.t_lo);
+					delay = std::lerp(entry.delay_lo, entry.delay_hi, frac);
+					gain_mag = std::lerp(entry.gain_mag_lo, entry.gain_mag_hi, frac);
+					gain_phase = std::lerp(entry.gain_phase_lo, entry.gain_phase_hi, frac);
+				}
+
+				paths.push_back(propagation::PropagationPath{
+					.delay = delay,
+					.gain = std::polar(gain_mag, gain_phase),
+					.path_id = path_id,
+					.source_index = source_index,
+					.receiver = receiver,
+				});
+			}
+		}
+
+		return paths;
+	}
+
 	bool calculateStreamingReferencePhase(const core::ActiveStreamingSource& source, const RealType timeK,
 										  core::FmcwChirpBoundaryTracker* const chirp_tracker, RealType& phase_out)
 	{

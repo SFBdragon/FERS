@@ -335,8 +335,7 @@ namespace serial::xml_parser_utils
 
 		/// Pattern for one term of a complex literal: an optionally-signed number with an optional
 		/// 'i'/'j' unit marker before or after it (see `parseComplexLiteral`).
-		const std::regex complex_term_re(R"(([+-])?([ij])?(\d+(?:\.\d+)?(?:e[+-]?\d+)?)([ij])?)",
-										  std::regex::icase);
+		const std::regex complex_term_re(R"(([+-])?([ij])?(\d+(?:\.\d+)?(?:e[+-]?\d+)?)([ij])?)", std::regex::icase);
 
 		/// Matches a single term of a complex literal starting exactly at `pos`, advances `pos`
 		/// past it, and returns its value. Throws `std::invalid_argument` on any mismatch,
@@ -344,8 +343,8 @@ namespace serial::xml_parser_utils
 		ComplexTerm matchComplexTerm(std::string::const_iterator& pos, const std::string::const_iterator end)
 		{
 			std::smatch match;
-			if (!std::regex_search(pos, end, match, complex_term_re) || match.position() != 0 ||
-				match.length() == 0 || (match[2].matched && match[4].matched))
+			if (!std::regex_search(pos, end, match, complex_term_re) || match.position() != 0 || match.length() == 0 ||
+				(match[2].matched && match[4].matched))
 			{
 				throw std::invalid_argument("malformed complex number term");
 			}
@@ -563,6 +562,15 @@ namespace serial::xml_parser_utils
 									 LOG(logging::Level::DEBUG, "Simulation sampling rate set to: {:.5f} Hz", value);
 								 });
 
+		// Absent means disabled (every CW/streaming output sample propagated exactly).
+		if (parameters.childElement("cwSimSamplingRate", 0).isValid())
+		{
+			const auto value =
+				parsePositiveRealParameter("cwSimSamplingRate", get_child_real_type(parameters, "cwSimSamplingRate"));
+			params_out.cw_coarse_sample_rate = value;
+			LOG(logging::Level::DEBUG, "CW coarse propagation sampling rate set to: {:.5f} Hz", value);
+		}
+
 		if (parameters.childElement("randomseed", 0).isValid())
 		{
 			const auto seed = parseUnsignedParameter("randomseed", get_child_real_type(parameters, "randomseed"));
@@ -747,7 +755,8 @@ namespace serial::xml_parser_utils
 		if (const auto boresight_width = XmlElement::getOptionalAttribute(raytracing_element, "boresight_width"))
 		{
 			const RealType width = rotation_angle_utils::unit_to_radians(
-				parsePositiveRealParameter("boresight_width", std::stod(*boresight_width)), params_out.rotation_angle_unit);
+				parsePositiveRealParameter("boresight_width", std::stod(*boresight_width)),
+				params_out.rotation_angle_unit);
 			if (width >= 2.0 * PI)
 			{
 				throw XmlException("Parameter 'boresight_width' must be less than a full turn (360 degrees).");
@@ -763,8 +772,8 @@ namespace serial::xml_parser_utils
 		if (const auto off_boresight_tube_solid_angle =
 				XmlElement::getOptionalAttribute(raytracing_element, "off_boresight_tube_solid_angle"))
 		{
-			rt.off_boresight_tube_solid_angle = parsePositiveRealParameter(
-				"off_boresight_tube_solid_angle", std::stod(*off_boresight_tube_solid_angle));
+			rt.off_boresight_tube_solid_angle = parsePositiveRealParameter("off_boresight_tube_solid_angle",
+																		   std::stod(*off_boresight_tube_solid_angle));
 		}
 
 		LOG(logging::Level::INFO,
@@ -864,9 +873,9 @@ namespace serial::xml_parser_utils
 				sweep_count = static_cast<std::size_t>(raw_count);
 			}
 
-			auto sfcw_signal = fers_signal::SfcwWaveform(start_frequency_offset, step_size,
-																	 static_cast<std::size_t>(raw_step_count),
-																	 dwell_time, step_period, sweep_count);
+			auto sfcw_signal =
+				fers_signal::SfcwWaveform(start_frequency_offset, step_size, static_cast<std::size_t>(raw_step_count),
+										  dwell_time, step_period, sweep_count);
 			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, std::move(sfcw_signal), id);
 			validate_fmcw_waveform(*wave, "Waveform '" + name + "'");
 			ctx.world->add(std::move(wave));
@@ -1495,13 +1504,14 @@ namespace serial::xml_parser_utils
 
 			if (rcs_type == "isotropic")
 			{
-				target_obj = radar::createIsoTarget(platform, name, get_child_real_type(rcs_element, "value"), seed, id);
+				target_obj =
+					radar::createIsoTarget(platform, name, get_child_real_type(rcs_element, "value"), seed, id);
 			}
 			else if (rcs_type == "file")
 			{
 				// Defer to dependency-injected file loader
-				target_obj = ctx.loaders.loadFileTarget(platform, name,
-														XmlElement::getSafeAttribute(rcs_element, "filename"), seed, id);
+				target_obj = ctx.loaders.loadFileTarget(
+					platform, name, XmlElement::getSafeAttribute(rcs_element, "filename"), seed, id);
 			}
 			else
 			{
@@ -1547,8 +1557,7 @@ namespace serial::xml_parser_utils
 		if (!rcs_element.isValid() && !has_geometry)
 		{
 			LOG(logging::Level::WARNING,
-				"Target '{}' has neither <rcs> nor <geometry>; it will not scatter under any propagation model.",
-				name);
+				"Target '{}' has neither <rcs> nor <geometry>; it will not scatter under any propagation model.", name);
 		}
 
 		LOG(logging::Level::DEBUG, "Added target {} with RCS type {} to platform {}", name, rcs_type,

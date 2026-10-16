@@ -35,27 +35,11 @@ namespace propagation
 		case core::StreamingWaveformKind::Cw:
 		case core::StreamingWaveformKind::FileCw:
 		case core::StreamingWaveformKind::FileFmcw:
+		case core::StreamingWaveformKind::FmcwLinear:
+		case core::StreamingWaveformKind::FmcwTriangle:
 			{
 				model.kind = CarrierModelKind::Constant;
 				model.params.constant.frequency = Real(source.carrier_freq);
-				break;
-			}
-		case core::StreamingWaveformKind::FmcwLinear:
-			{
-				model.kind = CarrierModelKind::Chirps;
-				model.params.chirps.start_time = source.segment_start;
-				model.params.chirps.chirp_duration = Real(source.chirp_period);
-				model.params.chirps.start_frequency = Real(source.carrier_freq + source.start_freq_off);
-				model.params.chirps.slope_frequency_per_time = Real(source.chirp_rate);
-				break;
-			}
-		case core::StreamingWaveformKind::FmcwTriangle:
-			{
-				model.kind = CarrierModelKind::Triangles;
-				model.params.triangles.start_time = source.segment_start;
-				model.params.triangles.chirp_duration = Real(source.triangle_period) * Real(0.5);
-				model.params.triangles.start_frequency = Real(source.carrier_freq + source.start_freq_off);
-				model.params.triangles.slope_frequency_per_time = Real(source.chirp_rate);
 				break;
 			}
 		case core::StreamingWaveformKind::Sfcw:

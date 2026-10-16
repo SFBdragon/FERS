@@ -151,6 +151,9 @@ namespace params
 		RealType start = 0; ///< Start time for the simulation.
 		RealType end = 0; ///< End time for the simulation.
 		RealType sim_sampling_rate = 1000; ///< Time-step sampling rate for radar pulse simulation.
+		std::optional<RealType> cw_coarse_sample_rate; ///< CW/streaming coarse propagation sampling
+													   ///< rate; unset means every output sample is
+													   ///< propagated exactly.
 
 		// KML/geospatial export defaults to the location of the University of Cape Town in South Africa.
 		double origin_latitude = -33.957652; ///< KML ENU geodetic origin latitude
@@ -213,6 +216,17 @@ namespace params
 	 * @return The simulation sampling rate.
 	 */
 	inline RealType simSamplingRate() noexcept { return params.sim_sampling_rate; }
+
+	/**
+	 * @brief Get the CW/streaming coarse propagation sampling rate, if enabled.
+	 *
+	 * When unset, CW/streaming propagation is evaluated exactly at every output sample.
+	 * When set, the scene is only re-sampled at this rate, with each path's delay/gain
+	 * linearly interpolated between samples.
+	 *
+	 * @return The coarse sampling rate in Hz, or `std::nullopt` if disabled.
+	 */
+	inline std::optional<RealType> cwSimSamplingRate() noexcept { return params.cw_coarse_sample_rate; }
 
 	/**
 	 * @brief Get the rendering sample rate.

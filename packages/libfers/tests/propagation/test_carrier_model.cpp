@@ -22,104 +22,6 @@ TEST_CASE("sampleCarrierFrequency's Constant kind is invariant to time", "[propa
 	REQUIRE_THAT(prop::sampleCarrierFrequency(carrier, 1e6), WithinAbs(1234.5, 1e-3));
 }
 
-// --- sampleCarrierFrequency: Chirps (sawtooth FMCW) ----------------------------------------- //
-
-namespace
-{
-	prop::CarrierModel<float> makeChirps(double start_time, float chirp_duration, float start_frequency, float slope)
-	{
-		prop::CarrierModel<float> carrier{};
-		carrier.kind = prop::CarrierModelKind::Chirps;
-		carrier.params.chirps.start_time = start_time;
-		carrier.params.chirps.chirp_duration = chirp_duration;
-		carrier.params.chirps.start_frequency = start_frequency;
-		carrier.params.chirps.slope_frequency_per_time = slope;
-		return carrier;
-	}
-}
-
-TEST_CASE("sampleCarrierFrequency's Chirps kind ramps from start_frequency across each chirp", "[propagation][carrier]")
-{
-	const auto carrier = makeChirps(/*start_time=*/2.0, /*chirp_duration=*/1.0f, /*start_frequency=*/1000.0f,
-									/*slope=*/200.0f);
-
-	REQUIRE_THAT(prop::sampleCarrierFrequency(carrier, 2.0), WithinAbs(1000.0, 1e-3)); // dt=0
-	REQUIRE_THAT(prop::sampleCarrierFrequency(carrier, 2.5), WithinAbs(1100.0, 1e-3)); // mid-chirp
-}
-
-TEST_CASE("sampleCarrierFrequency's Chirps kind is periodic with period chirp_duration", "[propagation][carrier]")
-{
-	const auto carrier = makeChirps(2.0, 1.0f, 1000.0f, 200.0f);
-
-	const auto mid_first_chirp = prop::sampleCarrierFrequency(carrier, 2.5); // dt=0.5
-	const auto mid_second_chirp = prop::sampleCarrierFrequency(carrier, 3.5); // dt=1.5, same phase
-	REQUIRE_THAT(mid_second_chirp, WithinAbs(mid_first_chirp, 1e-3));
-}
-
-TEST_CASE("sampleCarrierFrequency's Chirps kind extends periodically before start_time", "[propagation][carrier]")
-{
-	const auto carrier = makeChirps(2.0, 1.0f, 1000.0f, 200.0f);
-
-	const auto before_start = prop::sampleCarrierFrequency(carrier, 1.75); // dt=-0.25
-	const auto one_period_later = prop::sampleCarrierFrequency(carrier, 2.75); // dt=0.75
-	const auto two_periods_later = prop::sampleCarrierFrequency(carrier, 3.75); // dt=1.75
-	REQUIRE_THAT(before_start, WithinAbs(1150.0, 1e-3));
-	REQUIRE_THAT(one_period_later, WithinAbs(before_start, 1e-3));
-	REQUIRE_THAT(two_periods_later, WithinAbs(before_start, 1e-3));
-}
-
-TEST_CASE("sampleCarrierFrequency's Chirps kind supports a negative (down-chirp) slope", "[propagation][carrier]")
-{
-	const auto carrier = makeChirps(2.0, 1.0f, 1000.0f, -200.0f);
-	REQUIRE_THAT(prop::sampleCarrierFrequency(carrier, 2.5), WithinAbs(900.0, 1e-3)); // dt=0.5
-}
-
-// --- sampleCarrierFrequency: Triangles (up/down FMCW) --------------------------------------- //
-
-namespace
-{
-	prop::CarrierModel<float> makeTriangles(double start_time, float leg_duration, float start_frequency, float slope)
-	{
-		prop::CarrierModel<float> carrier{};
-		carrier.kind = prop::CarrierModelKind::Triangles;
-		carrier.params.triangles.start_time = start_time;
-		carrier.params.triangles.chirp_duration = leg_duration;
-		carrier.params.triangles.start_frequency = start_frequency;
-		carrier.params.triangles.slope_frequency_per_time = slope;
-		return carrier;
-	}
-}
-
-TEST_CASE("sampleCarrierFrequency's Triangles kind ramps up then back down across one period", "[propagation][carrier]")
-{
-	// leg_duration=1.0, so the full triangle period is 2.0.
-	const auto carrier = makeTriangles(/*start_time=*/2.0, /*leg_duration=*/1.0f, /*start_frequency=*/1000.0f,
-									   /*slope=*/200.0f);
-
-	REQUIRE_THAT(prop::sampleCarrierFrequency(carrier, 2.0), WithinAbs(1000.0, 1e-3)); // dt=0, start of up-leg
-	REQUIRE_THAT(prop::sampleCarrierFrequency(carrier, 2.5), WithinAbs(1100.0, 1e-3)); // dt=0.5, mid up-leg
-	REQUIRE_THAT(prop::sampleCarrierFrequency(carrier, 3.0), WithinAbs(1200.0, 1e-3)); // dt=1.0, the peak
-	REQUIRE_THAT(prop::sampleCarrierFrequency(carrier, 4.0), WithinAbs(1000.0, 1e-3)); // dt=2.0, one period later
-}
-
-TEST_CASE("sampleCarrierFrequency's Triangles kind is symmetric about the peak", "[propagation][carrier]")
-{
-	const auto carrier = makeTriangles(2.0, 1.0f, 1000.0f, 200.0f);
-
-	const auto mid_up_leg = prop::sampleCarrierFrequency(carrier, 2.5); // dt=0.5
-	const auto mid_down_leg = prop::sampleCarrierFrequency(carrier, 3.5); // dt=1.5
-	REQUIRE_THAT(mid_down_leg, WithinAbs(mid_up_leg, 1e-3));
-}
-
-TEST_CASE("sampleCarrierFrequency's Triangles kind extends periodically before start_time", "[propagation][carrier]")
-{
-	const auto carrier = makeTriangles(2.0, 1.0f, 1000.0f, 200.0f);
-
-	const auto before_start = prop::sampleCarrierFrequency(carrier, 1.5); // dt=-0.5, on a down-leg
-	const auto one_period_later = prop::sampleCarrierFrequency(carrier, 3.5); // dt=1.5, same phase (period=2.0)
-	REQUIRE_THAT(one_period_later, WithinAbs(before_start, 1e-3));
-}
-
 // --- sampleCarrierFrequency: Stairs (SFCW) -------------------------------------------------- //
 
 namespace
@@ -165,13 +67,15 @@ TEST_CASE("sampleCarrierFrequency's Stairs kind extends periodically before star
 TEST_CASE("sampleCarrierFrequency works for CarrierModel<double> too", "[propagation][carrier]")
 {
 	prop::CarrierModel<double> carrier{};
-	carrier.kind = prop::CarrierModelKind::Chirps;
-	carrier.params.chirps.start_time = 2.0;
-	carrier.params.chirps.chirp_duration = 1.0;
-	carrier.params.chirps.start_frequency = 1000.0;
-	carrier.params.chirps.slope_frequency_per_time = 200.0;
+	carrier.kind = prop::CarrierModelKind::Stairs;
+	carrier.params.stairs.start_time = 1.0;
+	carrier.params.stairs.step_duration = 1.0;
+	carrier.params.stairs.start_frequency = 1000.0;
+	carrier.params.stairs.step_frequency = 100.0;
+	carrier.params.stairs.step_count = 100;
 
-	REQUIRE_THAT(prop::sampleCarrierFrequency(carrier, 2.5), WithinAbs(1100.0, 1e-9)); // mid-chirp
+	// second step
+	REQUIRE_THAT(prop::sampleCarrierFrequency(carrier, 2.5), WithinAbs(1100.0, 1e-9));
 }
 
 // --- buildPropagationCarrier ---------------------------------------------------------------- //
@@ -206,33 +110,6 @@ TEST_CASE("buildPropagationCarrier maps CW-like kinds to a Constant carrier", "[
 		CHECK(carrier.kind == prop::CarrierModelKind::Constant);
 		CHECK_THAT(double(carrier.params.constant.frequency), WithinRel(source.carrier_freq, 1e-6));
 	}
-}
-
-TEST_CASE("buildPropagationCarrier maps FmcwLinear to a Chirps carrier", "[propagation][carrier]")
-{
-	const auto source = makeBaseSource(core::StreamingWaveformKind::FmcwLinear);
-	const auto carrier = prop::buildPropagationCarrier<float>(source);
-
-	REQUIRE(carrier.kind == prop::CarrierModelKind::Chirps);
-	CHECK_THAT(carrier.params.chirps.start_time, WithinRel(source.segment_start, 1e-9));
-	CHECK_THAT(double(carrier.params.chirps.chirp_duration), WithinRel(source.chirp_period, 1e-6));
-	CHECK_THAT(double(carrier.params.chirps.start_frequency),
-			   WithinRel(source.carrier_freq + source.start_freq_off, 1e-6));
-	CHECK_THAT(double(carrier.params.chirps.slope_frequency_per_time), WithinRel(source.chirp_rate, 1e-6));
-}
-
-TEST_CASE("buildPropagationCarrier maps FmcwTriangle to a Triangles carrier, halving the period",
-		  "[propagation][carrier]")
-{
-	const auto source = makeBaseSource(core::StreamingWaveformKind::FmcwTriangle);
-	const auto carrier = prop::buildPropagationCarrier<float>(source);
-
-	REQUIRE(carrier.kind == prop::CarrierModelKind::Triangles);
-	CHECK_THAT(carrier.params.triangles.start_time, WithinRel(source.segment_start, 1e-9));
-	CHECK_THAT(double(carrier.params.triangles.chirp_duration), WithinRel(source.triangle_period * 0.5, 1e-6));
-	CHECK_THAT(double(carrier.params.triangles.start_frequency),
-			   WithinRel(source.carrier_freq + source.start_freq_off, 1e-6));
-	CHECK_THAT(double(carrier.params.triangles.slope_frequency_per_time), WithinRel(source.chirp_rate, 1e-6));
 }
 
 TEST_CASE("buildPropagationCarrier maps Sfcw to a Stairs carrier", "[propagation][carrier]")

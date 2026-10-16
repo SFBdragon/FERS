@@ -202,10 +202,10 @@ namespace
 		for (std::size_t i = 1; i < samples.size(); ++i)
 		{
 			builder.addInterpPoint({.gain = 1.0,
-								   .rx_time = start_time + static_cast<RealType>(i) / sample_rate,
-								   .delay = 0.0,
-								   .phase_delay = 0.0},
-								  edge);
+									.rx_time = start_time + static_cast<RealType>(i) / sample_rate,
+									.delay = 0.0,
+									.phase_delay = 0.0},
+								   edge);
 		}
 		return std::make_unique<serial::Response>(std::move(builder));
 	}
@@ -1439,6 +1439,97 @@ TEST_CASE("SimulationEngine traces multiple active streaming receivers independe
 	REQUIRE_THAT(actual1.imag(), WithinAbs(expected1.imag(), 1e-6));
 	REQUIRE_THAT(actual2.real(), WithinAbs(expected2.real(), 1e-6));
 	REQUIRE_THAT(actual2.imag(), WithinAbs(expected2.imag(), 1e-6));
+}
+
+TEST_CASE("CW coarse sampling is disabled by default and leaves streaming output unchanged",
+		  "[core][threading][streaming][coarse]")
+{
+	// cwSimSamplingRate defaults to unset; confirm the engine still produces the exact per-sample
+	// result (sanity check that enabling the feature elsewhere in this file can't have changed the
+	// default path, since every other streaming test in this file relies on that).
+	ParamGuard const guard;
+	params::params.reset();
+	params::setRate(1000.0);
+	params::setOversampleRatio(1);
+	params::setTime(0.0, 0.5);
+	params::setC(1000.0);
+	REQUIRE_FALSE(params::cwSimSamplingRate().has_value());
+
+	auto fixture =
+		createStreamingPathWorld(math::Path::InterpType::INTERP_STATIC, {{math::Vec3{0.0, 0.0, 0.0}, 0.0}},
+								 math::Path::InterpType::INTERP_STATIC, {{math::Vec3{100.0, 0.0, 0.0}, 0.0}});
+	pool::ThreadPool pool(1);
+	RecordingOutputSink sink;
+	core::SimulationEngine engine(fixture.world.get(), pool, nullptr, ".", nullptr, &sink);
+
+	fixture.rx->setActive(true);
+	engine.handleTxStreamingStart(core::makeActiveSource(fixture.tx, 0.0, 0.5));
+	engine.processStreamingPhysics(0.401);
+	engine.handleRxStreamingEnd(fixture.rx);
+
+	const propagation::pointscatter::PointScatterModel prop(fixture.world.get());
+	const std::vector<core::ActiveStreamingSource> sources = {core::makeActiveSource(fixture.tx, 0.0, 0.5)};
+	ComplexType expected{0.0, 0.0};
+	for (const auto& path : prop.traceFromReceivers(nullptr, {fixture.rx}, sources, 0.4).at(fixture.rx))
+	{
+		expected += simulation::calculateStreamingPathContribution(sources[path.source_index], fixture.rx, path, 0.4);
+	}
+
+	const ComplexType actual = sampleAt(sink, 400);
+	REQUIRE_THAT(actual.real(), WithinAbs(expected.real(), 1e-6));
+	REQUIRE_THAT(actual.imag(), WithinAbs(expected.imag(), 1e-6));
+}
+
+TEST_CASE("CW coarse sampling interpolation converges toward exact output as coarse rate increases",
+		  "[core][threading][streaming][coarse]")
+{
+	// A receiver moving at constant velocity away from a static transmitter. Delay varies linearly
+	// with time, so coarse-sample interpolation of delay (and hence the carrier/Doppler phase it
+	// drives) is exact regardless of coarse rate - any error here comes purely from interpolating
+	// gain magnitude (1/R path loss, nonlinear in time) across each coarse interval, which should
+	// shrink as the coarse rate increases toward the full output rate.
+	ParamGuard const guard;
+
+	const auto sample_at_coarse_rate = [](const std::optional<RealType> coarse_rate) -> ComplexType
+	{
+		params::params.reset();
+		params::setRate(1000.0);
+		params::setOversampleRatio(1);
+		params::setTime(0.0, 1.0);
+		params::setC(1000.0);
+		params::params.cw_coarse_sample_rate = coarse_rate;
+
+		auto fixture =
+			createStreamingPathWorld(math::Path::InterpType::INTERP_STATIC, {{math::Vec3{0.0, 0.0, 0.0}, 0.0}},
+									 math::Path::InterpType::INTERP_LINEAR,
+									 {{math::Vec3{100.0, 0.0, 0.0}, 0.0}, {math::Vec3{200.0, 0.0, 0.0}, 1.0}});
+		pool::ThreadPool pool(1);
+		RecordingOutputSink sink;
+		core::SimulationEngine engine(fixture.world.get(), pool, nullptr, ".", nullptr, &sink);
+
+		fixture.rx->setActive(true);
+		engine.handleTxStreamingStart(core::makeActiveSource(fixture.tx, 0.0, 1.0));
+		engine.processStreamingPhysics(0.778);
+		engine.handleRxStreamingEnd(fixture.rx);
+
+		// 0.777s deliberately doesn't land on any of this test's coarse-tick grids (1/20, 1/100,
+		// 1/400 s), so each case is genuinely mid-interval and must interpolate rather than
+		// happening to read back a freshly-queried exact value.
+		return sampleAt(sink, 777);
+	};
+
+	const ComplexType exact = sample_at_coarse_rate(std::nullopt);
+
+	const auto error_at = [&](const RealType coarse_rate)
+	{ return std::abs(sample_at_coarse_rate(coarse_rate) - exact); };
+
+	const RealType error_coarse = error_at(20.0);
+	const RealType error_medium = error_at(100.0);
+	const RealType error_fine = error_at(400.0);
+
+	REQUIRE(error_coarse > 0.0); // Coarse enough that interpolation error must actually be visible.
+	REQUIRE(error_medium < error_coarse);
+	REQUIRE(error_fine < error_medium);
 }
 
 TEST_CASE("SimulationEngine phase-noise lookup covers pre-start retarded streaming emissions", "[core][threading]")

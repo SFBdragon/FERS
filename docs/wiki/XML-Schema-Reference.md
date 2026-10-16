@@ -68,6 +68,7 @@ Optional children, in order:
 | --- | --- | --- | --- |
 | `<c>` | m/s | `299792458` | Propagation speed. Use the default for free-space radio propagation. |
 | `<simSamplingRate>` | Hz | `1000` | Geometry interpolation rate used while building pulsed responses. Increase it when fast platform motion needs finer geometry sampling. |
+| `<cwSimSamplingRate>` | Hz | disabled | Geometry interpolation rate used while simulating CW/streaming propagation, instead of every output sample (default). Increase for past motion, decrease for expensive propagation modelling, e.g. high density ray tracing. |
 | `<randomseed>` | integer | random | Seed for repeatable noise and random models. Set this when you want repeatable runs. |
 | `<adc_bits>` | bits | `0` | ADC quantization depth. `0` disables quantization and stores normalized floating-point samples. |
 | `<oversample>` | multiplier | `1` | Internal oversampling factor. Valid range is `1` to `8`. FMCW waveform aliasing checks use `<rate> * <oversample>`. Most final output is still written at `<rate>`, but legacy dechirped FMCW output without `<if_sample_rate>` is written at `<rate> * <oversample>`. |

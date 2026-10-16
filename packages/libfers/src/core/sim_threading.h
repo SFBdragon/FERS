@@ -242,6 +242,16 @@ namespace core
 		/// Adds one sample to every active streaming receiver.
 		void appendActiveReceiverStreamingSamples(std::size_t sample_index, RealType t_step);
 
+		/// Traces every entry in `live_receivers` (whose indices into `_streaming_tracker_caches`
+		/// are the parallel `live_receiver_indices`) at `t_step`, either exactly (default) or, when
+		/// CW coarse sampling is enabled, by re-querying the scene only once per coarse tick and
+		/// linearly interpolating each receiver's cached paths between the two bracketing coarse
+		/// samples for every sample in between.
+		[[nodiscard]] std::unordered_map<radar::Receiver*, std::vector<propagation::PropagationPath>>
+		tracePathsByReceiver(const std::vector<radar::Receiver*>& live_receivers,
+							const std::vector<std::size_t>& live_receiver_indices,
+							const std::vector<ActiveStreamingSource>& sources, RealType t_step);
+
 		/// Adds one sample to a single active streaming receiver, from propagation paths.
 		void appendReceiverStreamingSample(std::size_t receiver_index, std::size_t sample_index, RealType t_step,
 										   const std::vector<propagation::PropagationPath>& paths);
@@ -365,6 +375,9 @@ namespace core
 		std::string _output_dir; ///< Output directory for the simulation files.
 		std::unique_ptr<simulation::CwPhaseNoiseLookup> _cw_phase_noise_lookup; ///< Cached CW phase-noise lookup.
 		std::vector<ReceiverTrackerCache> _streaming_tracker_caches; ///< Per-receiver streaming tracker caches.
+		std::optional<RealType> _coarse_lo_time; ///< CW coarse sampling: start time of the currently-cached bracket.
+		std::optional<RealType> _coarse_hi_time; ///< CW coarse sampling: end time of the currently-cached bracket.
+		RealType _coarse_chunk_end_time = 0.0; ///< CW coarse sampling: current event horizon (set per `processStreamingPhysics` call); lookahead queries never cross it, since the active source/receiver set is only guaranteed stable up to this time.
 		std::vector<ReceiverTrackerCache> _if_pulse_tracker_caches; ///< Per-receiver dechirp trackers for pulse blocks.
 		std::vector<std::vector<ComplexType>> _fmcw_if_block_buffers; ///< Pending high-rate IF blocks.
 		std::vector<RealType> _fmcw_if_block_start_times; ///< Start time for each pending IF block.

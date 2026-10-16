@@ -12,15 +12,17 @@
         <!ATTLIST simulation name CDATA #REQUIRED>
 
         <!-- Simulation Parameters -->
-        <!ELEMENT parameters (starttime,endtime,rate,c?,simSamplingRate?,randomseed?,adc_bits?,oversample?,rotationangleunit?,origin?,coordinatesystem?,propagation?)>
+        <!ELEMENT parameters (starttime,endtime,rate,c?,simSamplingRate?,cwSimSamplingRate?,randomseed?,adc_bits?,oversample?,rotationangleunit?,origin?,coordinatesystem?,propagation?)>
         <!-- Start time of simulation -->
         <!ELEMENT starttime (#PCDATA)>
         <!-- End time of simulation -->
         <!ELEMENT endtime (#PCDATA)>
         <!-- Propagation speed -->
         <!ELEMENT c (#PCDATA)>
-        <!-- Fidelity of the underlying physics simulation (Hz) -->
+        <!-- Fidelity of the underlying physics simulation for pulsed waveforms (Hz) -->
         <!ELEMENT simSamplingRate (#PCDATA)>
+        <!-- Fidelity of the underlying physics simulation for CW waveforms (Hz) -->
+        <!ELEMENT cwSimSamplingRate (#PCDATA)>
         <!-- Override the rendering sample rate with the specified one (Hz) -->
         <!ELEMENT rate (#PCDATA)>
         <!-- Random seed for noise -->

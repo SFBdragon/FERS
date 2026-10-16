@@ -17,10 +17,6 @@ namespace propagation
 	{
 		/// A constant carrier wavenumber.
 		Constant,
-		/// A repeatedly up/down chirping carrier.
-		Chirps,
-		/// A repeatedly up-and-down chirping carrier.
-		Triangles,
 		/// A repeatedly uniformly stepping and looping carrier.
 		Stairs,
 	};
@@ -36,34 +32,6 @@ namespace propagation
 			{
 				Real frequency = Real(-1);
 			} constant{};
-
-			struct
-			{
-				/// A time offset for one of the chirp start times.
-				/// Expected to be near the simulation time such that
-				/// `float(t - start_time)` doesn't lose accuracy.
-				double start_time;
-				/// The starting chirp wavenumber.
-				Real start_frequency;
-				/// The slope of the chirp. May be positive or negative.
-				Real slope_frequency_per_time;
-				/// The duration of each chirp.
-				Real chirp_duration;
-			} chirps;
-
-			struct
-			{
-				/// A time offset for one of the triangle start times.
-				/// Expected to be near the simulation time such that
-				/// `float(t - start_time)` doesn't lose accuracy.
-				double start_time;
-				/// The starting wavenumber of the triangle.
-				Real start_frequency;
-				/// The slope of the first triangle chirp leg. May be positive or negative.
-				Real slope_frequency_per_time;
-				/// The duration of each chirp leg.
-				Real chirp_duration;
-			} triangles;
 
 			struct
 			{

@@ -71,6 +71,10 @@ namespace serial::xml_serializer_utils
 		{
 			addChildWithNumber(parent, "simSamplingRate", p.sim_sampling_rate);
 		}
+		if (p.cw_coarse_sample_rate)
+		{
+			addChildWithNumber(parent, "cwSimSamplingRate", *p.cw_coarse_sample_rate);
+		}
 		if (p.random_seed)
 		{
 			addChildWithNumber(parent, "randomseed", *p.random_seed);
@@ -123,8 +127,9 @@ namespace serial::xml_serializer_utils
 			}
 			if (rt.boresight_width != defaults.boresight_width)
 			{
-				setAttributeFromNumber(rt_elem, "boresight_width",
-										rotation_angle_utils::radians_to_unit(rt.boresight_width, p.rotation_angle_unit));
+				setAttributeFromNumber(
+					rt_elem, "boresight_width",
+					rotation_angle_utils::radians_to_unit(rt.boresight_width, p.rotation_angle_unit));
 			}
 			if (rt.boresight_tube_solid_angle != defaults.boresight_tube_solid_angle)
 			{

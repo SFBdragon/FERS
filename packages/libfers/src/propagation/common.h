@@ -158,34 +158,6 @@ namespace propagation
 		{
 		case CarrierModelKind::Constant:
 			return model.params.constant.frequency;
-		case CarrierModelKind::Chirps:
-			{
-				const auto& chirps = model.params.chirps;
-				const Real dt = Real(tx_time - chirps.start_time);
-				const Real chirp_index = std::floor(dt / chirps.chirp_duration);
-				const Real t_chirp = std::fma(-chirp_index, chirps.chirp_duration, dt);
-				return chirps.start_frequency + t_chirp * chirps.slope_frequency_per_time;
-			}
-		case CarrierModelKind::Triangles:
-			{
-				const auto& triangles = model.params.triangles;
-				const Real dt = Real(tx_time - triangles.start_time);
-				const Real chirp_index = std::floor(dt / triangles.chirp_duration);
-				const Real t_chirp = std::fma(-chirp_index, triangles.chirp_duration, dt);
-
-				// Parity without any integer cast. Correct for negative too.
-				const Real half = chirp_index * Real(0.5);
-				const bool odd = (half != std::floor(half));
-
-				Real start = triangles.start_frequency;
-				Real slope = triangles.slope_frequency_per_time;
-				if (odd)
-				{
-					start += slope * triangles.chirp_duration;
-					slope = -slope;
-				}
-				return start + t_chirp * slope;
-			}
 		case CarrierModelKind::Stairs:
 			{
 				const auto& stairs = model.params.stairs;

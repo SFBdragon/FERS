@@ -71,7 +71,7 @@ namespace core
 		}
 
 		[[nodiscard]] std::shared_ptr<propagation::PropagationModel> makePropagationModel(World* world,
-																						 pool::ThreadPool& pool)
+																						  pool::ThreadPool& pool)
 		{
 			switch (params::propagationModel())
 			{
@@ -791,6 +791,11 @@ namespace core
 		const auto sample_count = final_index - first_index;
 		const auto progress_report_stride = std::max<std::size_t>(1, sample_count / 1000);
 
+		// CW coarse sampling's lookahead queries must never cross this chunk's own end: the
+		// active source/receiver set is only guaranteed stable up to `t_event` (the next unprocessed
+		// event may change it), so a query at or past `t_event` would risk using stale state.
+		_coarse_chunk_end_time = t_event;
+
 		ensureCwPhaseNoiseLookup();
 
 		if (!isCancellationRequested())
@@ -835,15 +840,85 @@ namespace core
 		}
 	}
 
+	std::unordered_map<radar::Receiver*, std::vector<propagation::PropagationPath>>
+	SimulationEngine::tracePathsByReceiver(const std::vector<radar::Receiver*>& live_receivers,
+										   const std::vector<std::size_t>& live_receiver_indices,
+										   const std::vector<ActiveStreamingSource>& sources, const RealType t_step)
+	{
+		const auto coarse_rate = params::cwSimSamplingRate();
+		if (!coarse_rate.has_value())
+		{
+			return _propagation->traceFromReceivers(_main_prop_ctx.get(), live_receivers, sources, t_step);
+		}
+
+		// Coarse CW sampling: only re-query the scene once per coarse tick (shared across every
+		// live receiver), then linearly interpolate each receiver's cached paths between the two
+		// bracketing coarse samples for every full-rate sample in between. The bracket's "hi" end
+		// must already be queried before any sample within it is rendered, so this looks one tick
+		// ahead rather than reacting once `t_step` reaches it.
+		const RealType coarse_dt = 1.0 / *coarse_rate;
+		const auto floorTickTime = [coarse_dt](const RealType time)
+		{ return params::startTime() + std::floor((time - params::startTime()) / coarse_dt) * coarse_dt; };
+
+		const auto queryAndUpdate = [&](const RealType interval_start_time, const RealType sample_time)
+		{
+			const auto fresh_paths_by_receiver =
+				_propagation->traceFromReceivers(_main_prop_ctx.get(), live_receivers, sources, sample_time);
+
+			const std::vector<propagation::PropagationPath> no_fresh_paths;
+			for (std::size_t i = 0; i < live_receivers.size(); ++i)
+			{
+				const auto it = fresh_paths_by_receiver.find(live_receivers[i]);
+				simulation::updateCoarseStreamingCache(_streaming_tracker_caches[live_receiver_indices[i]],
+													   it != fresh_paths_by_receiver.end() ? it->second
+																						   : no_fresh_paths,
+													   interval_start_time, sample_time);
+			}
+		};
+
+		if (!_coarse_hi_time.has_value())
+		{
+			// Bootstrap: there's no earlier "hi" to shift down into "lo" yet, so the first bracket
+			// needs two queries back-to-back rather than the usual one per tick. The first query is
+			// a degenerate zero-width bracket (lo == hi); the loop below immediately extends it.
+			const RealType lo_time = floorTickTime(t_step);
+			queryAndUpdate(lo_time, lo_time);
+			_coarse_lo_time = lo_time;
+			_coarse_hi_time = lo_time;
+		}
+
+		while (t_step >= *_coarse_hi_time && *_coarse_hi_time < _coarse_chunk_end_time)
+		{
+			// Jump straight to the tick covering t_step if there's a backlog (e.g. every receiver
+			// was inactive for a stretch), rather than stepping through every intervening tick.
+			const RealType next_time = std::min(
+				std::max(*_coarse_hi_time + coarse_dt, floorTickTime(t_step) + coarse_dt), _coarse_chunk_end_time);
+
+			queryAndUpdate(*_coarse_lo_time, next_time);
+			_coarse_lo_time = _coarse_hi_time;
+			_coarse_hi_time = next_time;
+		}
+
+		std::unordered_map<radar::Receiver*, std::vector<propagation::PropagationPath>> paths_by_receiver;
+		for (std::size_t i = 0; i < live_receivers.size(); ++i)
+		{
+			paths_by_receiver[live_receivers[i]] = simulation::interpolateCoarseStreamingPaths(
+				_streaming_tracker_caches[live_receiver_indices[i]], *live_receivers[i], t_step);
+		}
+		return paths_by_receiver;
+	}
+
 	void SimulationEngine::appendActiveReceiverStreamingSamples(const std::size_t sample_index, const RealType t_step)
 	{
 		const auto& sources = _world->getSimulationState().active_streaming_transmitters;
 		_streaming_source_live_this_sample.assign(sources.size(), false);
 
 		std::vector<radar::Receiver*> live_receivers;
+		std::vector<std::size_t> live_receiver_indices;
 		bool all_streaming_receivers_active = true;
-		for (const auto& receiver_ptr : _world->getReceivers())
+		for (std::size_t receiver_index = 0; receiver_index < _world->getReceivers().size(); ++receiver_index)
 		{
+			const auto& receiver_ptr = _world->getReceivers()[receiver_index];
 			if (!isStreamingReceiver(receiver_ptr.get()))
 			{
 				continue;
@@ -854,13 +929,14 @@ namespace core
 				continue;
 			}
 			live_receivers.push_back(receiver_ptr.get());
+			live_receiver_indices.push_back(receiver_index);
 		}
 
 		// Every receiver live this sample is traced together in a batch against the same scene.
 		std::unordered_map<radar::Receiver*, std::vector<propagation::PropagationPath>> paths_by_receiver;
 		if (!live_receivers.empty())
 		{
-			paths_by_receiver = _propagation->traceFromReceivers(_main_prop_ctx.get(), live_receivers, sources, t_step);
+			paths_by_receiver = tracePathsByReceiver(live_receivers, live_receiver_indices, sources, t_step);
 		}
 
 		const std::vector<propagation::PropagationPath> no_paths;
@@ -1406,6 +1482,7 @@ namespace core
 		for (auto& cache : _streaming_tracker_caches)
 		{
 			cache.path_trackers.emplace_back();
+			cache.coarse_path_samples.emplace_back();
 		}
 	}
 
@@ -1416,6 +1493,11 @@ namespace core
 			if (source_index < cache.path_trackers.size())
 			{
 				cache.path_trackers.erase(cache.path_trackers.begin() + static_cast<std::ptrdiff_t>(source_index));
+			}
+			if (source_index < cache.coarse_path_samples.size())
+			{
+				cache.coarse_path_samples.erase(cache.coarse_path_samples.begin() +
+												static_cast<std::ptrdiff_t>(source_index));
 			}
 		}
 	}
