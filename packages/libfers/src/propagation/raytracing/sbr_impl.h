@@ -532,9 +532,13 @@ namespace propagation::raytracing
 
 			const float cos_theta_i = -dot(k_in, norm);
 			const float sin2_theta_i = 1 - cos_theta_i * cos_theta_i;
-			const CFloat cos_theta_t = csqrt(1.0f - (N1 / n2) * sin2_theta_i);
+			// Snell's law: sin(theta_t) = (n1/n2) sin(theta_i)
+			// So sin^2(theta_t) = (n1/n2)^2 sin^2(theta_i)
+			// cos(theta_t) = sqrt(1 - sin^2(theta_t))
+			const CFloat ratio = N1 / n2;
+			const CFloat cos_theta_t = csqrt(1.0f - (ratio * ratio) * sin2_theta_i);
 
-			gamma_tm_out = (N1 * cos_theta_t - n2 * cos_theta_i) / (N1 * cos_theta_t + n2 * cos_theta_i);
+			gamma_tm_out = (n2 * cos_theta_i - N1 * cos_theta_t) / (n2 * cos_theta_i + N1 * cos_theta_t);
 			gamma_te_out = (N1 * cos_theta_i - n2 * cos_theta_t) / (N1 * cos_theta_i + n2 * cos_theta_t);
 		}
 
