@@ -375,7 +375,6 @@ namespace core
 		std::string _output_dir; ///< Output directory for the simulation files.
 		std::unique_ptr<simulation::CwPhaseNoiseLookup> _cw_phase_noise_lookup; ///< Cached CW phase-noise lookup.
 		std::vector<ReceiverTrackerCache> _streaming_tracker_caches; ///< Per-receiver streaming tracker caches.
-		std::optional<RealType> _coarse_lo_time; ///< CW coarse sampling: start time of the currently-cached bracket.
 		std::optional<RealType> _coarse_hi_time; ///< CW coarse sampling: end time of the currently-cached bracket.
 		RealType _coarse_chunk_end_time = 0.0; ///< CW coarse sampling: current event horizon (set per `processStreamingPhysics` call); lookahead queries never cross it, since the active source/receiver set is only guaranteed stable up to this time.
 		std::vector<ReceiverTrackerCache> _if_pulse_tracker_caches; ///< Per-receiver dechirp trackers for pulse blocks.

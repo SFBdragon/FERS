@@ -1532,6 +1532,90 @@ TEST_CASE("CW coarse sampling interpolation converges toward exact output as coa
 	REQUIRE(error_fine < error_medium);
 }
 
+TEST_CASE("CW coarse sampling fades a path back in from zero after it reappears mid-simulation",
+		  "[core][threading][streaming][coarse]")
+{
+	// Regression test for a bug where SimulationEngine::tracePathsByReceiver passed a
+	// one-tick-stale interval_start_time to updateCoarseStreamingCache (it read _coarse_lo_time
+	// before updating it, so every call saw the value from the iteration before last rather than
+	// the immediately preceding tick). A newly-reappeared path's backdated zero-gain anchor was
+	// therefore placed two ticks before its real sample instead of one, so by the time its
+	// bracket actually became active for interpolation, the computed fraction was already ~0.5
+	// instead of ~0 - the signal snapped to roughly half its settled value in a single sample
+	// instead of fading in from zero. This only shows up for a path that appears or disappears
+	// mid-run under coarse sampling; a continuously-present path (as in the convergence test
+	// above) never exercises the insertion/fade-out branches, which is why that test alone
+	// couldn't have caught this.
+	// Tx/Rx on a fixed baseline, target crossing the Tx-Rx line (forward scatter, y=0) at t=1.0s:
+	// the reflected path exists for y notably off that line, and is skipped near it (see
+	// pointscatter.cpp's forward-scatter guard), giving a clean disappear/reappear pair to
+	// observe. Its true magnitude is NOT constant near the crossing (it grows quickly with
+	// distance off the forward-scatter line), so this test compares the coarse-sampled run
+	// against an exact (coarse sampling off) reference at the same sample index, rather than
+	// against a later "settled" sample of its own - that isolates the interpolation error from
+	// the genuine physical variation instead of conflating the two.
+	const auto run = [](const std::optional<RealType> coarse_rate) -> std::vector<ComplexType>
+	{
+		params::params.reset();
+		params::setRate(200.0);
+		params::setOversampleRatio(1);
+		params::setTime(0.0, 1.9);
+		params::setC(1000.0);
+		params::params.cw_coarse_sample_rate = coarse_rate;
+		// The forward-scatter skip that makes the reflected path disappear/reappear only applies
+		// in the polarimetric branch of pointscatter.cpp's reflectedPath() - the default
+		// (non-polarimetric) gain has no angle-dependent cutoff at all, so without this the path
+		// never actually appears/disappears and the test exercises nothing.
+		params::params.point_scatterer_params.polarimetric = true;
+
+		auto fixture = createStreamingPathWorld(
+			math::Path::InterpType::INTERP_STATIC, {{math::Vec3{0.0, 0.0, 0.0}, 0.0}},
+			math::Path::InterpType::INTERP_STATIC, {{math::Vec3{100.0, 0.0, 0.0}, 0.0}},
+			std::vector<math::Coord>{{math::Vec3{50.0, -5.0, 0.0}, 0.0}, {math::Vec3{50.0, 5.0, 0.0}, 2.0}},
+			math::Path::InterpType::INTERP_LINEAR);
+		fixture.rx->setFlag(radar::Receiver::RecvFlag::FLAG_NODIRECT); // isolate the reflected path
+		fixture.rx->setActive(true);
+
+		pool::ThreadPool pool(1);
+		RecordingOutputSink sink;
+		core::SimulationEngine engine(fixture.world.get(), pool, nullptr, ".", nullptr, &sink);
+		engine.handleTxStreamingStart(core::makeActiveSource(fixture.tx, 0.0, 1.9));
+		engine.processStreamingPhysics(1.9);
+		engine.handleRxStreamingEnd(fixture.rx);
+
+		return outputTimeline(sink);
+	};
+
+	ParamGuard const guard;
+	const auto exact_timeline = run(std::nullopt);
+	const auto coarse_timeline = run(10.0); // 100ms coarse ticks
+
+	// Find the reappearance in the coarse run: the last zero-to-nonzero transition (the first
+	// one, near t=0, is just simulation start-up, not what this test is about).
+	std::optional<std::size_t> reappear_index;
+	for (std::size_t i = 1; i < coarse_timeline.size(); ++i)
+	{
+		if (std::abs(coarse_timeline[i - 1]) == 0.0 && std::abs(coarse_timeline[i]) > 0.0)
+		{
+			reappear_index = i;
+		}
+	}
+	REQUIRE(reappear_index.has_value());
+	REQUIRE(*reappear_index < exact_timeline.size());
+
+	const RealType coarse_mag = std::abs(coarse_timeline[*reappear_index]);
+	const RealType exact_mag = std::abs(exact_timeline[*reappear_index]);
+
+	REQUIRE(exact_mag > 0.0);
+	// Fixed behaviour measures ~0.05x here (the sample genuinely close to where the path just
+	// started existing). The bug measured ~0.52x - it snapped close to half the bracket's final
+	// value regardless of how small the true value was this early into the ramp, matching the
+	// ~0.5 fraction the off-by-one-tick staleness predicts exactly. 0.3x comfortably separates
+	// the two without being so tight that unrelated changes to the geometry/physics make this
+	// flaky.
+	REQUIRE(coarse_mag < 0.3 * exact_mag);
+}
+
 TEST_CASE("SimulationEngine phase-noise lookup covers pre-start retarded streaming emissions", "[core][threading]")
 {
 	ParamGuard const guard;

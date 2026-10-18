@@ -878,12 +878,10 @@ namespace core
 
 		if (!_coarse_hi_time.has_value())
 		{
-			// Bootstrap: there's no earlier "hi" to shift down into "lo" yet, so the first bracket
-			// needs two queries back-to-back rather than the usual one per tick. The first query is
-			// a degenerate zero-width bracket (lo == hi); the loop below immediately extends it.
+			// Bootstrap: the first bracket is a degenerate zero-width one (lo == hi); the loop
+			// below immediately extends it.
 			const RealType lo_time = floorTickTime(t_step);
 			queryAndUpdate(lo_time, lo_time);
-			_coarse_lo_time = lo_time;
 			_coarse_hi_time = lo_time;
 		}
 
@@ -894,8 +892,8 @@ namespace core
 			const RealType next_time = std::min(
 				std::max(*_coarse_hi_time + coarse_dt, floorTickTime(t_step) + coarse_dt), _coarse_chunk_end_time);
 
-			queryAndUpdate(*_coarse_lo_time, next_time);
-			_coarse_lo_time = _coarse_hi_time;
+			// The bracket being created here starts where the previous one ended: *_coarse_hi_time.
+			queryAndUpdate(*_coarse_hi_time, next_time);
 			_coarse_hi_time = next_time;
 		}
 
