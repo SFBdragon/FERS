@@ -33,10 +33,8 @@ namespace propagation::raytracing
 	/// This number can be adjusted as needed. This caps the depth users can request.
 	constexpr uint32_t MAX_SCATTER_LIMIT = 7;
 
-	/// This bounds the minimim distance a ray may travel before a valid hit.
-	///
-	/// This guards against spurious hits against the surface that we're tracing away from.
-	constexpr float MIN_RAY_DISTANCE = 1e-2f;
+	/// This is around the scale of the Milky Way.
+	/// Should be sufficient to avoid far-clipping valid geometry.
 	constexpr float MAX_RAY_DISTANCE = 1e16f;
 
 	/// SBR engine triangle mesh view.

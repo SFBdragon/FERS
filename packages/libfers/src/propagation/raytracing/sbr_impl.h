@@ -162,6 +162,19 @@ namespace propagation::raytracing
 		Float3x4 obj_to_world;
 	};
 
+
+	/// Produces a safety margin intended to mitigate self-intersection.
+	/// It ensures the next hit isn't within about 1 ULP of distance.
+	/// It's not perfect, and while 1 ULP is enough for normal incidence,
+	/// 1 ULPs may not be enough for grazing incidence.
+	/// There are various other methods which should be considered further.
+	HC_FN float minRayDistance(const Float3& pos)
+	{
+		return 1e-2f;
+		const float absmax = std::max({std::abs(pos.x), std::abs(pos.y), std::abs(pos.z), 10.0f});
+		return absmax / 16777216.0f; // 2^24 - the mantissa essentially has 24 significant bits
+	}
+
 	/// Bilinearly samples an `AntennaPatternView` at a local (azimuth, elevation), clamping
 	/// both axes to the grid's covered range.
 	///

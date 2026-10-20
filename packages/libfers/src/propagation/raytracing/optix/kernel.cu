@@ -16,7 +16,9 @@
 #include "propagation/raytracing/sbr_impl.h"
 #include "propagation/raytracing/sbr_shared.h"
 
-// Get rid of the warnings about the names starting with two underscores.
+// Silence the warnings about the names starting with two underscores.
+// This naming scheme comes from official NVIDIA OptiX tutorials and thus
+// are unlikely to be aliased by new identifiers.
 // NOLINTBEGIN(bugprone-reserved-identifier)
 
 namespace propagation::raytracing::optix
@@ -99,7 +101,7 @@ namespace propagation::raytracing::optix
 		optixTrace(ias, // AS handle
 				   float3{origin.x, origin.y, origin.z}, // rayOrigin
 				   float3{direction.x, direction.y, direction.z}, // rayDirection
-				   MIN_RAY_DISTANCE, // tmin
+				   minRayDistance(origin), // tmin
 				   MAX_RAY_DISTANCE, // tmax
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask TODO?
@@ -157,11 +159,14 @@ namespace propagation::raytracing::optix
 		if (!should_reflect)
 			return; // we're done with this path
 
+		const auto origin = asF32(path->path_vertices[path->ray_count]);
+		const auto dir = asF32(path->trace_directions[path->ray_count]);
+
 		// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index): can't use throwing .at() in CUDA
 		optixTrace(ias, // AS handle
-				   asF32(path->path_vertices[path->ray_count]), // rayOrigin
-				   asF32(path->trace_directions[path->ray_count]), // rayDirection
-				   MIN_RAY_DISTANCE, // tmin
+				   origin, // rayOrigin
+				   dir, // rayDirection
+				   minRayDistance(Float3{origin.x, origin.y, origin.z}), // tmin
 				   MAX_RAY_DISTANCE, // tmax
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask
@@ -212,12 +217,14 @@ namespace propagation::raytracing::optix
 		PathState path{};
 		initIndirectPath(shader_params.sbr, path_index, antenna_index, t_index, path);
 
+		const auto origin = asF32(path.path_vertices[0]);
+
 		unsigned int hi{}, lo{};
 		packPointer(&path, &hi, &lo);
 		optixTrace(ias, // AS handle
-				   asF32(path.path_vertices[0]), // rayOrigin
+				   origin, // rayOrigin
 				   asF32(path.trace_directions[0]), // rayDirection
-				   MIN_RAY_DISTANCE, // tmin
+				   minRayDistance(Float3{origin.x, origin.y, origin.z}), // tmin
 				   MAX_RAY_DISTANCE, // tmax
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask
