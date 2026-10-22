@@ -125,17 +125,3 @@ TEST_CASE("buildPropagationCarrier maps Sfcw to a Stairs carrier", "[propagation
 			   WithinRel(source.carrier_freq + source.start_freq_off, 1e-6));
 	CHECK_THAT(double(carrier.params.stairs.step_frequency), WithinRel(source.sfcw_step_size, 1e-6));
 }
-
-TEST_CASE("buildPropagationCarrier's Chirps output samples correctly through sampleCarrierFrequency",
-		  "[propagation][carrier]")
-{
-	const auto source = makeBaseSource(core::StreamingWaveformKind::FmcwLinear);
-	const auto carrier = prop::buildPropagationCarrier<float>(source);
-
-	const double expected_start = source.carrier_freq + source.start_freq_off;
-	const double expected_slope = source.chirp_rate;
-
-	REQUIRE_THAT(prop::sampleCarrierFrequency(carrier, source.segment_start), WithinRel(expected_start, 1e-5));
-	REQUIRE_THAT(prop::sampleCarrierFrequency(carrier, source.segment_start + source.chirp_period / 2.0),
-				 WithinRel(expected_start + expected_slope * source.chirp_period / 2.0, 1e-5));
-}

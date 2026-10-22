@@ -24,9 +24,8 @@ namespace propagation
 	 * @struct PropagationPath
 	 * @brief Data type containing a valid radar path identified by the path finder.
 	 */
-	class PropagationPath
+	struct PropagationPath
 	{
-	public:
 		/// Total path delay, in seconds.
 		///
 		/// This is never zero. No path is created if this would be zero.
@@ -46,7 +45,7 @@ namespace propagation
 		/// Otherwise undefined.
 		size_t source_index;
 		/// The receiver of the path.
-		radar::Receiver& receiver;
+		radar::Receiver* receiver;
 	};
 
 	struct ThreadContext

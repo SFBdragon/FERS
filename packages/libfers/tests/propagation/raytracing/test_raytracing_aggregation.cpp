@@ -1,9 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
+#include "math/coord.h"
+#include "propagation/propagation_model.h"
 #include "propagation/raytracing/raytracing_model.h"
+#include "radar/platform.h"
+#include "radar/receiver.h"
 
 using Catch::Matchers::WithinAbs;
 namespace rt = propagation::raytracing;
@@ -22,6 +27,88 @@ namespace
 		c.dest_index = dest_index;
 		return c;
 	}
+
+	// pruneWeakPaths only looks at `.gain`; the receiver reference just needs to be valid.
+	void setupPlatform(radar::Platform& plat)
+	{
+		plat.getMotionPath()->addCoord(math::Coord{math::Vec3{0.0, 0.0, 0.0}, 0.0});
+		plat.getMotionPath()->finalize();
+		plat.getRotationPath()->addCoord(math::RotationCoord{0.0, 0.0, 0.0});
+		plat.getRotationPath()->finalize();
+	}
+
+	prop::PropagationPath makePath(radar::Receiver& rx, const RealType gain_mag, const uint64_t path_id = 0)
+	{
+		return prop::PropagationPath{
+			.delay = 0.0,
+			.gain = ComplexType{gain_mag, 0.0},
+			.path_id = path_id,
+			.source_index = 0,
+			.receiver = &rx,
+		};
+	}
+}
+
+// --- pruneWeakPaths ---------------------------------------------------------------------------
+
+TEST_CASE("pruneWeakPaths is a no-op when below_max_db is unset", "[raytracing][aggregation][prune]")
+{
+	radar::Platform plat("plat");
+	setupPlatform(plat);
+	radar::Receiver rx(&plat, "rx", 0, radar::OperationMode::CW_MODE);
+
+	std::vector<prop::PropagationPath> paths{makePath(rx, 1.0, 1), makePath(rx, 1e-9, 2)};
+	rt::pruneWeakPaths(paths, std::nullopt);
+
+	REQUIRE(paths.size() == 2);
+}
+
+TEST_CASE("pruneWeakPaths is a no-op for zero or one paths", "[raytracing][aggregation][prune]")
+{
+	radar::Platform plat("plat");
+	setupPlatform(plat);
+	radar::Receiver rx(&plat, "rx", 0, radar::OperationMode::CW_MODE);
+
+	std::vector<prop::PropagationPath> paths;
+	rt::pruneWeakPaths(paths, 60.0);
+	REQUIRE(paths.empty());
+	paths.push_back(makePath(rx, 1.0, 1));
+	rt::pruneWeakPaths(paths, 60.0);
+	REQUIRE(paths.size() == 1);
+}
+
+TEST_CASE("pruneWeakPaths drops paths more than N dB below the strongest path", "[raytracing][aggregation][prune]")
+{
+	radar::Platform plat("plat");
+	setupPlatform(plat);
+	radar::Receiver rx(&plat, "rx", 0, radar::OperationMode::CW_MODE);
+
+	// Relative to the strongest path (mag 1.0): -40dB (kept, above the -60dB floor) and
+	// -80dB (dropped, below it).
+	std::vector<prop::PropagationPath> paths{
+		makePath(rx, 1.0, /*path_id=*/1),
+		makePath(rx, 1e-2, /*path_id=*/2),
+		makePath(rx, 1e-4, /*path_id=*/3),
+	};
+
+	rt::pruneWeakPaths(paths, 60.0);
+
+	REQUIRE(paths.size() == 2);
+	CHECK(paths[0].path_id == 1);
+	CHECK(paths[1].path_id == 2);
+}
+
+TEST_CASE("pruneWeakPaths keeps a path exactly at the threshold", "[raytracing][aggregation][prune]")
+{
+	radar::Platform plat("plat");
+	setupPlatform(plat);
+	radar::Receiver rx(&plat, "rx", 0, radar::OperationMode::CW_MODE);
+
+	// 1e-3 is exactly -60dB relative to 1.0.
+	std::vector<prop::PropagationPath> paths{makePath(rx, 1.0, 1), makePath(rx, 1e-3, 2)};
+	rt::pruneWeakPaths(paths, 60.0);
+
+	REQUIRE(paths.size() == 2);
 }
 
 // --- aggregateContributionGroup -------------------------------------------------------------

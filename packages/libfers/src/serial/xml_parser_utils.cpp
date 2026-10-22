@@ -775,13 +775,21 @@ namespace serial::xml_parser_utils
 			rt.off_boresight_tube_solid_angle = parsePositiveRealParameter("off_boresight_tube_solid_angle",
 																		   std::stod(*off_boresight_tube_solid_angle));
 		}
+		if (const auto prune_below_max_db =
+				XmlElement::getOptionalAttribute(raytracing_element, "prune_below_max_db"))
+		{
+			rt.prune_below_max_db =
+				parsePositiveRealParameter("prune_below_max_db", std::stod(*prune_below_max_db));
+		}
 
 		LOG(logging::Level::INFO,
 			"Ray-tracing model: scatter_limit={}, boresight_width={:.4f} rad ({:.2f} deg), "
-			"boresight_tube_solid_angle={:.6g} sr, off_boresight_tube_solid_angle={:.6g} sr",
+			"boresight_tube_solid_angle={:.6g} sr, off_boresight_tube_solid_angle={:.6g} sr, "
+			"prune_below_max_db={}",
 			rt.scatter_limit, rt.boresight_width,
 			rotation_angle_utils::radians_to_unit(rt.boresight_width, params::RotationAngleUnit::Degrees),
-			rt.boresight_tube_solid_angle, rt.off_boresight_tube_solid_angle);
+			rt.boresight_tube_solid_angle, rt.off_boresight_tube_solid_angle,
+			rt.prune_below_max_db.has_value() ? std::to_string(*rt.prune_below_max_db) : "disabled");
 		LOG(logging::Level::INFO,
 			"Ray-tracing derived sampling: boresight cone={:.6g} sr ({} rays), off-boresight={:.6g} sr ({} "
 			"rays), total rays per source={}",

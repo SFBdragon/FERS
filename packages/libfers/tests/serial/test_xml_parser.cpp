@@ -206,7 +206,8 @@ TEST_CASE("fersxml round-trips mesh, material (including PEC), geometry, and ray
 		    <rate>1000</rate>
 		    <propagation>
 		      <raytracing scatter_limit="7" boresight_width="12.5"
-		                  boresight_tube_solid_angle="3e-7" off_boresight_tube_solid_angle="2e-4"/>
+		                  boresight_tube_solid_angle="3e-7" off_boresight_tube_solid_angle="2e-4"
+		                  prune_below_max_db="60"/>
 		    </propagation>
 		  </parameters>
 		  <mesh name="Cube" filename="cube.obj"/>
@@ -246,6 +247,8 @@ TEST_CASE("fersxml round-trips mesh, material (including PEC), geometry, and ray
 	REQUIRE_THAT(params::params.ray_tracing_params.boresight_width, WithinAbs(12.5 * PI / 180.0, 1e-9));
 	REQUIRE_THAT(params::params.ray_tracing_params.boresight_tube_solid_angle, WithinAbs(3e-7, 1e-13));
 	REQUIRE_THAT(params::params.ray_tracing_params.off_boresight_tube_solid_angle, WithinAbs(2e-4, 1e-10));
+	REQUIRE(params::params.ray_tracing_params.prune_below_max_db.has_value());
+	REQUIRE_THAT(*params::params.ray_tracing_params.prune_below_max_db, WithinAbs(60.0, 1e-9));
 
 	REQUIRE(world2.getMeshes().size() == 1);
 	const auto& mesh2 = world2.getMeshes().begin()->second;

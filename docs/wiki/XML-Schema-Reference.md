@@ -134,7 +134,8 @@ FERS does not accept platform latitude/longitude waypoints. Latitude and longitu
 ```xml
 <propagation>
     <raytracing scatter_limit="4" boresight_width="10"
-                boresight_tube_solid_angle="2e-8" off_boresight_tube_solid_angle="1e-5"/>
+                boresight_tube_solid_angle="2e-8" off_boresight_tube_solid_angle="1e-5"
+                prune_below_max_db="60"/>
 </propagation>
 ```
 
@@ -152,8 +153,11 @@ FERS does not accept platform latitude/longitude waypoints. Latitude and longitu
 | `boresight_width` | No | `<rotationangleunit>` | `0.3` rad (~17.2°) | Full angular width of the ray-sampling cone centered on each source antenna's boresight. The cone's half-angle is `boresight_width / 2`. Must be less than a full turn (360°/2π rad). |
 | `boresight_tube_solid_angle` | No | steradians | `2e-8` | Target ray-tube solid angle for rays sampled within the boresight cone. |
 | `off_boresight_tube_solid_angle` | No | steradians | `1e-5` | Target ray-tube solid angle for rays sampled outside the boresight cone. |
+| `prune_below_max_db` | No | dB (power, positive magnitude) | unset (no pruning) | For each receiver at a given time, drops paths more than this many dB weaker than that group's strongest path, for performance. No pruning if disabled. |
 
 `rays_per_source` and the cone's ray count are not set directly - they're derived from `boresight_width` and the two tube-solid-angle attributes and logged at the start of the simulation.
+
+`prune_below_max_db` culls paths to a receiver below the maximum dB path. It's generally safe to set this to something like "60" depending on your SNR. Dropped paths are individually below the kept power by at least that many dB, but enough of them summing in phase could in principle raise the dropped total above the per-path floor. Pick a threshold with enough margin over your expected noise floor/dynamic range that this isn't a concern for your scenario.
 
 Each ray tube's footprint on a hit facet is approximately `R^2 * S / cos(theta)`, where `R` is the range to the facet, `S` is the tube's solid angle, and `theta` is the incidence angle off the facet normal. A tube whose footprint exceeds a facet's area does not fully resolve that facet. To choose `boresight_tube_solid_angle` or `off_boresight_tube_solid_angle`, pick the smallest facet area `A_facet` that regime needs to resolve, and the shortest range and most oblique incidence angle targets in that regime will be seen at, then solve for the tube solid angle: `S <= A_facet * cos(theta) / R^2`. A smaller `S` resolves finer detail at the cost of more rays (and compute).
 
@@ -919,6 +923,7 @@ The XML schema is intentionally simple, so some important checks happen when FER
 - FMCW count fields must be positive integers when present.
 - FMCW sweep edges, including `start_frequency_offset`, must fit the effective sample rate `<rate> * <oversample>`.
 - FMCW receiver IF-chain fields are allowed only when dechirping is enabled.
+- `<raytracing>`'s `prune_below_max_db`, when present, must be a finite positive number.
 - SFCW `step_size` must be nonzero, count fields must be positive integers, `dwell_time` must be no greater than `step_period`, and every emitted RF step must be positive.
 - Receiver noise temperature must not be negative.
 - UTM KML/geospatial export needs a valid zone and hemisphere.

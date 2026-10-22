@@ -59,6 +59,7 @@
                 boresight_width                CDATA #IMPLIED
                 boresight_tube_solid_angle     CDATA #IMPLIED
                 off_boresight_tube_solid_angle CDATA #IMPLIED
+                prune_below_max_db             CDATA #IMPLIED
                 >
 
         <!-- Waveform definition -->

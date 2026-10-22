@@ -64,10 +64,10 @@ namespace
 				if (i < _present_at_index.size() && _present_at_index[i])
 				{
 					result[i].paths.push_back(propagation::PropagationPath{.delay = _delay,
-																			.gain = ComplexType{1.0, 0.0},
-																			.path_id = 1,
-																			.source_index = 0,
-																			.receiver = *_receiver});
+																		   .gain = ComplexType{1.0, 0.0},
+																		   .path_id = 1,
+																		   .source_index = 0,
+																		   .receiver = _receiver});
 				}
 			}
 			return result;

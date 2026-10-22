@@ -110,6 +110,12 @@ namespace params
 		/// Desired ray-tube solid angle (steradians) for rays sampled outside the boresight cone.
 		RealType off_boresight_tube_solid_angle = 1e-5;
 
+		/// Optional dynamic-range cull, in dB of power. Within each
+		/// (transmit time, destination) group, paths more than this many dB below that group's
+		/// strongest path are dropped before being handed back to the rest of FERS. Unset (the
+		/// default) disables pruning entirely, preserving prior FERS behaviour exactly.
+		std::optional<RealType> prune_below_max_db;
+
 		/// Solid angle (steradians) of the boresight sampling cone, derived from `boresight_width`.
 		[[nodiscard]] RealType boresightSolidAngle() const noexcept
 		{

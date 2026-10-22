@@ -303,7 +303,8 @@ TEST_CASE("parseParameters extracts the raytracing propagation model and its sub
 		"<parameters>"
 		"  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
 		"  <propagation><raytracing scatter_limit=\"5\" boresight_width=\"20\" "
-		"boresight_tube_solid_angle=\"1e-6\" off_boresight_tube_solid_angle=\"1e-3\"/></propagation>"
+		"boresight_tube_solid_angle=\"1e-6\" off_boresight_tube_solid_angle=\"1e-3\" "
+		"prune_below_max_db=\"60\"/></propagation>"
 		"</parameters>");
 
 	REQUIRE(p.propagation_model == params::PropagationModelKind::SbrRayTracing);
@@ -312,6 +313,8 @@ TEST_CASE("parseParameters extracts the raytracing propagation model and its sub
 	REQUIRE_THAT(p.ray_tracing_params.boresight_width, WithinAbs(20.0 * PI / 180.0, 1e-9));
 	REQUIRE_THAT(p.ray_tracing_params.boresight_tube_solid_angle, WithinAbs(1e-6, 1e-12));
 	REQUIRE_THAT(p.ray_tracing_params.off_boresight_tube_solid_angle, WithinAbs(1e-3, 1e-12));
+	REQUIRE(p.ray_tracing_params.prune_below_max_db.has_value());
+	REQUIRE_THAT(*p.ray_tracing_params.prune_below_max_db, WithinAbs(60.0, 1e-9));
 }
 
 TEST_CASE("parseParameters keeps ray-tracing sub-parameter defaults when omitted", "[serial][xml_parser_utils]")
@@ -330,6 +333,7 @@ TEST_CASE("parseParameters keeps ray-tracing sub-parameter defaults when omitted
 				 WithinAbs(defaults.ray_tracing_params.boresight_tube_solid_angle, 1e-18));
 	REQUIRE_THAT(p.ray_tracing_params.off_boresight_tube_solid_angle,
 				 WithinAbs(defaults.ray_tracing_params.off_boresight_tube_solid_angle, 1e-15));
+	REQUIRE_FALSE(p.ray_tracing_params.prune_below_max_db.has_value());
 }
 
 TEST_CASE("parseParameters rejects a boresight_width of a full turn or more", "[serial][xml_parser_utils]")
@@ -340,6 +344,17 @@ TEST_CASE("parseParameters rejects a boresight_width of a full turn or more", "[
 												"  <propagation><raytracing boresight_width=\"360\"/></propagation>"
 												"</parameters>"),
 					  std::exception);
+}
+
+TEST_CASE("parseParameters rejects a non-positive prune_below_max_db", "[serial][xml_parser_utils]")
+{
+	ParamGuard const guard;
+	REQUIRE_THROWS_AS(
+		parseInvalidParametersXml("<parameters>"
+								  "  <starttime>0</starttime><endtime>1</endtime><rate>1000</rate>"
+								  "  <propagation><raytracing prune_below_max_db=\"0\"/></propagation>"
+								  "</parameters>"),
+		std::exception);
 }
 
 TEST_CASE("parseParameters selects the pointscatter propagation model", "[serial][xml_parser_utils]")

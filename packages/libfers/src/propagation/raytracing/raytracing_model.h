@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -141,6 +142,14 @@ namespace propagation::raytracing
 	 */
 	[[nodiscard]] ComplexType aggregateContributionGroup(const std::vector<const Contribution*>& group,
 														 RealType group_delay, RealType carrier_frequency);
+
+	/**
+	 * @brief Drops paths more than `below_max_db` weaker than the strongest path in `paths`.
+	 * A no-op (returns `paths` unchanged) if `below_max_db` is `std::nullopt`.
+	 *
+	 * @param paths Typically all paths for one (transmit time, destination) pair.
+	 */
+	void pruneWeakPaths(std::vector<PropagationPath>& paths, std::optional<RealType> below_max_db);
 
 
 	class RayTracingBackend

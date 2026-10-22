@@ -139,6 +139,10 @@ namespace serial::xml_serializer_utils
 			{
 				setAttributeFromNumber(rt_elem, "off_boresight_tube_solid_angle", rt.off_boresight_tube_solid_angle);
 			}
+			if (rt.prune_below_max_db.has_value())
+			{
+				setAttributeFromNumber(rt_elem, "prune_below_max_db", *rt.prune_below_max_db);
+			}
 		}
 		else if (p.point_scatterer_params.polarimetric != params::PointScatterParameters{}.polarimetric)
 		{

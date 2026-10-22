@@ -111,6 +111,7 @@
                         <xs:attribute name="boresight_width" type="xs:double"/>
                         <xs:attribute name="boresight_tube_solid_angle" type="xs:double"/>
                         <xs:attribute name="off_boresight_tube_solid_angle" type="xs:double"/>
+                        <xs:attribute name="prune_below_max_db" type="xs:double"/>
                     </xs:complexType>
                 </xs:element>
             </xs:choice>

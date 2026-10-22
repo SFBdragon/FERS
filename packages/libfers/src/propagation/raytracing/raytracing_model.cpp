@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -197,6 +198,28 @@ namespace propagation::raytracing
 		return summed_voltage;
 	}
 
+	void pruneWeakPaths(std::vector<PropagationPath>& paths, const std::optional<RealType> below_max_db)
+	{
+		if (!below_max_db.has_value() || paths.size() <= 1)
+		{
+			return;
+		}
+
+		RealType max_gain_mag = 0.0;
+		for (const auto& path : paths)
+		{
+			max_gain_mag = std::max(max_gain_mag, std::abs(path.gain));
+		}
+		if (max_gain_mag <= 0.0)
+		{
+			return;
+		}
+
+		const RealType threshold_mag = max_gain_mag * std::pow(RealType(10.0), -*below_max_db / RealType(20.0));
+
+		std::erase_if(paths, [&](const auto& p) { return std::abs(p.gain) < threshold_mag; });
+	}
+
 
 	RayTracingModel::RayTracingModel(core::World* world, params::RayTracingEnginePreference engine,
 									 pool::ThreadPool& pool) :
@@ -325,25 +348,39 @@ namespace propagation::raytracing
 		}
 
 		const auto& receivers = _world->getReceivers();
+
+		// Bucketed by `key.coarse` (time_idx, dest_index) rather than pushed straight into
+		// `paths_at_time`: pruning's "strongest path" comparison must stay within one
+		// (transmit time, destination) link, not across every receiver sharing a timestep.
+		std::unordered_map<uint64_t, std::vector<PropagationPath>> paths_by_bucket;
 		for (const auto& [key, group] : groupContributions(contributions))
 		{
-			const auto source_times_index = static_cast<uint32_t>(key.coarse >> 32);
 			const auto dest_index = static_cast<uint32_t>(key.coarse);
-			const auto time_idx = source_times_index; // source_count == 1
-			assert(time_idx < paths_at_time.size());
+			assert((key.coarse >> 32) < paths_at_time.size());
 			assert(dest_index < receivers.size());
 
 			const RealType carrier_freq = transmitter.getSignal()->getCarrier();
 			const auto group_delay = contributionGroupDelay(group);
 			const auto gain = aggregateContributionGroup(group, group_delay, carrier_freq);
 
-			paths_at_time[time_idx].paths.push_back(PropagationPath{
+			paths_by_bucket[key.coarse].push_back(PropagationPath{
 				.delay = group_delay,
 				.gain = gain,
 				.path_id = group.front()->path_id,
-				.source_index = 0, // Undefined for traceFromTransmitter
-				.receiver = *receivers[dest_index],
+				.source_index = 0,
+				.receiver = receivers[dest_index].get(),
 			});
+		}
+
+		const auto prune_below_max_db = params::rayTracingParams().prune_below_max_db;
+		for (auto& [coarse, bucket_paths] : paths_by_bucket)
+		{
+			const auto time_idx = static_cast<uint32_t>(coarse >> 32); // source_count == 1
+			pruneWeakPaths(bucket_paths, prune_below_max_db);
+			for (const auto& path : bucket_paths)
+			{
+				paths_at_time[time_idx].paths.push_back(path);
+			}
 		}
 
 		return paths_at_time;
@@ -402,8 +439,17 @@ namespace propagation::raytracing
 				.gain = gain,
 				.path_id = group.front()->path_id,
 				.source_index = tx_index,
-				.receiver = *receiver,
+				.receiver = receiver,
 			});
+		}
+
+		// Pruning's "strongest path" comparison is per receiver here: traceFromReceivers already
+		// groups every source's contribution to a given receiver together, which is exactly the
+		// (transmit time, destination) unit pruning needs - rx_time is shared by every path above.
+		const auto prune_below_max_db = params::rayTracingParams().prune_below_max_db;
+		for (auto& [receiver, paths] : paths_by_receiver)
+		{
+			pruneWeakPaths(paths, prune_below_max_db);
 		}
 
 		return paths_by_receiver;

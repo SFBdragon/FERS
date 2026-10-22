@@ -176,6 +176,7 @@ TEST_CASE("serializeParameters writes raytracing propagation as a nested element
 		p.ray_tracing_params.boresight_width = 20.0 * PI / 180.0;
 		p.ray_tracing_params.boresight_tube_solid_angle = 1e-6;
 		p.ray_tracing_params.off_boresight_tube_solid_angle = 1e-3;
+		p.ray_tracing_params.prune_below_max_db = 60.0;
 
 		serial::xml_serializer_utils::serializeParameters(root, p);
 		std::string s = dumpElement(root);
@@ -184,6 +185,7 @@ TEST_CASE("serializeParameters writes raytracing propagation as a nested element
 		REQUIRE_THAT(s, ContainsSubstring("boresight_width=\"20\""));
 		REQUIRE_THAT(s, ContainsSubstring("boresight_tube_solid_angle=\"1e-06\""));
 		REQUIRE_THAT(s, ContainsSubstring("off_boresight_tube_solid_angle=\"0.001\""));
+		REQUIRE_THAT(s, ContainsSubstring("prune_below_max_db=\"60\""));
 	}
 
 	SECTION("raytracing model with all-default sub-parameters omits the attributes")

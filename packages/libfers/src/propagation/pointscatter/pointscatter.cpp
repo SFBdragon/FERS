@@ -124,7 +124,7 @@ namespace propagation::pointscatter
 			.gain = gain,
 			.path_id = hash_mix(hash_mix(HASH_SEED, tx.getId()), rx.getId()),
 			.source_index{},
-			.receiver = rx,
+			.receiver = &rx,
 		};
 	}
 
@@ -278,7 +278,7 @@ namespace propagation::pointscatter
 			.gain = gain,
 			.path_id = hash_mix(hash_mix(hash_mix(HASH_SEED, tx.getId()), target.getId()), rx.getId()),
 			.source_index{},
-			.receiver = rx,
+			.receiver = &rx,
 		};
 	}
 

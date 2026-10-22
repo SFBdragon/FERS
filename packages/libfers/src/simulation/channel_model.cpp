@@ -659,7 +659,7 @@ namespace simulation
 					.gain = std::polar(gain_mag, gain_phase),
 					.path_id = path_id,
 					.source_index = source_index,
-					.receiver = receiver,
+					.receiver = &receiver,
 				});
 			}
 		}
@@ -824,8 +824,8 @@ namespace simulation
 				{
 					responses.insert({
 						path.path_id,
-						{serial::ResponseBuilder(tx.getSignal(), point, left_interval, right_interval),
-						 &path.receiver, i},
+						{serial::ResponseBuilder(tx.getSignal(), point, left_interval, right_interval), path.receiver,
+						 i},
 					});
 				}
 			}
