@@ -642,7 +642,7 @@ TEST_CASE("JSON: Serialization of Math and Timing Structures", "[serial][json]")
 TEST_CASE("JSON: pointscatter polarimetric flag round trips", "[serial][json]")
 {
 	ParamGuard const guard;
-	core::World w;
+	const core::World w;
 
 	SECTION("defaults to false when omitted")
 	{

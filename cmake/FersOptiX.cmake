@@ -47,6 +47,8 @@ add_custom_command(
 			--expt-relaxed-constexpr
 			-lineinfo
 			-std=c++${CMAKE_CXX_STANDARD}
+			-Xcompiler -Wall,-Wextra,-Wshadow,-Wconversion,-Wsign-conversion,-Wold-style-cast
+			--Wreorder --Wext-lambda-captures-this --Wdefault-stream-launch
 			-I "${OptiX_INCLUDE_DIR}"
 			-I "${_fers_optix_dir}"
 			-I "${CMAKE_CURRENT_SOURCE_DIR}/src"

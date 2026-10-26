@@ -90,7 +90,7 @@ namespace serial
 	}
 
 	Response::Response(ResponseBuilder builder) :
-		_signal(builder._signal), _wave(nullptr), _points(std::move(builder._points))
+		_signal(builder._signal), _points(std::move(builder._points))
 	{
 		if (!_signal->isPulsed())
 		{

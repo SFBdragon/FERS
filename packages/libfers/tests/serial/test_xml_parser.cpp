@@ -248,7 +248,7 @@ TEST_CASE("fersxml round-trips mesh, material (including PEC), geometry, and ray
 	REQUIRE_THAT(params::params.ray_tracing_params.boresight_tube_solid_angle, WithinAbs(3e-7, 1e-13));
 	REQUIRE_THAT(params::params.ray_tracing_params.off_boresight_tube_solid_angle, WithinAbs(2e-4, 1e-10));
 	REQUIRE(params::params.ray_tracing_params.prune_below_max_db.has_value());
-	REQUIRE_THAT(*params::params.ray_tracing_params.prune_below_max_db, WithinAbs(60.0, 1e-9));
+	REQUIRE_THAT(params::params.ray_tracing_params.prune_below_max_db.value(), WithinAbs(60.0, 1e-9));
 
 	REQUIRE(world2.getMeshes().size() == 1);
 	const auto& mesh2 = world2.getMeshes().begin()->second;
@@ -272,15 +272,15 @@ TEST_CASE("fersxml round-trips mesh, material (including PEC), geometry, and ray
 
 	const auto& geometry1 = tgt1->getGeometry();
 	REQUIRE(geometry1.has_value());
-	REQUIRE(geometry1->mesh->name == "Cube");
-	REQUIRE(geometry1->material->name == "PEC");
+	REQUIRE(geometry1.value().mesh->name == "Cube");
+	REQUIRE(geometry1.value().material->name == "PEC");
 	REQUIRE(tgt1->getRcsSpec() != nullptr);
 
 	// tgt2 has geometry but no <rcs>: round-trips with no RCS spec, still fully resolving its geometry.
 	const auto& geometry2 = tgt2->getGeometry();
 	REQUIRE(geometry2.has_value());
-	REQUIRE(geometry2->mesh->name == "Cube");
-	REQUIRE(geometry2->material->name == "PEC");
+	REQUIRE(geometry2.value().mesh->name == "Cube");
+	REQUIRE(geometry2.value().material->name == "PEC");
 	REQUIRE(tgt2->getRcsSpec() == nullptr);
 }
 

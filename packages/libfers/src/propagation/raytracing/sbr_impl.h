@@ -186,6 +186,7 @@ namespace propagation::raytracing
 	{
 		assert(pattern.az_count >= 2);
 		assert(pattern.el_count >= 2);
+		assert(params.antenna_gains != nullptr);
 
 		const auto az_max = static_cast<float>(pattern.az_count - 1);
 		const auto el_max = static_cast<float>(pattern.el_count - 1);
@@ -711,7 +712,7 @@ namespace propagation::raytracing
 		const Double3 dnormal = cross(verts[1] - verts[0], verts[2] - verts[0]);
 		const double two_times_facet_area = length(dnormal);
 		Float3 u_norm = Float3{dnormal / two_times_facet_area};
-		float facet_area = float(two_times_facet_area) / 2;
+		const float facet_area = float(two_times_facet_area) / 2;
 		// Flip the normal to face the incoming ray.
 		u_norm = dot(u_inc, u_norm) <= 0 ? u_norm : -u_norm;
 

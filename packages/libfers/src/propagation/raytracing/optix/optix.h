@@ -88,7 +88,7 @@ namespace propagation::raytracing::optix
 		[[nodiscard]] OptixDeviceContext get() const { return _context; }
 
 	private:
-		OptixDeviceContext _context;
+		OptixDeviceContext _context{nullptr};
 	};
 
 	/**
@@ -187,8 +187,8 @@ namespace propagation::raytracing::optix
 		OptixModuleCompileOptions _module_comp_options;
 		OptixPipelineCompileOptions _pipeline_comp_options;
 		OptixPipelineLinkOptions _pipeline_link_options;
-		OptixModule _module;
-		OptixProgramGroup _raygen_program;
+		OptixModule _module{};
+		OptixProgramGroup _raygen_program{};
 		std::vector<OptixProgramGroup> _hitgroup_programs;
 		std::vector<OptixProgramGroup> _miss_programs;
 		DeviceBuffer<RaygenRecord> _raygen_record;

@@ -234,7 +234,7 @@ TEST_CASE("buildAntennaModel rejects a degenerate grid resolution for H5Antenna"
 		file.createDataSet<RealType>("antenna", HighFive::DataSpace::From(pattern)).write(pattern);
 	}
 
-	antenna::H5Antenna antenna("h5", path.string(), 1);
+	const antenna::H5Antenna antenna("h5", path.string(), 1);
 	std::vector<float> gains_buffer;
 	REQUIRE_THROWS_AS(rt::buildAntennaModel(antenna, gains_buffer, 1, 10), std::invalid_argument);
 	REQUIRE_THROWS_AS(rt::buildAntennaModel(antenna, gains_buffer, 10, 1), std::invalid_argument);

@@ -347,7 +347,7 @@ namespace
 			mode = radar::parseDechirpModeToken(mode_json.at("dechirp_mode").get<std::string>());
 		}
 
-		radar::Receiver::FmcwIfChainRequest if_chain{
+		const radar::Receiver::FmcwIfChainRequest if_chain{
 			.sample_rate_hz = get_optional_positive_real(mode_json, "if_sample_rate", owner),
 			.filter_bandwidth_hz = get_optional_positive_real(mode_json, "if_filter_bandwidth", owner),
 			.filter_transition_width_hz = get_optional_positive_real(mode_json, "if_filter_transition_width", owner)};
@@ -765,7 +765,7 @@ namespace fers_signal
 			auto fmcw_signal = FmcwTriangleWaveform(fmcw_json.at("chirp_bandwidth").get<RealType>(),
 													fmcw_json.at("chirp_duration").get<RealType>(),
 													fmcw_json.value("start_frequency_offset", 0.0), triangle_count);
-			rs = std::make_unique<RadarSignal>(name, power, carrier, std::move(fmcw_signal), id);
+			rs = std::make_unique<RadarSignal>(name, power, carrier, fmcw_signal, id);
 			validate_fmcw_waveform(*rs, "Waveform '" + name + "'");
 		}
 		else if (j.contains("pulsed_from_file"))

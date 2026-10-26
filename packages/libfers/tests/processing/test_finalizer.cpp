@@ -823,7 +823,7 @@ TEST_CASE("runPulsedFinalizer writes jittered chunks and emits completion progre
 	second_job.responses.push_back(
 		makeFixedResponse(wave_store, {ComplexType{1.0, 0.0}, ComplexType{1.0, 0.0}}, 8.0, 1.125));
 
-	std::vector<std::unique_ptr<radar::Target>> targets;
+	const std::vector<std::unique_ptr<radar::Target>> targets;
 	core::World world;
 	const auto prop = std::make_shared<const propagation::pointscatter::PointScatterModel>(&world);
 	std::vector<ProgressCall> progress_calls;
@@ -881,7 +881,7 @@ TEST_CASE("runPulsedFinalizer routes completed acquisition windows to an output 
 	job.duration = 0.5;
 	job.responses.push_back(makeFixedResponse(wave_store, {ComplexType{1.0, 0.0}, ComplexType{2.0, 0.0}}, 4.0, 0.0));
 
-	std::vector<std::unique_ptr<radar::Target>> targets;
+	const std::vector<std::unique_ptr<radar::Target>> targets;
 	core::World world;
 	const auto prop = std::make_shared<const propagation::pointscatter::PointScatterModel>(&world);
 	CapturingOutputSink sink;

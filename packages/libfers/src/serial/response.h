@@ -119,7 +119,7 @@ namespace serial
 
 	private:
 		const fers_signal::RadarSignal* _signal; ///< Pointer to the radar signal object.
-		const fers_signal::PulseWaveform* _wave; ///< Pointer to the radar signal object's PulseWaveform.
+		const fers_signal::PulseWaveform* _wave{nullptr}; ///< Pointer to the radar signal object's PulseWaveform.
 		std::vector<interp::InterpPoint> _points; ///< Channel property interpolation points, taper points included.
 		RealType _native_anchor_time; ///< rx_time of the true first sample (not a synthetic lead taper point).
 	};

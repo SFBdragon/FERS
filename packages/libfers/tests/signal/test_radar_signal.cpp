@@ -159,19 +159,19 @@ TEST_CASE("SteppedFrequencyWaveform selects active dwell steps and finite sweeps
 
 	const auto first = sfcw.activeStepAt(0.1, 100.0);
 	REQUIRE(first.has_value());
-	REQUIRE(first->sweep_index == 0u);
-	REQUIRE(first->step_index == 0u);
-	REQUIRE_THAT(first->rf_frequency, WithinAbs(110.0, 1e-12));
-	REQUIRE_THAT(first->step_start_time, WithinAbs(0.0, 1e-12));
-	REQUIRE_THAT(first->dwell_end_time, WithinAbs(0.25, 1e-12));
+	REQUIRE(first.value().sweep_index == 0u);
+	REQUIRE(first.value().step_index == 0u);
+	REQUIRE_THAT(first.value().rf_frequency, WithinAbs(110.0, 1e-12));
+	REQUIRE_THAT(first.value().step_start_time, WithinAbs(0.0, 1e-12));
+	REQUIRE_THAT(first.value().dwell_end_time, WithinAbs(0.25, 1e-12));
 
 	REQUIRE_FALSE(sfcw.activeStepAt(0.3, 100.0).has_value());
 
 	const auto second_sweep = sfcw.activeStepAt(2.55, 100.0);
 	REQUIRE(second_sweep.has_value());
-	REQUIRE(second_sweep->sweep_index == 1u);
-	REQUIRE(second_sweep->step_index == 1u);
-	REQUIRE_THAT(second_sweep->rf_frequency, WithinAbs(112.0, 1e-12));
+	REQUIRE(second_sweep.value().sweep_index == 1u);
+	REQUIRE(second_sweep.value().step_index == 1u);
+	REQUIRE_THAT(second_sweep.value().rf_frequency, WithinAbs(112.0, 1e-12));
 	REQUIRE_FALSE(sfcw.activeStepAt(4.0, 100.0).has_value());
 
 	fers_signal::SfcwWaveform const descending(0.0, -5.0, 3, 0.1, 0.2);
@@ -189,7 +189,7 @@ TEST_CASE("RadarSignal exposes metadata", "[signal][radar]")
 	signal.load(data, static_cast<unsigned>(data.size()), 1000.0);
 	signal.setFilename("waveform.bin");
 
-	fers_signal::RadarSignal radar("waveform", 9.0, 77.0, std::move(signal), 42);
+	const fers_signal::RadarSignal radar("waveform", 9.0, 77.0, std::move(signal), 42);
 
 	REQUIRE(radar.getName() == "waveform");
 	REQUIRE(radar.getCarrier() == 77.0);

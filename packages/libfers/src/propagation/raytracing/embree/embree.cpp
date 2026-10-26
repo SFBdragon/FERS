@@ -121,7 +121,7 @@ namespace propagation::raytracing::embree
 		const auto source_antenna_count = static_cast<uint32_t>(job.source_antennas.size() / job.times.size());
 		const auto dest_antenna_count = static_cast<uint32_t>(job.dest_antennas.size() / job.times.size());
 
-		SbrParams sbr{
+		const SbrParams sbr{
 			.scatter_limit = maxScatterLimit(),
 			.directions_per_source = rays_per_source,
 			.boresight_rays = params::rayTracingParams().boresightDirections(),

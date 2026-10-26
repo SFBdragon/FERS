@@ -314,7 +314,7 @@ TEST_CASE("parseParameters extracts the raytracing propagation model and its sub
 	REQUIRE_THAT(p.ray_tracing_params.boresight_tube_solid_angle, WithinAbs(1e-6, 1e-12));
 	REQUIRE_THAT(p.ray_tracing_params.off_boresight_tube_solid_angle, WithinAbs(1e-3, 1e-12));
 	REQUIRE(p.ray_tracing_params.prune_below_max_db.has_value());
-	REQUIRE_THAT(*p.ray_tracing_params.prune_below_max_db, WithinAbs(60.0, 1e-9));
+	REQUIRE_THAT(p.ray_tracing_params.prune_below_max_db.value(), WithinAbs(60.0, 1e-9));
 }
 
 TEST_CASE("parseParameters keeps ray-tracing sub-parameter defaults when omitted", "[serial][xml_parser_utils]")
@@ -1089,7 +1089,8 @@ TEST_CASE("parseTransmitter resolves references and builds object with schedule"
 	std::unordered_map<std::string, SimId> const w_refs = {{"w1", 10}};
 	std::unordered_map<std::string, SimId> const a_refs = {{"a1", 20}};
 	std::unordered_map<std::string, SimId> const t_refs = {{"t1", 30}};
-	serial::xml_parser_utils::ReferenceLookup const refs{&w_refs, &a_refs, &t_refs};
+	serial::xml_parser_utils::ReferenceLookup const refs{
+		.waveforms = &w_refs, .antennas = &a_refs, .timings = &t_refs, .meshes = nullptr, .materials = nullptr};
 
 	radar::Platform platform("plat");
 
@@ -1130,7 +1131,8 @@ TEST_CASE("parseTransmitter rejects FMCW waveform and mode mismatches", "[serial
 	std::unordered_map<std::string, SimId> const w_refs = {{"fmcw_wave", 10}};
 	std::unordered_map<std::string, SimId> const a_refs = {{"a1", 20}};
 	std::unordered_map<std::string, SimId> const t_refs = {{"t1", 30}};
-	serial::xml_parser_utils::ReferenceLookup const refs{&w_refs, &a_refs, &t_refs};
+	serial::xml_parser_utils::ReferenceLookup const refs{
+		.waveforms = &w_refs, .antennas = &a_refs, .timings = &t_refs, .meshes = nullptr, .materials = nullptr};
 
 	radar::Platform platform("plat");
 
@@ -1180,7 +1182,8 @@ TEST_CASE("parseTransmitter accepts native SFCW mode and rejects invalid SFCW bl
 	std::unordered_map<std::string, SimId> const w_refs = {{"sfcw_wave", 10}};
 	std::unordered_map<std::string, SimId> const a_refs = {{"a1", 20}};
 	std::unordered_map<std::string, SimId> const t_refs = {{"t1", 30}};
-	serial::xml_parser_utils::ReferenceLookup const refs{&w_refs, &a_refs, &t_refs};
+	serial::xml_parser_utils::ReferenceLookup const refs{
+		.waveforms = &w_refs, .antennas = &a_refs, .timings = &t_refs, .meshes = nullptr, .materials = nullptr};
 	radar::Platform platform("plat");
 
 	auto sfcw_doc = loadXml("<transmitter name=\"tx_sfcw\" waveform=\"sfcw_wave\" antenna=\"a1\" timing=\"t1\">"
@@ -1228,7 +1231,8 @@ TEST_CASE("parseTransmitter validates FMCW schedule duration against chirp timin
 	std::unordered_map<std::string, SimId> const w_refs = {{"fmcw_wave", 10}};
 	std::unordered_map<std::string, SimId> const a_refs = {{"a1", 20}};
 	std::unordered_map<std::string, SimId> const t_refs = {{"t1", 30}};
-	serial::xml_parser_utils::ReferenceLookup const refs{&w_refs, &a_refs, &t_refs};
+	serial::xml_parser_utils::ReferenceLookup const refs{
+		.waveforms = &w_refs, .antennas = &a_refs, .timings = &t_refs, .meshes = nullptr, .materials = nullptr};
 
 	radar::Platform platform("plat");
 
@@ -1280,7 +1284,8 @@ TEST_CASE("parseReceiver resolves references and builds object with flags and sc
 	std::unordered_map<std::string, SimId> const w_refs;
 	std::unordered_map<std::string, SimId> const a_refs = {{"a1", 20}};
 	std::unordered_map<std::string, SimId> const t_refs = {{"t1", 30}};
-	serial::xml_parser_utils::ReferenceLookup const refs{&w_refs, &a_refs, &t_refs};
+	serial::xml_parser_utils::ReferenceLookup const refs{
+		.waveforms = &w_refs, .antennas = &a_refs, .timings = &t_refs, .meshes = nullptr, .materials = nullptr};
 
 	radar::Platform platform("plat");
 
@@ -1444,7 +1449,8 @@ TEST_CASE("parseMonostatic reuses one shared timing instance for a common timing
 	std::unordered_map<std::string, SimId> const w_refs = {{"w1", 10}};
 	std::unordered_map<std::string, SimId> const a_refs = {{"a1", 20}};
 	std::unordered_map<std::string, SimId> const t_refs = {{"t1", 30}};
-	serial::xml_parser_utils::ReferenceLookup const refs{&w_refs, &a_refs, &t_refs};
+	serial::xml_parser_utils::ReferenceLookup const refs{
+		.waveforms = &w_refs, .antennas = &a_refs, .timings = &t_refs, .meshes = nullptr, .materials = nullptr};
 
 	radar::Platform platform("plat");
 
@@ -1483,7 +1489,8 @@ TEST_CASE("parseMonostatic derives FMCW mode from the monostatic block without r
 	std::unordered_map<std::string, SimId> const w_refs = {{"w1", 10}};
 	std::unordered_map<std::string, SimId> const a_refs = {{"a1", 20}};
 	std::unordered_map<std::string, SimId> const t_refs = {{"t1", 30}};
-	serial::xml_parser_utils::ReferenceLookup const refs{&w_refs, &a_refs, &t_refs};
+	serial::xml_parser_utils::ReferenceLookup const refs{
+		.waveforms = &w_refs, .antennas = &a_refs, .timings = &t_refs, .meshes = nullptr, .materials = nullptr};
 
 	radar::Platform platform("plat");
 
@@ -1600,7 +1607,7 @@ TEST_CASE("parseTarget resolves an optional geometry element", "[serial][xml_par
 	ctx.master_seeder = &seeder;
 	radar::Platform platform("plat");
 
-	world.add(core::MeshAsset{.id = 10, .name = "Cube", .path = "/scenario/dir/meshes/cube.obj"});
+	world.add(core::MeshAsset{.id = 10, .name = "Cube", .path = "/scenario/dir/meshes/cube.obj", .filename = ""});
 	world.add(
 		core::MaterialAsset{.id = 20, .name = "Aluminium", .relative_permittivity = 1.0, .conductivity = 0.0});
 
@@ -1624,8 +1631,8 @@ TEST_CASE("parseTarget resolves an optional geometry element", "[serial][xml_par
 		auto* tgt = world.getTargets().front().get();
 		const auto& geometry = tgt->getGeometry();
 		REQUIRE(geometry.has_value());
-		REQUIRE(geometry->mesh->name == "Cube");
-		REQUIRE(geometry->material->name == "Aluminium");
+		REQUIRE(geometry.value().mesh->name == "Cube");
+		REQUIRE(geometry.value().material->name == "Aluminium");
 	}
 
 	SECTION("Target without geometry has no value")
@@ -1723,7 +1730,8 @@ TEST_CASE("parsePlatform prefers rotationpath over fixedrotation", "[serial][xml
 	std::unordered_map<std::string, SimId> const w_refs;
 	std::unordered_map<std::string, SimId> const a_refs;
 	std::unordered_map<std::string, SimId> const t_refs;
-	serial::xml_parser_utils::ReferenceLookup const refs{&w_refs, &a_refs, &t_refs};
+	serial::xml_parser_utils::ReferenceLookup const refs{
+		.waveforms = &w_refs, .antennas = &a_refs, .timings = &t_refs, .meshes = nullptr, .materials = nullptr};
 	auto register_name = [](const XmlElement&, std::string_view) {};
 	auto doc =
 		loadXml("<platform name=\"plat_both\">"
@@ -1754,7 +1762,8 @@ TEST_CASE("parsePlatform supports fixedrotation without rotationpath", "[serial]
 	std::unordered_map<std::string, SimId> const w_refs;
 	std::unordered_map<std::string, SimId> const a_refs;
 	std::unordered_map<std::string, SimId> const t_refs;
-	serial::xml_parser_utils::ReferenceLookup const refs{&w_refs, &a_refs, &t_refs};
+	serial::xml_parser_utils::ReferenceLookup const refs{
+		.waveforms = &w_refs, .antennas = &a_refs, .timings = &t_refs, .meshes = nullptr, .materials = nullptr};
 	auto register_name = [](const XmlElement&, std::string_view) {};
 	auto doc = loadXml("<platform name=\"plat_fixed\">"
 					   "  <fixedrotation>"

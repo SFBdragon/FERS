@@ -1026,7 +1026,7 @@ namespace processing
 	}
 
 	void runPulsedFinalizer(radar::Receiver* receiver,
-							std::shared_ptr<const propagation::PropagationModel> prop,
+							const std::shared_ptr<const propagation::PropagationModel>& prop,
 							const std::shared_ptr<core::ProgressReporter>& reporter, const std::string& output_dir,
 							const std::shared_ptr<core::OutputMetadataCollector>& metadata_collector,
 							core::ReceiverOutputSink* output_sink)

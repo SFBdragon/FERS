@@ -444,7 +444,7 @@ TEST_CASE("calculateResponses direct path response spans approximately the signa
 	tx->setTiming(timing);
 
 	// 5e-3 s worth of samples at 10000 Hz.
-	std::vector<ComplexType> samples(50, ComplexType{1.0, 0.0});
+	const std::vector<ComplexType> samples(50, ComplexType{1.0, 0.0});
 	auto wave = makeSampledWave("sig", 1.0, carrier, samples, 10000.0);
 	tx->setSignal(&wave);
 
@@ -499,7 +499,7 @@ TEST_CASE("calculateResponses splits a path into separate Responses when it drop
 	tx->setTiming(timing);
 
 	// 6ms of samples at 1000Hz -> point_count = 6, times = {0, 1, 2, 3, 4, 5, 6} ms.
-	std::vector<ComplexType> samples(6, ComplexType{1.0, 0.0});
+	const std::vector<ComplexType> samples(6, ComplexType{1.0, 0.0});
 	auto wave = makeSampledWave("sig", 1.0, 1e9, samples, 1000.0);
 	tx->setSignal(&wave);
 

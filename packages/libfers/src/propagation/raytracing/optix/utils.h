@@ -18,7 +18,7 @@ namespace propagation::raytracing::optix
 {
 #define CUDA_CHECK(call)                                                                                               \
 	{                                                                                                                  \
-		cudaError_t rc = call;                                                                                         \
+		const cudaError_t rc = call;                                                                                   \
 		if (rc != cudaSuccess)                                                                                         \
 		{                                                                                                              \
 			throw std::runtime_error(std::format("[CUDA Error] {}:{}  {}: {}", __FILE_NAME__, __LINE__,                \
@@ -28,7 +28,7 @@ namespace propagation::raytracing::optix
 
 #define CUDA_RES_CHECK(call)                                                                                           \
 	{                                                                                                                  \
-		CUresult res = call;                                                                                           \
+		const CUresult res = call;                                                                                     \
 		if (res != CUDA_SUCCESS)                                                                                       \
 		{                                                                                                              \
 			throw std::runtime_error(                                                                                  \
@@ -39,7 +39,7 @@ namespace propagation::raytracing::optix
 #define CUDA_SYNC_CHECK()                                                                                              \
 	{                                                                                                                  \
 		cudaDeviceSynchronize();                                                                                       \
-		cudaError_t error = cudaGetLastError();                                                                        \
+		const cudaError_t error = cudaGetLastError();                                                                  \
 		if (error != cudaSuccess)                                                                                      \
 		{                                                                                                              \
 			throw std::runtime_error(                                                                                  \
@@ -49,7 +49,7 @@ namespace propagation::raytracing::optix
 
 #define OPTIX_CHECK(call)                                                                                              \
 	{                                                                                                                  \
-		OptixResult res = call;                                                                                        \
+		const OptixResult res = call;                                                                                  \
 		if (res != OPTIX_SUCCESS)                                                                                      \
 		{                                                                                                              \
 			throw std::runtime_error(std::format("[OptiX Error] {}:{} Call to {} failed with code {}", __FILE_NAME__,  \

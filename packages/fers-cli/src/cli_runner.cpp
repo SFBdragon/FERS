@@ -233,7 +233,7 @@ namespace core
 
 		const std::filesystem::path final_out_dir = resolveOutputDir(config.script_file, config.output_dir);
 
-		ContextHandle context(fers_context_create());
+		const ContextHandle context(fers_context_create());
 		if (context.get() == nullptr)
 		{
 			log(FERS_LOG_FATAL, "Failed to create FERS simulation context.");

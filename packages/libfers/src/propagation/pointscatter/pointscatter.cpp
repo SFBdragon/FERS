@@ -219,10 +219,10 @@ namespace propagation::pointscatter
 
 		const auto path_length = tx_to_tgt_dist + tgt_to_rx_dist;
 		const auto delay = path_length / params::c();
-		RealType tx_time = is_tx_time ? time : time - delay;
-		RealType rx_time = is_tx_time ? time + delay : time;
+		const RealType tx_time = is_tx_time ? time : time - delay;
+		const RealType rx_time = is_tx_time ? time + delay : time;
 		const auto target_delay = tx_to_tgt_dist / params::c();
-		RealType tgt_time = tx_time + target_delay;
+		const RealType tgt_time = tx_time + target_delay;
 
 		const RealType frequency = sampleCarrierFrequency(carrier, tx_time - segment_start);
 		const RealType lambda = params::c() / frequency;

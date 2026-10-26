@@ -182,7 +182,7 @@ namespace propagation
 		constexpr uint64_t P1 = 0x9E3779B97F4A7C15ULL; // odd, golden-ratio
 		constexpr uint64_t P2 = 0xC2B2AE3D27D4EB4FULL; // odd, independent prime
 
-		uint64_t v = uint64_t(idx) * P2; // spreads idx's low bits across all 64 output bits
+		const uint64_t v = uint64_t(idx) * P2; // spreads idx's low bits across all 64 output bits
 		hash ^= v;
 		hash *= P1;
 		hash ^= hash >> 32; // fold keeps high+low bits interacting
@@ -195,7 +195,7 @@ namespace propagation
 		constexpr uint64_t P1 = 0x9E3779B97F4A7C15ULL; // odd, golden-ratio
 		constexpr uint64_t P2 = 0xC2B2AE3D27D4EB4FULL; // odd, independent
 
-		uint64_t v = id * P2;
+		const uint64_t v = id * P2;
 		hash ^= v;
 		hash *= P1;
 		hash ^= hash >> 32; // fold keeps high+low bits interacting

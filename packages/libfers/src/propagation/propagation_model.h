@@ -58,7 +58,7 @@ namespace propagation
 		/// All propagation channel found from the transmitter to any receiver at tx_time.
 		std::vector<PropagationPath> paths;
 		/// The transmission time of each path in `paths`.
-		RealType tx_time;
+		RealType tx_time{};
 	};
 
 	class PropagationModel

@@ -1601,10 +1601,10 @@ TEST_CASE("CW coarse sampling fades a path back in from zero after it reappears 
 		}
 	}
 	REQUIRE(reappear_index.has_value());
-	REQUIRE(*reappear_index < exact_timeline.size());
+	REQUIRE(reappear_index.value() < exact_timeline.size());
 
-	const RealType coarse_mag = std::abs(coarse_timeline[*reappear_index]);
-	const RealType exact_mag = std::abs(exact_timeline[*reappear_index]);
+	const RealType coarse_mag = std::abs(coarse_timeline[reappear_index.value()]);
+	const RealType exact_mag = std::abs(exact_timeline[reappear_index.value()]);
 
 	REQUIRE(exact_mag > 0.0);
 	// Fixed behaviour measures ~0.05x here (the sample genuinely close to where the path just

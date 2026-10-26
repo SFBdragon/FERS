@@ -135,7 +135,7 @@ TEST_CASE("Target with constant (isotropic) RCS returns it", "[radar][target]")
 
 	const auto rcs = target.getRcs(in_angle, out_angle, 0.0);
 	REQUIRE(rcs.has_value());
-	REQUIRE_THAT(*rcs, WithinAbs(12.5, 1e-12));
+	REQUIRE_THAT(rcs.value(), WithinAbs(12.5, 1e-12));
 	REQUIRE(target.getId() == 9002);
 }
 
@@ -166,7 +166,7 @@ TEST_CASE("Constant RCS applies fluctuation model", "[radar][target]")
 	REQUIRE(target.getRcsSpec()->getFluctuationModel() == model_ptr);
 	const auto rcs = target.getRcs(in_angle, out_angle, 0.0);
 	REQUIRE(rcs.has_value());
-	REQUIRE_THAT(*rcs, WithinAbs(6.0, 1e-12));
+	REQUIRE_THAT(rcs.value(), WithinAbs(6.0, 1e-12));
 }
 
 TEST_CASE("Target's RCS RNG is deterministic per seed", "[radar][target]")
@@ -231,7 +231,7 @@ TEST_CASE("FileTarget multiplies interpolated azimuth and elevation RCS in the t
 	REQUIRE(file_rcs->getFilename() == path.string());
 	const auto rcs = target.getRcs(in_angle, out_angle, 0.0);
 	REQUIRE(rcs.has_value());
-	REQUIRE_THAT(*rcs, WithinAbs(expected_rcs, 1e-12));
+	REQUIRE_THAT(rcs.value(), WithinAbs(expected_rcs, 1e-12));
 
 	removeIfExists(path);
 }
@@ -258,7 +258,7 @@ TEST_CASE("FileTarget uses time-dependent platform rotation to look up body-fram
 
 	const auto rcs = target.getRcs(in_angle, out_angle, time);
 	REQUIRE(rcs.has_value());
-	REQUIRE_THAT(*rcs, WithinAbs(expected_rcs, 1e-12));
+	REQUIRE_THAT(rcs.value(), WithinAbs(expected_rcs, 1e-12));
 
 	removeIfExists(path);
 }
@@ -284,7 +284,7 @@ TEST_CASE("FileTarget applies fluctuation model as a multiplicative RCS term", "
 	REQUIRE(target.getRcsSpec()->getFluctuationModel() == model_ptr);
 	const auto rcs = target.getRcs(in_angle, out_angle, 0.0);
 	REQUIRE(rcs.has_value());
-	REQUIRE_THAT(*rcs, WithinAbs(30.0 * 1.5, 1e-12));
+	REQUIRE_THAT(rcs.value(), WithinAbs(30.0 * 1.5, 1e-12));
 
 	removeIfExists(path);
 }
@@ -334,7 +334,7 @@ TEST_CASE("FileTarget skips incomplete sample nodes and uses the valid samples t
 
 	const auto rcs = target.getRcs(in_angle, out_angle, 0.0);
 	REQUIRE(rcs.has_value());
-	REQUIRE_THAT(*rcs, WithinAbs(12.0, 1e-12));
+	REQUIRE_THAT(rcs.value(), WithinAbs(12.0, 1e-12));
 
 	removeIfExists(path);
 }

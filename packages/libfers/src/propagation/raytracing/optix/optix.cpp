@@ -129,7 +129,7 @@ namespace propagation::raytracing::optix
 
 		LOG(log_level, "OptiX Device Context Log [level {}] {}: {}", level, tag, message);
 	}
-	OptixContext::OptixContext(CUcontext context) : _context(nullptr)
+	OptixContext::OptixContext(CUcontext context)
 	{
 		OptixDeviceContextOptions opts;
 		opts.logCallbackLevel = 4;
@@ -155,7 +155,7 @@ namespace propagation::raytracing::optix
 	// associated with it. CudaBuffers handle cleaning up CUDA memory.
 	OptixBackend::OptixBackend(SceneData scene) :
 		_cuda_ctx(pickCudaDevice()), _optix_ctx(_cuda_ctx.get()), _stream(), _module_comp_options(),
-		_pipeline_comp_options(), _pipeline_link_options(), _module(), _raygen_program(), _raygen_record(_stream.get()),
+		_pipeline_comp_options(), _pipeline_link_options(), _raygen_record(_stream.get()),
 		_miss_records(_stream.get()), _hitgroup_records(_stream.get()), _sbt(), _materials(_stream.get()),
 		_vertices(_stream.get()), _indeces(_stream.get()), _antenna_models(_stream.get()), _antenna_gains(_stream.get())
 	{
@@ -197,7 +197,7 @@ namespace propagation::raytracing::optix
 
 		// ----------------------------------- Raygen programs ----------------------------------- //
 
-		OptixProgramGroupOptions pg_opts = {};
+		const OptixProgramGroupOptions pg_opts = {};
 		OptixProgramGroupDesc pg_desc = {};
 		pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
 		pg_desc.raygen.module = _module;

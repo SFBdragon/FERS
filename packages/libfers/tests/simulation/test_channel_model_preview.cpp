@@ -247,7 +247,7 @@ TEST_CASE("calculatePreviewLinks monostatic link references correct IDs", "[simu
 	const SimId tx_id = 100;
 	const SimId rx_id = 200;
 	const SimId tgt_id = 400;
-	MonostaticPreviewFixture fixture(tx_id, rx_id, tgt_id);
+	const MonostaticPreviewFixture fixture(tx_id, rx_id, tgt_id);
 
 	const auto links = simulation::calculatePreviewLinks(fixture.world, 0.0);
 	requireMonostaticPreviewLinkIds(links, tx_id, tgt_id);
@@ -731,7 +731,7 @@ TEST_CASE("calculatePreviewLinks monostatic label contains dBm", "[simulation][c
 	ParamGuard const guard;
 	params::params.reset();
 	params::setRate(1e6);
-	MonostaticPreviewFixture fixture(100, 200, 400);
+	const MonostaticPreviewFixture fixture(100, 200, 400);
 
 	const auto links = simulation::calculatePreviewLinks(fixture.world, 0.0);
 	requireMonostaticLabelSummary(links);

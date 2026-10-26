@@ -252,7 +252,7 @@ TEST_CASE("serializeWaveform processes CW and Pulsed correctly", "[serial][xml_s
 	{
 		fers_signal::PulseWaveform sampled;
 		sampled.setFilename("pulse.csv");
-		fers_signal::RadarSignal wave("w2", 20.0, 2e9, std::move(sampled));
+		const fers_signal::RadarSignal wave("w2", 20.0, 2e9, std::move(sampled));
 		serial::xml_serializer_utils::serializeWaveform(wave, root);
 		std::string s = dumpElement(root);
 		REQUIRE_THAT(s, ContainsSubstring("name=\"w2\""));

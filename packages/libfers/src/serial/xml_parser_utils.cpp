@@ -253,7 +253,7 @@ namespace serial::xml_parser_utils
 			}
 
 			const XmlElement ref_element = fmcw_mode.childElement("dechirp_reference", 0);
-			radar::Receiver::FmcwIfChainRequest if_chain{
+			const radar::Receiver::FmcwIfChainRequest if_chain{
 				.sample_rate_hz = parse_optional_fmcw_if_child(fmcw_mode, "if_sample_rate", owner),
 				.filter_bandwidth_hz = parse_optional_fmcw_if_child(fmcw_mode, "if_filter_bandwidth", owner),
 				.filter_transition_width_hz =
@@ -505,7 +505,7 @@ namespace serial::xml_parser_utils
 		return static_cast<unsigned>(floored_value);
 	}
 
-	RealType parsePositiveRealParameter(const std::string_view param_name, const RealType raw_value)
+	static RealType parsePositiveRealParameter(const std::string_view param_name, const RealType raw_value)
 	{
 		if (!std::isfinite(raw_value))
 		{
@@ -718,7 +718,7 @@ namespace serial::xml_parser_utils
 		}
 	}
 
-	void parsePropagationParameter(const XmlElement& parameters, params::Parameters& params_out)
+	static void parsePropagationParameter(const XmlElement& parameters, params::Parameters& params_out)
 	{
 		const XmlElement prop_element = parameters.childElement("propagation", 0);
 		if (!prop_element.isValid())
@@ -884,7 +884,7 @@ namespace serial::xml_parser_utils
 			auto sfcw_signal =
 				fers_signal::SfcwWaveform(start_frequency_offset, step_size, static_cast<std::size_t>(raw_step_count),
 										  dwell_time, step_period, sweep_count);
-			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, std::move(sfcw_signal), id);
+			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, sfcw_signal, id);
 			validate_fmcw_waveform(*wave, "Waveform '" + name + "'");
 			ctx.world->add(std::move(wave));
 		}
@@ -917,7 +917,7 @@ namespace serial::xml_parser_utils
 
 			auto fmcw_signal = fers_signal::FmcwChirpWaveform(chirp_bandwidth, chirp_duration, chirp_period,
 															  start_frequency_offset, chirp_count, direction);
-			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, std::move(fmcw_signal), id);
+			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, fmcw_signal, id);
 			validate_fmcw_waveform(*wave, "Waveform '" + name + "'");
 			ctx.world->add(std::move(wave));
 		}
@@ -948,7 +948,7 @@ namespace serial::xml_parser_utils
 
 			auto fmcw_signal = fers_signal::FmcwTriangleWaveform(chirp_bandwidth, chirp_duration,
 																 start_frequency_offset, triangle_count);
-			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, std::move(fmcw_signal), id);
+			auto wave = std::make_unique<fers_signal::RadarSignal>(name, power, carrier, fmcw_signal, id);
 			validate_fmcw_waveform(*wave, "Waveform '" + name + "'");
 			ctx.world->add(std::move(wave));
 		}
