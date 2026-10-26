@@ -76,9 +76,8 @@ namespace propagation::raytracing
 		const auto right = normalize(cross(forward, world_up));
 		const auto up = cross(right, forward);
 
-		const auto toFloat3 = [](const auto& v) {
-			return Float3{static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)};
-		};
+		const auto toFloat3 = [](const auto& v)
+		{ return Float3{static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)}; };
 		return Float3x4{toFloat3(right), toFloat3(forward), toFloat3(up), toFloat3(pos)};
 	}
 
@@ -222,8 +221,7 @@ namespace propagation::raytracing
 
 
 	RayTracingModel::RayTracingModel(core::World* world, params::RayTracingEnginePreference engine,
-									 pool::ThreadPool& pool) :
-		_world(world)
+									 pool::ThreadPool& pool) : _world(world)
 	{
 		SceneData scene{};
 
@@ -294,6 +292,7 @@ namespace propagation::raytracing
 				LOG(logging::Level::INFO, "Embree back-end failed to initialise.\n  {}", error.what());
 			}
 #endif
+			(void)pool; // Avoid an unused parameter warning when Embree is disabled.
 			throw std::runtime_error("No ray tracing engine back-ends could be initialised.");
 		case params::RayTracingEnginePreference::OptiX:
 #ifdef FERS_ENABLE_OPTIX
