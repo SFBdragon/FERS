@@ -15,6 +15,68 @@ function(fers_append_static_library out_var candidate)
 	set(${out_var} "${_result}" PARENT_SCOPE)
 endfunction()
 
+# vcpkg config files express some of their dependencies as generator expressions,
+# which CMake only expands at generate time, after every CMakeLists.txt has been
+# processed, so a configure-time traversal like the one below sees them as opaque
+# text. Resolve the forms that can be decided at configure time so the GENEX_STRIP
+# fallback in fers_collect_static_link_libraries() does not silently discard a real
+# library.
+# Assimp, for instance, declares its minizip dependency as
+#   $<LINK_ONLY:$<IF:$<TARGET_EXISTS:MINIZIP::minizip>,MINIZIP::minizip,MINIZIP::minizipstatic>>
+# and dropping it leaves Assimp's unz* calls (IFCLoader, ZipArchiveIOSystem)
+# undefined when Cargo links the static library into the Tauri binary.
+function(fers_resolve_link_genex out_var item)
+	set(_item "${item}")
+	set(_resolved ON)
+
+	while (_resolved)
+		set(_resolved OFF)
+
+		if (_item MATCHES "^\\$<LINK_ONLY:(.+)>$")
+			set(_item "${CMAKE_MATCH_1}")
+			set(_resolved ON)
+		elseif (_item MATCHES "^\\$<IF:\\$<TARGET_EXISTS:([^>,]+)>,([^>,]*),([^>,]*)>$")
+			if (TARGET "${CMAKE_MATCH_1}")
+				set(_item "${CMAKE_MATCH_2}")
+			else ()
+				set(_item "${CMAKE_MATCH_3}")
+			endif ()
+			set(_resolved ON)
+		elseif (_item MATCHES "^\\$<TARGET_NAME_IF_EXISTS:([^>,]+)>$")
+			if (TARGET "${CMAKE_MATCH_1}")
+				set(_item "${CMAKE_MATCH_1}")
+			else ()
+				set(_item "")
+			endif ()
+			set(_resolved ON)
+		elseif (_item MATCHES "^\\$<TARGET_NAME:(.+)>$")
+			set(_item "${CMAKE_MATCH_1}")
+			set(_resolved ON)
+		elseif (_item MATCHES "^\\$<\\$<BOOL:(.*)>:(.*)>$")
+			set(_condition "${CMAKE_MATCH_1}")
+			set(_value "${CMAKE_MATCH_2}")
+			if (_condition)
+				set(_item "${_value}")
+			else ()
+				set(_item "")
+			endif ()
+			set(_resolved ON)
+		endif ()
+	endwhile ()
+
+	# Anything still carrying a generator expression is about to be stripped to
+	# nothing by the caller. Say so loudly: a missing archive only shows up much
+	# later, as undefined symbols from an unrelated-looking Rust link step.
+	if (_item MATCHES "\\$<")
+		message(WARNING
+				"Unresolved generator expression while collecting static link libraries: '${item}'. "
+				"If it names a library, it will be missing from vcpkg_links.txt and linking "
+				"the Rust binary may fail with undefined symbols.")
+	endif ()
+
+	set(${out_var} "${_item}" PARENT_SCOPE)
+endfunction()
+
 function(fers_collect_static_link_libraries out_var visited_var)
 	set(_result "${${out_var}}")
 	set(_visited "${${visited_var}}")
@@ -47,10 +109,7 @@ function(fers_collect_static_link_libraries out_var visited_var)
 			continue()
 		endif ()
 
-		set(_item_for_resolution "${_item}")
-		if (_item_for_resolution MATCHES "^\\$<LINK_ONLY:(.+)>$")
-			set(_item_for_resolution "${CMAKE_MATCH_1}")
-		endif ()
+		fers_resolve_link_genex(_item_for_resolution "${_item}")
 
 		string(GENEX_STRIP "${_item_for_resolution}" _item_stripped)
 		if (NOT _item_stripped)
@@ -104,7 +163,7 @@ function(fers_collect_static_link_libraries out_var visited_var)
 
 	# REMOVE_DUPLICATES preserves the first occurrence of each entry. The recursion
 	# appends a target's own IMPORTED_LOCATION before descending into its dependencies,
-	# so dependents remain ordered before their dependencies — which static linkers require.
+	# so dependents remain ordered before their dependencies, which static linkers require.
 	list(REMOVE_DUPLICATES _result)
 	set(${out_var} "${_result}" PARENT_SCOPE)
 	set(${visited_var} "${_visited}" PARENT_SCOPE)
@@ -263,7 +322,7 @@ endif ()
 # FERS_NATIVE_LINK_DEPENDENCIES: the manifest must list libraries in the order a
 # static linker expects (dependents before their dependencies), and it must
 # recurse into transitive imported targets (szip, aec, zlib) which are only
-# reachable through the hdf5::*-static target graph — not through the raw
+# reachable through the hdf5::*-static target graph, not through the raw
 # HDF5_C_LIBRARIES paths used above. HighFive and nlohmann_json are omitted
 # because they are header-only.
 set(FERS_NATIVE_LINK_MANIFEST_TARGETS
