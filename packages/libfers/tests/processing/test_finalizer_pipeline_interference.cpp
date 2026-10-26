@@ -64,7 +64,8 @@ namespace
 										const std::vector<core::ActiveStreamingSource>& sources, const RealType t)
 	{
 		ComplexType total{0.0, 0.0};
-		for (const auto& path : prop.traceFromReceivers(nullptr, {receiver}, sources, t).at(receiver))
+		const auto paths = prop.traceFromReceivers(nullptr, {receiver}, sources, t);
+		for (const auto& path : paths.at(receiver))
 		{
 			total += simulation::calculateStreamingPathContribution(sources[path.source_index], receiver, path, t);
 		}
@@ -88,10 +89,10 @@ namespace
 		for (std::size_t i = 1; i < samples.size(); ++i)
 		{
 			builder.addInterpPoint({.gain = 1.0,
-								   .rx_time = start_time + static_cast<RealType>(i) / sample_rate,
-								   .delay = 0.0,
-								   .phase_delay = 0.0},
-								  edge);
+									.rx_time = start_time + static_cast<RealType>(i) / sample_rate,
+									.delay = 0.0,
+									.phase_delay = 0.0},
+								   edge);
 		}
 		return std::make_unique<serial::Response>(std::move(builder));
 	}
@@ -276,8 +277,8 @@ TEST_CASE("applyStreamingInterference adds FMCW energy to pulsed receiver window
 		core::makeActiveSource(&transmitter, 0.0, 300.0e-6)};
 	core::ReceiverTrackerCache tracker_cache;
 
-	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver, streaming_sources,
-													 tracker_cache);
+	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver,
+													 streaming_sources, tracker_cache);
 
 	REQUIRE(std::abs(window[0]) > 0.0);
 	REQUIRE_THAT(std::abs(window[1]), WithinAbs(0.0, 1.0e-18));
@@ -319,8 +320,8 @@ TEST_CASE("applyStreamingInterference supports FMCW transmitter with CW streamin
 		core::makeActiveSource(&transmitter, 0.0, 300.0e-6)};
 	core::ReceiverTrackerCache tracker_cache;
 
-	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver, streaming_sources,
-													 tracker_cache);
+	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver,
+													 streaming_sources, tracker_cache);
 
 	for (std::size_t i = 0; i < window.size(); ++i)
 	{
@@ -379,8 +380,8 @@ TEST_CASE("applyStreamingInterference superposes up- and down-chirp FMCW transmi
 		core::makeActiveSource(&up_tx, 0.0, 300.0e-6), core::makeActiveSource(&down_tx, 0.0, 300.0e-6)};
 	core::ReceiverTrackerCache tracker_cache;
 
-	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver, streaming_sources,
-													 tracker_cache);
+	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver,
+													 streaming_sources, tracker_cache);
 
 	for (std::size_t i = 0; i < window.size(); ++i)
 	{
@@ -431,8 +432,8 @@ TEST_CASE("applyStreamingInterference reuses tracker cache without carrying wind
 	std::vector<ComplexType> first_window(3, ComplexType{});
 	std::vector<ComplexType> second_window(3, ComplexType{});
 
-	processing::pipeline::applyStreamingInterference(first_window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver, streaming_sources,
-													 tracker_cache);
+	processing::pipeline::applyStreamingInterference(first_window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver,
+													 streaming_sources, tracker_cache);
 
 	REQUIRE(tracker_cache.path_trackers.size() == 1);
 	const std::size_t sources_count = tracker_cache.path_trackers.size();
