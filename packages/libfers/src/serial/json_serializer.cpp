@@ -347,7 +347,7 @@ namespace
 			mode = radar::parseDechirpModeToken(mode_json.at("dechirp_mode").get<std::string>());
 		}
 
-		radar::Receiver::FmcwIfChainRequest if_chain{
+		const radar::Receiver::FmcwIfChainRequest if_chain{
 			.sample_rate_hz = get_optional_positive_real(mode_json, "if_sample_rate", owner),
 			.filter_bandwidth_hz = get_optional_positive_real(mode_json, "if_filter_bandwidth", owner),
 			.filter_transition_width_hz = get_optional_positive_real(mode_json, "if_filter_transition_width", owner)};
@@ -765,7 +765,7 @@ namespace fers_signal
 			auto fmcw_signal = FmcwTriangleWaveform(fmcw_json.at("chirp_bandwidth").get<RealType>(),
 													fmcw_json.at("chirp_duration").get<RealType>(),
 													fmcw_json.value("start_frequency_offset", 0.0), triangle_count);
-			rs = std::make_unique<RadarSignal>(name, power, carrier, std::move(fmcw_signal), id);
+			rs = std::make_unique<RadarSignal>(name, power, carrier, fmcw_signal, id);
 			validate_fmcw_waveform(*rs, "Waveform '" + name + "'");
 		}
 		else if (j.contains("pulsed_from_file"))
@@ -850,6 +850,13 @@ namespace antenna
 		{
 			j["pattern"] = "isotropic";
 		}
+
+		const auto pol = a.getPolarisation();
+		if (pol.horizontal != ComplexType(1.0, 0.0) || pol.vertical != ComplexType(0.0, 0.0))
+		{
+			j["boresight_polarisation"] = {{"h", {{"re", pol.horizontal.real()}, {"im", pol.horizontal.imag()}}},
+										   {"v", {{"re", pol.vertical.real()}, {"im", pol.vertical.imag()}}}};
+		}
 	}
 
 	void from_json(const nlohmann::json& j, std::unique_ptr<Antenna>& ant) // NOLINT(*-use-internal-linkage)
@@ -906,6 +913,29 @@ namespace antenna
 		}
 
 		ant->setEfficiencyFactor(j.value("efficiency", 1.0));
+
+		if (const auto pol_it = j.find("boresight_polarisation"); pol_it != j.end())
+		{
+			const auto component = [&](const char* axis_name)
+			{
+				const auto axis_it = pol_it->find(axis_name);
+				if (axis_it == pol_it->end())
+				{
+					return ComplexType(0.0, 0.0);
+				}
+				return ComplexType{axis_it->value("re", 0.0), axis_it->value("im", 0.0)};
+			};
+
+			try
+			{
+				ant->setPolarisation(JonesPolarisation{.horizontal = component("h"), .vertical = component("v")});
+			}
+			catch (const std::runtime_error& e)
+			{
+				LOG(logging::Level::WARNING, "Antenna '{}' has an invalid polarisation ({}), assuming horizontal.",
+					name, e.what());
+			}
+		}
 	}
 }
 
@@ -989,33 +1019,37 @@ namespace radar
 	{
 		j["id"] = sim_id_to_json(t.getId());
 		j["name"] = t.getName();
-		nlohmann::json rcs_json;
-		if (const auto* iso = dynamic_cast<const IsoTarget*>(&t))
-		{
-			rcs_json["type"] = "isotropic";
-			rcs_json["value"] = iso->getConstRcs();
-		}
-		else if (const auto* file = dynamic_cast<const FileTarget*>(&t))
-		{
-			rcs_json["type"] = "file";
-			rcs_json["filename"] = file->getFilename();
-		}
-		j["rcs"] = rcs_json;
 
-		// Serialize the fluctuation model if it exists.
-		if (const auto* model_base = t.getFluctuationModel())
+		if (const auto* rcs = t.getRcsSpec())
 		{
-			nlohmann::json model_json;
-			if (const auto* chi_model = dynamic_cast<const RcsChiSquare*>(model_base))
+			nlohmann::json rcs_json;
+			if (const auto* iso = dynamic_cast<const IsoTargetRcs*>(rcs))
 			{
-				model_json["type"] = "chisquare";
-				model_json["k"] = chi_model->getK();
+				rcs_json["type"] = "isotropic";
+				rcs_json["value"] = iso->getConstRcs();
 			}
-			else // Default to constant if it's not a recognized type (e.g., RcsConst)
+			else if (const auto* file = dynamic_cast<const FileTargetRcs*>(rcs))
 			{
-				model_json["type"] = "constant";
+				rcs_json["type"] = "file";
+				rcs_json["filename"] = file->getFilename();
 			}
-			j["model"] = model_json;
+			j["rcs"] = rcs_json;
+
+			// Serialize the fluctuation model if it exists.
+			if (const auto* model_base = rcs->getFluctuationModel())
+			{
+				nlohmann::json model_json;
+				if (const auto* chi_model = dynamic_cast<const RcsChiSquare*>(model_base))
+				{
+					model_json["type"] = "chisquare";
+					model_json["k"] = chi_model->getK();
+				}
+				else // Default to constant if it's not a recognized type (e.g., RcsConst)
+				{
+					model_json["type"] = "constant";
+				}
+				j["model"] = model_json;
+			}
 		}
 	}
 
@@ -1060,6 +1094,11 @@ namespace params
 			j["randomseed"] = p.random_seed.value();
 		}
 
+		if (p.cw_coarse_sample_rate.has_value())
+		{
+			j["cwSimSamplingRate"] = p.cw_coarse_sample_rate.value();
+		}
+
 		j["origin"] = {
 			{"latitude", p.origin_latitude}, {"longitude", p.origin_longitude}, {"altitude", p.origin_altitude}};
 
@@ -1069,6 +1108,8 @@ namespace params
 			j["coordinatesystem"]["zone"] = p.utm_zone;
 			j["coordinatesystem"]["hemisphere"] = p.utm_north_hemisphere ? "N" : "S";
 		}
+
+		j["pointscatter"] = {{"polarimetric", p.point_scatterer_params.polarimetric}};
 	}
 
 	void from_json(const nlohmann::json& j, Parameters& p) // NOLINT(*-use-internal-linkage)
@@ -1078,6 +1119,7 @@ namespace params
 		p.rate = j.at("rate").get<RealType>();
 		p.c = j.value("c", Parameters::DEFAULT_C);
 		p.sim_sampling_rate = j.value("simSamplingRate", 1000.0);
+		p.cw_coarse_sample_rate = j.value<std::optional<RealType>>("cwSimSamplingRate", std::nullopt);
 		p.adc_bits = j.value("adc_bits", 0u);
 		p.oversample_ratio = j.value("oversample", 1u);
 		params::validateOversampleRatio(p.oversample_ratio);
@@ -1096,6 +1138,9 @@ namespace params
 			p.utm_zone = cs.at("zone").get<int>();
 			p.utm_north_hemisphere = cs.at("hemisphere").get<std::string>() == "N";
 		}
+
+		p.point_scatterer_params.polarimetric =
+			j.value("pointscatter", nlohmann::json::object()).value("polarimetric", false);
 	}
 }
 
@@ -1553,51 +1598,65 @@ namespace
 	void parse_target(const nlohmann::json& comp_json, radar::Platform* plat, core::World& world,
 					  std::mt19937& masterSeeder)
 	{
-		const auto& rcs_json = comp_json.at("rcs");
-		const auto rcs_type = rcs_json.at("type").get<std::string>();
 		std::unique_ptr<radar::Target> target_obj;
+		const auto target_id = parse_json_id(comp_json, "id", "Target");
 
-		if (rcs_type == "isotropic")
+		if (!comp_json.contains("rcs"))
 		{
-			const auto target_id = parse_json_id(comp_json, "id", "Target");
-			target_obj = radar::createIsoTarget(plat, comp_json.at("name").get<std::string>(),
-												rcs_json.at("value").get<RealType>(),
-												static_cast<unsigned>(masterSeeder()), target_id);
-		}
-		else if (rcs_type == "file")
-		{
-			const auto filename = rcs_json.value("filename", "");
-			if (filename.empty())
-			{
-				LOG(logging::Level::WARNING, "Skipping load of file target '{}': RCS filename is empty.",
-					comp_json.value("name", "Unknown"));
-				return;
-			}
-			const auto target_id = parse_json_id(comp_json, "id", "Target");
-			target_obj = radar::createFileTarget(plat, comp_json.at("name").get<std::string>(), filename,
-												 static_cast<unsigned>(masterSeeder()), target_id);
+			target_obj = std::make_unique<radar::Target>(plat, comp_json.at("name").get<std::string>(), target_id);
 		}
 		else
 		{
-			throw std::runtime_error("Unsupported target RCS type: " + rcs_type);
+			const auto& rcs_json = comp_json.at("rcs");
+			const auto rcs_type = rcs_json.at("type").get<std::string>();
+
+			if (rcs_type == "isotropic")
+			{
+				target_obj = radar::createIsoTarget(plat, comp_json.at("name").get<std::string>(),
+													rcs_json.at("value").get<RealType>(),
+													static_cast<unsigned>(masterSeeder()), target_id);
+			}
+			else if (rcs_type == "file")
+			{
+				const auto filename = rcs_json.value("filename", "");
+				if (filename.empty())
+				{
+					LOG(logging::Level::WARNING, "Skipping load of file target '{}': RCS filename is empty.",
+						comp_json.value("name", "Unknown"));
+					return;
+				}
+				target_obj = radar::createFileTarget(plat, comp_json.at("name").get<std::string>(), filename,
+													 static_cast<unsigned>(masterSeeder()), target_id);
+			}
+			else
+			{
+				throw std::runtime_error("Unsupported target RCS type: " + rcs_type);
+			}
 		}
 		world.add(std::move(target_obj));
 
 		// After creating the target, check for and apply the fluctuation model.
 		if (comp_json.contains("model"))
 		{
+			auto* rcs = world.getTargets().back()->getRcsSpec();
+			if (rcs == nullptr)
+			{
+				throw std::runtime_error("Target '" + comp_json.value("name", "Unknown") +
+										 "' has a 'model' but no 'rcs' to fluctuate.");
+			}
+
 			const auto& model_json = comp_json.at("model");
 			const auto model_type = model_json.at("type").get<std::string>();
 
 			if (model_type == "chisquare" || model_type == "gamma")
 			{
-				auto model = std::make_unique<radar::RcsChiSquare>(world.getTargets().back()->getRngEngine(),
-																   model_json.at("k").get<RealType>());
-				world.getTargets().back()->setFluctuationModel(std::move(model));
+				auto model =
+					std::make_unique<radar::RcsChiSquare>(rcs->getRngEngine(), model_json.at("k").get<RealType>());
+				rcs->setFluctuationModel(std::move(model));
 			}
 			else if (model_type == "constant")
 			{
-				world.getTargets().back()->setFluctuationModel(std::make_unique<radar::RcsConst>());
+				rcs->setFluctuationModel(std::make_unique<radar::RcsConst>());
 			}
 			else
 			{
@@ -2305,44 +2364,60 @@ namespace serial
 	}
 
 	void update_target_from_json(const nlohmann::json& j, radar::Target* existing_tgt, core::World& world,
-								 std::mt19937& /*masterSeeder*/)
+								 std::mt19937& masterSeeder)
 	{
 		auto* plat = existing_tgt->getPlatform();
-		const auto& rcs_json = j.at("rcs");
-		const auto rcs_type = rcs_json.at("type").get<std::string>();
 		std::unique_ptr<radar::Target> target_obj;
 
 		const auto target_id = existing_tgt->getId();
 		const auto name = j.value("name", existing_tgt->getName());
-		unsigned const seed = existing_tgt->getSeed();
+		// Reuse the existing RCS's seed if there was one, so re-posting the same RCS type keeps
+		// its fluctuation-sampling RNG stream; otherwise draw a fresh seed.
+		const auto* existing_rcs = existing_tgt->getRcsSpec();
+		const unsigned seed = existing_rcs != nullptr ? existing_rcs->getSeed() : static_cast<unsigned>(masterSeeder());
 
-		if (rcs_type == "isotropic")
+		if (!j.contains("rcs"))
 		{
-			target_obj = radar::createIsoTarget(plat, name, rcs_json.value("value", 1.0), seed, target_id);
-		}
-		else if (rcs_type == "file")
-		{
-			const auto filename = rcs_json.value("filename", "");
-			target_obj = radar::createFileTarget(plat, name, filename, seed, target_id);
+			target_obj = std::make_unique<radar::Target>(plat, name, target_id);
 		}
 		else
 		{
-			throw std::runtime_error("Unsupported target RCS type: " + rcs_type);
+			const auto& rcs_json = j.at("rcs");
+			const auto rcs_type = rcs_json.at("type").get<std::string>();
+
+			if (rcs_type == "isotropic")
+			{
+				target_obj = radar::createIsoTarget(plat, name, rcs_json.value("value", 1.0), seed, target_id);
+			}
+			else if (rcs_type == "file")
+			{
+				const auto filename = rcs_json.value("filename", "");
+				target_obj = radar::createFileTarget(plat, name, filename, seed, target_id);
+			}
+			else
+			{
+				throw std::runtime_error("Unsupported target RCS type: " + rcs_type);
+			}
 		}
 
 		if (j.contains("model"))
 		{
+			auto* rcs = target_obj->getRcsSpec();
+			if (rcs == nullptr)
+			{
+				throw std::runtime_error("Target '" + name + "' has a 'model' but no 'rcs' to fluctuate.");
+			}
+
 			const auto& model_json = j.at("model");
 			const auto model_type = model_json.at("type").get<std::string>();
 			if (model_type == "chisquare" || model_type == "gamma")
 			{
-				auto model =
-					std::make_unique<radar::RcsChiSquare>(target_obj->getRngEngine(), model_json.value("k", 1.0));
-				target_obj->setFluctuationModel(std::move(model));
+				auto model = std::make_unique<radar::RcsChiSquare>(rcs->getRngEngine(), model_json.value("k", 1.0));
+				rcs->setFluctuationModel(std::move(model));
 			}
 			else if (model_type == "constant")
 			{
-				target_obj->setFluctuationModel(std::make_unique<radar::RcsConst>());
+				rcs->setFluctuationModel(std::make_unique<radar::RcsConst>());
 			}
 		}
 

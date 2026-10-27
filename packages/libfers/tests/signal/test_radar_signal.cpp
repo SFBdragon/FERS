@@ -159,19 +159,19 @@ TEST_CASE("SteppedFrequencyWaveform selects active dwell steps and finite sweeps
 
 	const auto first = sfcw.activeStepAt(0.1, 100.0);
 	REQUIRE(first.has_value());
-	REQUIRE(first->sweep_index == 0u);
-	REQUIRE(first->step_index == 0u);
-	REQUIRE_THAT(first->rf_frequency, WithinAbs(110.0, 1e-12));
-	REQUIRE_THAT(first->step_start_time, WithinAbs(0.0, 1e-12));
-	REQUIRE_THAT(first->dwell_end_time, WithinAbs(0.25, 1e-12));
+	REQUIRE(first.value().sweep_index == 0u);
+	REQUIRE(first.value().step_index == 0u);
+	REQUIRE_THAT(first.value().rf_frequency, WithinAbs(110.0, 1e-12));
+	REQUIRE_THAT(first.value().step_start_time, WithinAbs(0.0, 1e-12));
+	REQUIRE_THAT(first.value().dwell_end_time, WithinAbs(0.25, 1e-12));
 
 	REQUIRE_FALSE(sfcw.activeStepAt(0.3, 100.0).has_value());
 
 	const auto second_sweep = sfcw.activeStepAt(2.55, 100.0);
 	REQUIRE(second_sweep.has_value());
-	REQUIRE(second_sweep->sweep_index == 1u);
-	REQUIRE(second_sweep->step_index == 1u);
-	REQUIRE_THAT(second_sweep->rf_frequency, WithinAbs(112.0, 1e-12));
+	REQUIRE(second_sweep.value().sweep_index == 1u);
+	REQUIRE(second_sweep.value().step_index == 1u);
+	REQUIRE_THAT(second_sweep.value().rf_frequency, WithinAbs(112.0, 1e-12));
 	REQUIRE_FALSE(sfcw.activeStepAt(4.0, 100.0).has_value());
 
 	fers_signal::SfcwWaveform const descending(0.0, -5.0, 3, 0.1, 0.2);
@@ -189,7 +189,7 @@ TEST_CASE("RadarSignal exposes metadata", "[signal][radar]")
 	signal.load(data, static_cast<unsigned>(data.size()), 1000.0);
 	signal.setFilename("waveform.bin");
 
-	fers_signal::RadarSignal radar("waveform", 9.0, 77.0, std::move(signal), 42);
+	const fers_signal::RadarSignal radar("waveform", 9.0, 77.0, std::move(signal), 42);
 
 	REQUIRE(radar.getName() == "waveform");
 	REQUIRE(radar.getCarrier() == 77.0);
@@ -217,8 +217,8 @@ TEST_CASE("PulseWaveform render scales output by the amplitude parameter", "[sig
 	params::setOversampleRatio(1);
 
 	// At exactly zero fractional delay the render filter is an exact identity (see
-	// test_response.cpp for why), so with delay == 0.0 the rendered output is just
-	// the loaded samples scaled by the amplitude parameter -- no mock needed.
+	// test_response.cpp for why), so with delay == 0.0 the rendered output is
+	// the loaded samples scaled by the amplitude parameter, no mock needed.
 	const std::vector<ComplexType> input = {ComplexType{1.0, 0.0}, ComplexType{2.0, -1.0}};
 	fers_signal::PulseWaveform signal;
 	signal.load(input, static_cast<unsigned>(input.size()), 1.0);
@@ -264,7 +264,7 @@ TEST_CASE("PulseWaveform render matches constant input physics", "[signal][radar
 
 	const RealType power = 4.0;
 	const RealType phase = PI / 4.0;
-	const std::vector<interp::InterpPoint> points = {{power, 0.0, 0.0, phase}};
+	const std::vector<interp::InterpPoint> points = {{std::sqrt(power), 0.0, 0.0, phase}};
 
 	const auto data = signal.render(points, points.front().rx_time, 0.0, 1.0);
 
@@ -294,8 +294,8 @@ TEST_CASE("PulseWaveform render interpolates power and phase", "[signal][radar]"
 	const RealType power_b = 9.0;
 	const RealType phase_a = 0.0;
 	const RealType phase_b = PI / 2.0;
-	const std::vector<interp::InterpPoint> points = {{power_a, 0.0, 0.0, phase_a},
-													 {power_b, 2.0 * filter_length, 0.0, phase_b}};
+	const std::vector<interp::InterpPoint> points = {{std::sqrt(power_a), 0.0, 0.0, phase_a},
+													 {std::sqrt(power_b), 2.0 * filter_length, 0.0, phase_b}};
 
 	const auto data = signal.render(points, points.front().rx_time, 0.0, 1.0);
 
@@ -337,6 +337,70 @@ TEST_CASE("PulseWaveform render responds to fractional delay", "[signal][radar]"
 	REQUIRE(sample_index < data.size());
 	REQUIRE_THAT(data[sample_index].real(), WithinAbs(expected.real(), 1e-6));
 	REQUIRE_THAT(data[sample_index].imag(), WithinAbs(expected.imag(), 1e-6));
+}
+
+TEST_CASE("PulseWaveform render does not clip taps near the buffer edge when the delay unwrap is negative",
+		  "[signal][radar]")
+{
+	ParamGuard const guard;
+	params::setOversampleRatio(1);
+
+	const long filter_length = static_cast<long>(params::renderFilterLength());
+	const unsigned sample_count = static_cast<unsigned>(filter_length) * 4;
+	const std::vector<ComplexType> input(sample_count, ComplexType{1.0, 0.0});
+
+	fers_signal::PulseWaveform signal;
+	signal.load(input, sample_count, 1.0);
+
+	// A single control point keeps the delay (and so the fractional/integer split below)
+	// identical for every rendered sample, isolating the convolution boundary clamp from any
+	// taper or interpolation effects. 0.3 is deliberately a fractional delay whose
+	// idelay = round(0.3) = 0 leaves a *positive* remainder (0.3), so fdelay = -(0.3 - 0)
+	// floors to int_part = -1: the render loop ends up centering its filter one native sample
+	// *before* the nominal index it's rendering (iSampleUnwrap == -1).
+	constexpr RealType delay = 0.3;
+	const std::vector<interp::InterpPoint> points = {{1.0, 0.0, delay, 0.0}};
+
+	const auto data = signal.render(points, points.front().rx_time, 0.0, 1.0);
+	REQUIRE(data.size() == sample_count);
+
+	const long idelay = std::lround(delay);
+	RealType fdelay = -(delay - static_cast<RealType>(idelay));
+	const RealType int_part = std::floor(fdelay);
+	fdelay -= int_part;
+	const long i_sample_unwrap = static_cast<long>(int_part);
+	REQUIRE(i_sample_unwrap == -1);
+
+	const auto& interp = interp::InterpFilter::getInstance();
+	const auto filter = interp.getFilter(fdelay);
+
+	// Ground-truth oracle: sum every filter tap whose data index (the delay-unwrapped center
+	// plus the tap offset) actually falls inside the buffer - with no assumption about how the
+	// implementation bounds its own loop. This is exactly what `performConvolution` must
+	// compute; before the fix its outer loop bounds were derived from the un-unwrapped sample
+	// index, which silently dropped in-range taps near the trailing edge of the buffer.
+	const auto expectedAt = [&](const long sample_index) {
+		const long center = sample_index + i_sample_unwrap;
+		ComplexType sum{0.0, 0.0};
+		for (long j = -filter_length / 2; j < filter_length / 2; ++j)
+		{
+			const long idx = center + j;
+			if (idx >= 0 && idx < static_cast<long>(sample_count))
+			{
+				sum += filter[static_cast<std::size_t>(j + filter_length / 2)] * input[static_cast<std::size_t>(idx)];
+			}
+		}
+		return sum;
+	};
+
+	// The last few native samples sit closest to the trailing edge and are exactly where a
+	// mis-bounded clamp drops valid taps.
+	for (long i = static_cast<long>(sample_count) - 3; i < static_cast<long>(sample_count); ++i)
+	{
+		const auto expected = expectedAt(i);
+		REQUIRE_THAT(data[static_cast<std::size_t>(i)].real(), WithinAbs(expected.real(), 1e-9));
+		REQUIRE_THAT(data[static_cast<std::size_t>(i)].imag(), WithinAbs(expected.imag(), 1e-9));
+	}
 }
 
 TEST_CASE("PulseWaveform renderSlice matches cropped full response with padding", "[signal][radar]")

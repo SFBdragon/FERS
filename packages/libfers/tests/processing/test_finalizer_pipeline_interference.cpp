@@ -58,13 +58,14 @@ namespace
 	}
 
 	// Sums the same path->contribution pipeline applyStreamingInterference itself uses
-	// (PropagationModel::findRxFromTxPaths + calculateStreamingPathContribution), for one
+	// (PropagationModel::traceFromReceivers + calculateStreamingPathContribution), for one
 	// sample time.
 	ComplexType expectedStreamingSample(const propagation::PropagationModel& prop, radar::Receiver* receiver,
 										const std::vector<core::ActiveStreamingSource>& sources, const RealType t)
 	{
 		ComplexType total{0.0, 0.0};
-		for (const auto& path : prop.findRxFromTxPaths(receiver, sources, t))
+		const auto paths = prop.traceFromReceivers(nullptr, {receiver}, sources, t);
+		for (const auto& path : paths.at(receiver))
 		{
 			total += simulation::calculateStreamingPathContribution(sources[path.source_index], receiver, path, t);
 		}
@@ -82,16 +83,18 @@ namespace
 		const auto* wave_ptr = wave.get();
 		wave_store.push_back(std::move(wave));
 
+		const RealType edge = 1.0 / sample_rate;
 		const interp::InterpPoint first{.gain = 1.0, .rx_time = start_time, .delay = 0.0, .phase_delay = 0.0};
-		auto response = std::make_unique<serial::Response>(wave_ptr, first);
+		serial::ResponseBuilder builder(wave_ptr, first, edge, edge);
 		for (std::size_t i = 1; i < samples.size(); ++i)
 		{
-			response->addInterpPoint({.gain = 1.0,
-									  .rx_time = start_time + static_cast<RealType>(i) / sample_rate,
-									  .delay = 0.0,
-									  .phase_delay = 0.0});
+			builder.addInterpPoint({.gain = 1.0,
+									.rx_time = start_time + static_cast<RealType>(i) / sample_rate,
+									.delay = 0.0,
+									.phase_delay = 0.0},
+								   edge);
 		}
-		return response;
+		return std::make_unique<serial::Response>(std::move(builder));
 	}
 }
 
@@ -130,7 +133,7 @@ TEST_CASE("applyStreamingInterference adds direct-path streaming energy sample b
 	const RealType dt = 0.25;
 	core::ReceiverTrackerCache tracker_cache;
 
-	processing::pipeline::applyStreamingInterference(window, start, dt, prop, &receiver, streaming_sources,
+	processing::pipeline::applyStreamingInterference(window, start, dt, prop, nullptr, &receiver, streaming_sources,
 													 tracker_cache);
 
 	for (size_t i = 0; i < window.size(); ++i)
@@ -181,7 +184,7 @@ TEST_CASE("applyStreamingInterference respects FLAG_NODIRECT and keeps only phys
 	const RealType dt = 0.2;
 	core::ReceiverTrackerCache tracker_cache;
 
-	processing::pipeline::applyStreamingInterference(window, start, dt, prop, &receiver, streaming_sources,
+	processing::pipeline::applyStreamingInterference(window, start, dt, prop, nullptr, &receiver, streaming_sources,
 													 tracker_cache);
 
 	for (size_t i = 0; i < window.size(); ++i)
@@ -210,20 +213,17 @@ TEST_CASE("applyPulsedInterference clips rendered pulses to LO-active sample spa
 												 params::rate(), 0.2));
 
 	// Rendered pulse (via makeFixedResponse, see comment above): [0, 1, 2, 3, 4, 5],
-	// starting at response->startTime() == 0.2 - controlPointEdgePeriod() == 0.1, placed
+	// starting at response->startTime() == 0.2 - edge == 0.1 (edge == 1/rate == 0.1), placed
 	// at buffer index round(0.1 * 10) = 1, i.e. occupying [1, 7). Index 3 of the buffer ->
 	// rendered index 2 == 2.0 (a real sample, not the taper stub); index 6 -> rendered
 	// index 5 == 5.0.
 	//
-	// This also exercises a real numerical-robustness edge: startTime() lands exactly on
+	// This also exercises a numerical-robustness edge case: startTime() lands exactly on
 	// a sample boundary here (0.1 * rate == 1.0 precisely), but is computed from Response's
 	// own rx_time arithmetic (front point minus a locally-measured control-point delta),
-	// which can differ from the "true" value by a couple of ULPs -- e.g. 0.1 coming out as
+	// which can differ from the "true" value by a couple of ULPs, e.g. 0.1 coming out as
 	// 0.09999999999999998. applyPulsedInterference must place the pulse with
-	// std::round(), not std::floor(): floor() has a hard cliff exactly at integer sample
-	// boundaries, so that same couple of ULPs can flip the destination index by a whole
-	// sample, whereas round() tolerates any error far smaller than half a sample (which
-	// covers this by about 15 orders of magnitude).
+	// std::round(), as opposed to std::floor().
 	const std::vector<processing::pipeline::SampleSpan> active_spans = {
 		processing::pipeline::SampleSpan{.start = 3, .end_exclusive = 4},
 		processing::pipeline::SampleSpan{.start = 6, .end_exclusive = 7}};
@@ -233,7 +233,7 @@ TEST_CASE("applyPulsedInterference clips rendered pulses to LO-active sample spa
 	// Note: near the edge of a short (6-sample) buffer, the render filter's fractional-delay
 	// lookup can land on a neighboring table bin due to ordinary floating-point rounding in
 	// the accumulated sample time (getFilter truncates rather than rounds to a bin index),
-	// giving a small (~0.1%) deviation from exact identity rather than a bug -- hence the
+	// giving a small (~0.1%) deviation from exact identity rather than a bug, hence the
 	// looser tolerance here versus the 1e-9 used for interior-sample checks elsewhere.
 	for (std::size_t i = 0; i < iq_buffer.size(); ++i)
 	{
@@ -277,8 +277,8 @@ TEST_CASE("applyStreamingInterference adds FMCW energy to pulsed receiver window
 		core::makeActiveSource(&transmitter, 0.0, 300.0e-6)};
 	core::ReceiverTrackerCache tracker_cache;
 
-	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, &receiver, streaming_sources,
-													 tracker_cache);
+	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver,
+													 streaming_sources, tracker_cache);
 
 	REQUIRE(std::abs(window[0]) > 0.0);
 	REQUIRE_THAT(std::abs(window[1]), WithinAbs(0.0, 1.0e-18));
@@ -320,8 +320,8 @@ TEST_CASE("applyStreamingInterference supports FMCW transmitter with CW streamin
 		core::makeActiveSource(&transmitter, 0.0, 300.0e-6)};
 	core::ReceiverTrackerCache tracker_cache;
 
-	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, &receiver, streaming_sources,
-													 tracker_cache);
+	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver,
+													 streaming_sources, tracker_cache);
 
 	for (std::size_t i = 0; i < window.size(); ++i)
 	{
@@ -380,8 +380,8 @@ TEST_CASE("applyStreamingInterference superposes up- and down-chirp FMCW transmi
 		core::makeActiveSource(&up_tx, 0.0, 300.0e-6), core::makeActiveSource(&down_tx, 0.0, 300.0e-6)};
 	core::ReceiverTrackerCache tracker_cache;
 
-	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, &receiver, streaming_sources,
-													 tracker_cache);
+	processing::pipeline::applyStreamingInterference(window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver,
+													 streaming_sources, tracker_cache);
 
 	for (std::size_t i = 0; i < window.size(); ++i)
 	{
@@ -432,14 +432,14 @@ TEST_CASE("applyStreamingInterference reuses tracker cache without carrying wind
 	std::vector<ComplexType> first_window(3, ComplexType{});
 	std::vector<ComplexType> second_window(3, ComplexType{});
 
-	processing::pipeline::applyStreamingInterference(first_window, 10.0e-6, 50.0e-6, prop, &receiver, streaming_sources,
-													 tracker_cache);
+	processing::pipeline::applyStreamingInterference(first_window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver,
+													 streaming_sources, tracker_cache);
 
 	REQUIRE(tracker_cache.path_trackers.size() == 1);
 	const std::size_t sources_count = tracker_cache.path_trackers.size();
 	const std::size_t tracker_count = tracker_cache.path_trackers[0].size();
 
-	processing::pipeline::applyStreamingInterference(second_window, 10.0e-6, 50.0e-6, prop, &receiver,
+	processing::pipeline::applyStreamingInterference(second_window, 10.0e-6, 50.0e-6, prop, nullptr, &receiver,
 													 streaming_sources, tracker_cache);
 
 	REQUIRE(tracker_cache.path_trackers.size() == sources_count);

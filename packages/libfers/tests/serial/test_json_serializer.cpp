@@ -181,7 +181,8 @@ namespace
 		transmitter->setSchedule({{0.1, 0.5}});
 
 		auto target = radar::createIsoTarget(platform.get(), "tgt", 10.0, 42, 102);
-		target->setFluctuationModel(std::make_unique<radar::RcsChiSquare>(target->getRngEngine(), 2.5));
+		target->getRcsSpec()->setFluctuationModel(
+			std::make_unique<radar::RcsChiSquare>(target->getRcsSpec()->getRngEngine(), 2.5));
 
 		auto receiver =
 			std::make_unique<radar::Receiver>(platform.get(), "rx", 88, radar::OperationMode::PULSED_MODE, 105);
@@ -372,6 +373,41 @@ TEST_CASE("JSON: Granular parsing of Antenna and Waveform", "[serial][json]")
 		REQUIRE(wf->getName() == "TestWaveform");
 		REQUIRE_THAT(wf->getPower(), WithinAbs(500.0, 1e-9));
 		REQUIRE_THAT(wf->getCarrier(), WithinAbs(2e9, 1e-9));
+	}
+}
+
+TEST_CASE("JSON: boresight_polarisation round trips as nested re/im objects", "[serial][json]")
+{
+	ParamGuard const guard;
+
+	SECTION("Default (pure horizontal) is omitted")
+	{
+		core::World world;
+		world.add(std::make_unique<antenna::Isotropic>("iso", 20));
+		const json simulation_json = serial::world_to_json(world)["simulation"];
+		REQUIRE_FALSE(simulation_json["antennas"][0].contains("boresight_polarisation"));
+	}
+
+	SECTION("Non-default round trips through nested h/v re/im objects")
+	{
+		core::World world;
+		auto ant = std::make_unique<antenna::Isotropic>("iso", 20);
+		ant->setPolarisation(
+			antenna::JonesPolarisation{.horizontal = ComplexType(0.6, 0.0), .vertical = ComplexType(0.0, 0.8)});
+		world.add(std::move(ant));
+
+		const json simulation_json = serial::world_to_json(world)["simulation"];
+		const auto& pol_json = simulation_json["antennas"][0]["boresight_polarisation"];
+		REQUIRE_THAT(pol_json["h"]["re"].get<double>(), WithinAbs(0.6, 1e-9));
+		REQUIRE_THAT(pol_json["h"]["im"].get<double>(), WithinAbs(0.0, 1e-9));
+		REQUIRE_THAT(pol_json["v"]["re"].get<double>(), WithinAbs(0.0, 1e-9));
+		REQUIRE_THAT(pol_json["v"]["im"].get<double>(), WithinAbs(0.8, 1e-9));
+
+		auto reparsed = serial::parse_antenna_from_json(simulation_json["antennas"][0]);
+		REQUIRE(reparsed != nullptr);
+		const auto pol = reparsed->getPolarisation();
+		REQUIRE_THAT(pol.horizontal.real(), WithinAbs(0.6, 1e-9));
+		REQUIRE_THAT(pol.vertical.imag(), WithinAbs(0.8, 1e-9));
 	}
 }
 
@@ -600,6 +636,42 @@ TEST_CASE("JSON: Serialization of Math and Timing Structures", "[serial][json]")
 		REQUIRE_THAT(timing_json["freq_offset"].get<double>(), WithinAbs(5.0, 1e-9));
 		REQUIRE_THAT(timing_json["random_freq_offset_stdev"].get<double>(), WithinAbs(1.2, 1e-9));
 		REQUIRE_THAT(timing_json["noise_entries"][0]["alpha"].get<double>(), WithinAbs(1.0, 1e-9));
+	}
+}
+
+TEST_CASE("JSON: pointscatter polarimetric flag round trips", "[serial][json]")
+{
+	ParamGuard const guard;
+	const core::World w;
+
+	SECTION("defaults to false when omitted")
+	{
+		params::params.reset();
+		json const j = serial::world_to_json(w);
+		REQUIRE(j["simulation"]["parameters"]["pointscatter"]["polarimetric"] == false);
+
+		std::mt19937 seeder{0};
+		serial::update_parameters_from_json(json{{"starttime", 0.0},
+												  {"endtime", 1.0},
+												  {"rate", 1.0},
+												  {"origin", {{"latitude", 0.0}, {"longitude", 0.0}, {"altitude", 0.0}}},
+												  {"coordinatesystem", {{"frame", "ENU"}}}},
+											seeder);
+		REQUIRE(params::pointScatterParams().polarimetric == false);
+	}
+
+	SECTION("true value serializes and deserializes")
+	{
+		params::params.reset();
+		params::params.point_scatterer_params.polarimetric = true;
+
+		json const j = serial::world_to_json(w);
+		REQUIRE(j["simulation"]["parameters"]["pointscatter"]["polarimetric"] == true);
+
+		params::params.reset();
+		std::mt19937 seeder{0};
+		serial::update_parameters_from_json(j["simulation"]["parameters"], seeder);
+		REQUIRE(params::pointScatterParams().polarimetric == true);
 	}
 }
 
@@ -1277,11 +1349,11 @@ TEST_CASE("JSON: Granular updates of Radar Components and Timing", "[serial][jso
 		auto* new_tgt = w.findTarget(103);
 		REQUIRE(new_tgt != nullptr);
 		REQUIRE(new_tgt->getName() == "tgt_updated");
-		REQUIRE(new_tgt->getSeed() == 54321); // Seed preserved
-		auto* iso_tgt = dynamic_cast<radar::IsoTarget*>(new_tgt);
-		REQUIRE(iso_tgt != nullptr);
-		REQUIRE_THAT(iso_tgt->getConstRcs(), WithinAbs(50.0, 1e-9));
-		REQUIRE(new_tgt->getFluctuationModel() != nullptr);
+		REQUIRE(new_tgt->getRcsSpec()->getSeed() == 54321); // Seed preserved
+		auto* iso_rcs = dynamic_cast<radar::IsoTargetRcs*>(new_tgt->getRcsSpec());
+		REQUIRE(iso_rcs != nullptr);
+		REQUIRE_THAT(iso_rcs->getConstRcs(), WithinAbs(50.0, 1e-9));
+		REQUIRE(new_tgt->getRcsSpec()->getFluctuationModel() != nullptr);
 	}
 
 	SECTION("Update Timing")

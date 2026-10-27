@@ -27,6 +27,7 @@
 #include "core/config.h"
 #include "core/sim_id.h"
 #include "core/simulation_state.h"
+#include "propagation/propagation_model.h"
 
 namespace propagation
 {
@@ -93,6 +94,50 @@ namespace simulation
 											   const timing::Timing* tx_timing, RealType tx_time) const noexcept;
 	};
 
+	/**
+	 * @brief Ingests the next coarse sample of propagation paths for one receiver into
+	 *        its per-path interpolation cache (CW coarse-rate sampling), establishing the bracket
+	 *        `[interval_start_time, sample_time]` that samples in between will be interpolated
+	 *        across.
+	 *
+	 * Mirrors `serial::Response`'s lead/trail tapering:
+	 * - A path present now and previously: `hi` replaces `lo`, the new sample replaces `hi`.
+	 * - A path present before but missing now (about to disappear): a synthetic zero-gain "hi" is
+	 *   built at `sample_time` by linearly extrapolating delay/phase from the entry's own existing
+	 *   `lo`/`hi` (the two most recent real samples), like `extrapolateTaperPoint` in response.cpp.
+	 * - A path seen for the first time (just appeared): "lo" is a zero-gain copy of the next "hi"
+	 *   value, placed at `interval_start_time`. The appearance-edge counterpart of the above, matching
+	 *   `simpleTaperPoint`'s behavior, since there is no additional sample to estimate a rate from.
+	 *
+	 * @param cache The receiver's tracker cache; `coarse_path_samples` is updated in place.
+	 * @param next_paths This receiver's paths from the coarse scene query just taken.
+	 * @param interval_start_time The start time of the bracket a brand-new path's synthetic "lo"
+	 *                            should be placed at (ignored for paths that already existed).
+	 * @param sample_time The absolute simulation time `next_paths` was sampled at (the new "hi").
+	 */
+	void updateCoarseStreamingCache(core::ReceiverTrackerCache& cache,
+									const std::vector<propagation::PropagationPath>& next_paths,
+									RealType interval_start_time, RealType sample_time);
+
+	/**
+	 * @brief Produces a receiver's propagation paths at `rx_time` by linearly interpolating each
+	 *        cached path's delay and gain between its bracketing `lo`/`hi` coarse samples (CW
+	 *        coarse-rate sampling).
+	 *
+	 * Interpolating delay linearly is physically equivalent to a constant-velocity (linear
+	 * Doppler) approximation of range over the coarse interval. Gain's phase here is the path's
+	 * own slowly-varying antenna/polarization/scattered phase, not the fast carrier term, so linear
+	 * interpolation approximates well.
+	 *
+	 * @param cache The receiver's tracker cache, populated by `updateCoarseStreamingCache`; the
+	 *              caller is responsible for ensuring it already brackets `rx_time`.
+	 * @param receiver The receiver these paths are for.
+	 * @param rx_time The time to interpolate each cached path to.
+	 */
+	[[nodiscard]] std::vector<propagation::PropagationPath>
+	interpolateCoarseStreamingPaths(const core::ReceiverTrackerCache& cache, radar::Receiver& receiver,
+									RealType rx_time);
+
 	/// Selects how timing phase noise is applied to streaming channel contributions.
 	enum class StreamingTimingPhaseMode : std::uint8_t
 	{
@@ -151,8 +196,8 @@ namespace simulation
 	 * @param prop The propagation model to determine pulse signal propagation.
 	 * @param start_tx_time The absolute simulation time when the pulse transmission starts.
 	 */
-	void calculateResponses(const radar::Transmitter& tx, const propagation::PropagationModel& prop,
-							const RealType start_tx_time);
+	void calculateResponses(const radar::Transmitter& tx, const RealType start_tx_time,
+							const propagation::PropagationModel& prop, propagation::ThreadContext* ctx);
 
 	/**
 	 * @enum LinkType

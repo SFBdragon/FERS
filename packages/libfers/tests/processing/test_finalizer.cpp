@@ -157,16 +157,18 @@ namespace
 		const auto* wave_ptr = wave.get();
 		wave_store.push_back(std::move(wave));
 
+		const RealType edge = 1.0 / sample_rate;
 		const interp::InterpPoint first{.gain = 1.0, .rx_time = start_time, .delay = 0.0, .phase_delay = 0.0};
-		auto response = std::make_unique<serial::Response>(wave_ptr, first);
+		serial::ResponseBuilder builder(wave_ptr, first, edge, edge);
 		for (std::size_t i = 1; i < samples.size(); ++i)
 		{
-			response->addInterpPoint({.gain = 1.0,
-									  .rx_time = start_time + static_cast<RealType>(i) / sample_rate,
-									  .delay = 0.0,
-									  .phase_delay = 0.0});
+			builder.addInterpPoint({.gain = 1.0,
+								   .rx_time = start_time + static_cast<RealType>(i) / sample_rate,
+								   .delay = 0.0,
+								   .phase_delay = 0.0},
+								  edge);
 		}
-		return response;
+		return std::make_unique<serial::Response>(std::move(builder));
 	}
 
 	std::vector<RealType> readDataset(const HighFive::File& file, const std::string& name)
@@ -821,7 +823,7 @@ TEST_CASE("runPulsedFinalizer writes jittered chunks and emits completion progre
 	second_job.responses.push_back(
 		makeFixedResponse(wave_store, {ComplexType{1.0, 0.0}, ComplexType{1.0, 0.0}}, 8.0, 1.125));
 
-	std::vector<std::unique_ptr<radar::Target>> targets;
+	const std::vector<std::unique_ptr<radar::Target>> targets;
 	core::World world;
 	const auto prop = std::make_shared<const propagation::pointscatter::PointScatterModel>(&world);
 	std::vector<ProgressCall> progress_calls;
@@ -879,7 +881,7 @@ TEST_CASE("runPulsedFinalizer routes completed acquisition windows to an output 
 	job.duration = 0.5;
 	job.responses.push_back(makeFixedResponse(wave_store, {ComplexType{1.0, 0.0}, ComplexType{2.0, 0.0}}, 4.0, 0.0));
 
-	std::vector<std::unique_ptr<radar::Target>> targets;
+	const std::vector<std::unique_ptr<radar::Target>> targets;
 	core::World world;
 	const auto prop = std::make_shared<const propagation::pointscatter::PointScatterModel>(&world);
 	CapturingOutputSink sink;

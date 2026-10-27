@@ -109,7 +109,7 @@ namespace fers_signal
 		const RealType bw =
 			iter.rx_time < next.rx_time ? (sampleTime - iter.rx_time) / (next.rx_time - iter.rx_time) : 0.0;
 
-		const RealType amplitude = amplitudeScale * std::lerp(std::sqrt(iter.gain), std::sqrt(next.gain), bw);
+		const RealType amplitude = amplitudeScale * std::lerp(iter.gain, next.gain, bw);
 		const RealType phase = std::lerp(iter.phase_delay, next.phase_delay, bw);
 		RealType fdelay = -(std::lerp(iter.delay, next.delay, bw) * _buffer.getRate() - idelay + fracWinDelay);
 		const RealType int_part = std::floor(fdelay);
@@ -123,8 +123,10 @@ namespace fers_signal
 	ComplexType PulseWaveform::performConvolution(const long i, const RealType* filt, const long filtLength,
 												  const RealType amplitude, const long iSampleUnwrap) const noexcept
 	{
-		const long start = std::max(-filtLength / 2, -i);
-		const long end = std::min(filtLength / 2, static_cast<int>(getSampleCount()) - i);
+		// The convolution is centered on the delay-unwrapped sample index (i + iSampleUnwrap).
+		const long center = i + iSampleUnwrap;
+		const long start = std::max(-filtLength / 2, -center);
+		const long end = std::min(filtLength / 2, static_cast<int>(getSampleCount()) - center);
 
 		ComplexType accum(0.0, 0.0);
 
@@ -337,30 +339,6 @@ namespace fers_signal
 		_name(std::move(name)), _id(id == 0 ? SimIdGenerator::instance().generateId(ObjectType::Waveform) : id),
 		_power(power), _carrierfreq(carrierfreq), _wave(std::move(wave))
 	{
-	}
-
-	std::optional<RealType> RadarSignal::getModulatedCarrier(RealType time_since_segment_start) const noexcept
-	{
-		// TODO
-		// This was ported directly from computeStreamingtEvaluation with no change in logic.
-		// It would be ideal to either remove the approximations or document them better.
-
-		return std::visit(
-			util::Overloaded{
-				[&](const PulseWaveform&) -> std::optional<RealType> { return _carrierfreq; },
-				[&](const CwWaveform&) -> std::optional<RealType> { return _carrierfreq; },
-				[&](const FmcwChirpWaveform&) -> std::optional<RealType> { return _carrierfreq; },
-				[&](const FmcwTriangleWaveform&) -> std::optional<RealType> { return _carrierfreq; },
-				[&](const FileWaveform&) -> std::optional<RealType> { return _carrierfreq; },
-				[&](const SfcwWaveform& sfcw) -> std::optional<RealType>
-				{
-					const auto step = sfcw.activeStepAt(time_since_segment_start, _carrierfreq);
-					if (!step.has_value() || step->rf_frequency <= 0.0)
-						return std::nullopt;
-					return step->rf_frequency;
-				},
-			},
-			_wave);
 	}
 
 	bool RadarSignal::isPulsed() const noexcept { return std::holds_alternative<PulseWaveform>(_wave); }

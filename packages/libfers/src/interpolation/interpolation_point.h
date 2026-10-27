@@ -22,9 +22,10 @@ namespace interp
 	 */
 	struct InterpPoint
 	{
-		RealType gain{}; ///< Gain of the channel, as a ratio of power.
+		RealType gain{}; ///< Amplitude gain magnitude of the channel, as a ratio of voltage into a unit impedance.
 		RealType rx_time{}; ///< RX time at which the channel exists, in seconds.
 		RealType delay{}; ///< Propagation delay of the channel, in seconds.
-		RealType phase_delay{}; ///< Phase delay of the carrier frequency through the channel, in radians.
+		RealType phase_delay{}; ///< Phase delay of the carrier frequency through the channel plus path ampltide phase
+								///< modulation, in radians.
 	};
 }

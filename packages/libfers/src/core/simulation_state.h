@@ -148,6 +148,26 @@ namespace core
 		FmcwTriangleBoundaryTracker triangle;
 	};
 
+	/// One coarsely-sampled propagation path's two bracketing samples, used to linearly interpolate
+	/// its delay/gain for every full-rate sample between them (CW coarse-rate sampling). `lo`/`hi`
+	/// are always both populated once a path is tracked at all - either real coarse samples, or a
+	/// synthetic zero-gain taper point (mirroring `serial::Response`'s lead/trail tapers) when the
+	/// path has just appeared or is about to disappear, so appearance/disappearance fades smoothly
+	/// rather than snapping. `gain_phase` is this path's own (slowly-varying antenna/RCS/
+	/// polarization) phase, unwrapped across samples - not the fast carrier phase, which is
+	/// evaluated separately at full rate.
+	struct CoarsePathSample
+	{
+		RealType t_lo = 0.0;
+		RealType delay_lo = 0.0;
+		RealType gain_mag_lo = 0.0;
+		RealType gain_phase_lo = 0.0;
+		RealType t_hi = 0.0;
+		RealType delay_hi = 0.0;
+		RealType gain_mag_hi = 0.0;
+		RealType gain_phase_hi = 0.0;
+	};
+
 	/// Per-receiver FMCW tracker state for direct and reflected streaming paths.
 	struct ReceiverTrackerCache
 	{
@@ -156,6 +176,10 @@ namespace core
 		std::vector<FmcwChirpBoundaryTracker> dechirp_reference; ///< Trackers for receiver LO source segments.
 		std::size_t active_dechirp_source_index = 0; ///< Monotonic cursor for receiver LO source segments.
 		std::optional<RealType> last_dechirp_time = std::nullopt; ///< Last sample time used by the LO cursor.
+
+		/// Coarse-rate CW sampling extrapolation state for all paths, by source index and path_id.
+		/// Only populated when CW coarse sampling is enabled; otherwise stays empty.
+		std::vector<std::unordered_map<uint64_t, CoarsePathSample>> coarse_path_samples;
 	};
 
 	/**

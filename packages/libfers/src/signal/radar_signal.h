@@ -290,7 +290,7 @@ namespace fers_signal
 				calculateWeightsAndDelays(*iter, *next, sample_time, idelay, fracWinDelay, amplitudeScale);
 			const RealType native_position = (sample_time - nativeAnchorTime) * _buffer.getRate();
 			const auto source_index = static_cast<long>(std::floor(native_position));
-			RealType source_fraction = native_position - static_cast<RealType>(source_index);
+			const RealType source_fraction = native_position - static_cast<RealType>(source_index);
 
 			const RealType combined_delay = fdelay + source_fraction;
 			const auto delay_unwrap = static_cast<int>(std::floor(combined_delay));
@@ -633,13 +633,6 @@ namespace fers_signal
 		 * @return The carrier frequency of the radar signal.
 		 */
 		[[nodiscard]] RealType getCarrier() const noexcept { return _carrierfreq; }
-
-		/**
-		 * @brief Gets the carrier frequency of the radar signal.
-		 *
-		 * @return The carrier frequency of the radar signal.
-		 */
-		[[nodiscard]] std::optional<RealType> getModulatedCarrier(RealType time_since_segment_start) const noexcept;
 
 		/**
 		 * @brief Gets the name of the radar signal.

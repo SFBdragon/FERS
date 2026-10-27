@@ -4,9 +4,10 @@
 // delay/phase, retarded-transmit-time gating, and FMCW dechirp/beat-frequency
 // behavior against hand-calculated values. Path-finding physics itself
 // (Friis/bistatic gain and delay) is covered by
-// propagation/pointscatter/test_pointscatter.cpp -- here every
+// propagation/pointscatter/test_pointscatter.cpp; here every
 // propagation::PropagationPath is built by hand.
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
@@ -81,7 +82,7 @@ namespace
 		return std::sqrt(sum_sq / static_cast<RealType>(samples.size()));
 	}
 
-	// Builds a direct (path_id == 0) path with a hand-computed delay/gain -- the
+	// Builds a direct (path_id == 0) path with a hand-computed delay/gain, the
 	// counterpart of what propagation::pointscatter::PointScatterModel would have
 	// found for this geometry, without needing a World/PointScatterModel here.
 	propagation::PropagationPath makeDirectPath(radar::Receiver* rx, RealType dist, RealType gain)
@@ -149,7 +150,7 @@ TEST_CASE("calculateDirectPathContribution amplitude matches Friis equation with
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-	const auto path = makeDirectPath(&rx, dist, friis);
+	const auto path = makeDirectPath(&rx, dist, std::sqrt(friis));
 
 	const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 
@@ -255,7 +256,7 @@ TEST_CASE("calculateDirectPathContribution with noproploss gives distance-indepe
 	const RealType lambda = c / carrier;
 	const RealType power = 50.0;
 
-	// With noproploss: Friis = lambda^2 / (16*pi^2) (no R^2) -- constant regardless of dist
+	// With noproploss: Friis = lambda^2 / (16*pi^2) (no R^2), constant regardless of dist
 	const RealType friis_noloss = (lambda * lambda) / (16.0 * PI * PI);
 	const RealType expected_amplitude = std::sqrt(power * friis_noloss);
 
@@ -284,7 +285,7 @@ TEST_CASE("calculateDirectPathContribution with noproploss gives distance-indepe
 		rx.setFlag(radar::Receiver::RecvFlag::FLAG_NOPROPLOSS);
 
 		const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-		const auto path = makeDirectPath(&rx, dist, friis_noloss);
+		const auto path = makeDirectPath(&rx, dist, std::sqrt(friis_noloss));
 
 		const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 
@@ -706,7 +707,7 @@ TEST_CASE("calculateReflectedPathContribution amplitude matches bistatic equatio
 	rx.setTiming(timing);
 
 	const auto source = core::makeActiveSource(&tx, -10.0, 10.0);
-	const auto path = makeReflectedPath(&rx, (r1 + r2) / c, bistatic);
+	const auto path = makeReflectedPath(&rx, (r1 + r2) / c, std::sqrt(bistatic));
 
 	const ComplexType result = simulation::calculateStreamingPathContribution(source, &rx, path, 0.0);
 
@@ -1117,4 +1118,166 @@ TEST_CASE("File CW direct path samples the complex envelope at retarded transmit
 	REQUIRE_THAT(std::arg(next / first), WithinAbs(2.0 * PI * tone / rate, 1e-6));
 	REQUIRE(std::abs(after_end) == 0.0);
 	REQUIRE_THAT(source.segment_end, WithinAbs(2.0, 1e-12));
+}
+
+// =============================================================================
+// updateCoarseStreamingCache / interpolateCoarseStreamingPaths: CW coarse-rate
+// sampling's bracketed-interpolation cache, exercised directly (independent of
+// the full SimulationEngine/PropagationModel).
+// =============================================================================
+
+TEST_CASE("interpolateCoarseStreamingPaths fades a newly-appeared path in from zero gain",
+		  "[simulation][channel_model][coarse]")
+{
+	radar::Platform rx_platform("rx_plat");
+	setupPlatform(rx_platform, math::Vec3{0.0, 0.0, 0.0});
+	radar::Receiver rx(&rx_platform, "rx", 42, radar::OperationMode::CW_MODE);
+
+	core::ReceiverTrackerCache cache;
+	cache.coarse_path_samples.resize(1);
+
+	// A path seen for the first time: no earlier sample to taper from, so "lo" is a zero-gain copy
+	// of the fresh value (serial::Response's simpleTaperPoint fallback), placed at the interval's
+	// start rather than snapping straight to full gain.
+	const auto path = makeDirectPath(&rx, 100.0, 0.5);
+	simulation::updateCoarseStreamingCache(cache, {path}, /*interval_start_time=*/0.0, /*sample_time=*/1.0);
+
+	const auto at_lo = simulation::interpolateCoarseStreamingPaths(cache, rx, 0.0);
+	const auto at_mid = simulation::interpolateCoarseStreamingPaths(cache, rx, 0.5);
+	const auto at_hi = simulation::interpolateCoarseStreamingPaths(cache, rx, 1.0);
+
+	REQUIRE(at_lo.size() == 1);
+	REQUIRE(at_mid.size() == 1);
+	REQUIRE(at_hi.size() == 1);
+
+	REQUIRE_THAT(std::abs(at_lo.front().gain), WithinAbs(0.0, 1e-12));
+	REQUIRE_THAT(std::abs(at_mid.front().gain), WithinAbs(std::abs(path.gain) * 0.5, 1e-12));
+	REQUIRE_THAT(std::abs(at_hi.front().gain), WithinAbs(std::abs(path.gain), 1e-12));
+
+	// Delay is copied (not extrapolated) for the synthetic "lo", since there's no earlier sample to
+	// estimate a rate from yet.
+	REQUIRE_THAT(at_lo.front().delay, WithinAbs(path.delay, 1e-12));
+	REQUIRE_THAT(at_hi.front().delay, WithinAbs(path.delay, 1e-12));
+}
+
+TEST_CASE("interpolateCoarseStreamingPaths linearly interpolates delay/gain between two real samples",
+		  "[simulation][channel_model][coarse]")
+{
+	radar::Platform rx_platform("rx_plat");
+	setupPlatform(rx_platform, math::Vec3{0.0, 0.0, 0.0});
+	radar::Receiver rx(&rx_platform, "rx", 42, radar::OperationMode::CW_MODE);
+
+	core::ReceiverTrackerCache cache;
+	cache.coarse_path_samples.resize(1);
+
+	const auto path_t0 = makeDirectPath(&rx, 100.0, 0.5);
+	auto path_t1 = makeDirectPath(&rx, 100.0, 0.5);
+	path_t1.delay = path_t0.delay + 1.0;
+	path_t1.gain = path_t0.gain * 3.0;
+
+	simulation::updateCoarseStreamingCache(cache, {path_t0}, /*interval_start_time=*/-1.0, /*sample_time=*/0.0);
+	simulation::updateCoarseStreamingCache(cache, {path_t1}, /*interval_start_time=*/0.0, /*sample_time=*/1.0);
+
+	const auto at_lo = simulation::interpolateCoarseStreamingPaths(cache, rx, 0.0);
+	const auto at_mid = simulation::interpolateCoarseStreamingPaths(cache, rx, 0.5);
+	const auto at_hi = simulation::interpolateCoarseStreamingPaths(cache, rx, 1.0);
+
+	REQUIRE_THAT(at_lo.front().delay, WithinAbs(path_t0.delay, 1e-9));
+	REQUIRE_THAT(std::abs(at_lo.front().gain), WithinAbs(std::abs(path_t0.gain), 1e-9));
+
+	REQUIRE_THAT(at_mid.front().delay, WithinAbs((path_t0.delay + path_t1.delay) / 2.0, 1e-9));
+	REQUIRE_THAT(std::abs(at_mid.front().gain), WithinAbs((std::abs(path_t0.gain) + std::abs(path_t1.gain)) / 2.0, 1e-9));
+
+	REQUIRE_THAT(at_hi.front().delay, WithinAbs(path_t1.delay, 1e-9));
+	REQUIRE_THAT(std::abs(at_hi.front().gain), WithinAbs(std::abs(path_t1.gain), 1e-9));
+}
+
+TEST_CASE("updateCoarseStreamingCache tapers a disappearing path to zero gain using its observed rate, "
+		  "then drops it",
+		  "[simulation][channel_model][coarse]")
+{
+	radar::Platform rx_platform("rx_plat");
+	setupPlatform(rx_platform, math::Vec3{0.0, 0.0, 0.0});
+	radar::Receiver rx(&rx_platform, "rx", 42, radar::OperationMode::CW_MODE);
+
+	core::ReceiverTrackerCache cache;
+	cache.coarse_path_samples.resize(1);
+
+	// Two real samples establish a genuine delay rate of +2/s (10 -> 12 over one second).
+	auto path_t0 = makeDirectPath(&rx, 100.0, 0.5);
+	path_t0.delay = 10.0;
+	auto path_t1 = path_t0;
+	path_t1.delay = 12.0;
+
+	simulation::updateCoarseStreamingCache(cache, {path_t0}, /*interval_start_time=*/-1.0, /*sample_time=*/0.0);
+	simulation::updateCoarseStreamingCache(cache, {path_t1}, /*interval_start_time=*/0.0, /*sample_time=*/1.0);
+	REQUIRE(simulation::interpolateCoarseStreamingPaths(cache, rx, 1.0).size() == 1);
+
+	// The path is missing from this sample (dropped out) - mirror serial::Response's
+	// extrapolateTaperPoint: project the delay forward at the observed rate, but force gain to
+	// exactly zero, rather than snapping or bridging toward a value that no longer exists.
+	simulation::updateCoarseStreamingCache(cache, {}, /*interval_start_time=*/1.0, /*sample_time=*/2.0);
+
+	const auto at_lo = simulation::interpolateCoarseStreamingPaths(cache, rx, 1.0); // == old hi, still real
+	const auto at_mid = simulation::interpolateCoarseStreamingPaths(cache, rx, 1.5);
+	const auto at_hi = simulation::interpolateCoarseStreamingPaths(cache, rx, 2.0); // synthetic, zero gain
+
+	REQUIRE(at_lo.size() == 1);
+	REQUIRE(at_mid.size() == 1);
+	REQUIRE(at_hi.size() == 1);
+
+	REQUIRE_THAT(std::abs(at_lo.front().gain), WithinAbs(std::abs(path_t1.gain), 1e-9));
+	REQUIRE_THAT(std::abs(at_mid.front().gain), WithinAbs(std::abs(path_t1.gain) * 0.5, 1e-9));
+	REQUIRE_THAT(std::abs(at_hi.front().gain), WithinAbs(0.0, 1e-12));
+
+	// Delay keeps extrapolating at the observed +2/s rate even as gain fades to zero.
+	REQUIRE_THAT(at_hi.front().delay, WithinAbs(14.0, 1e-9));
+
+	// Still missing next round: the path is now fully tapered out, so it's dropped rather than
+	// tapered again.
+	simulation::updateCoarseStreamingCache(cache, {}, /*interval_start_time=*/2.0, /*sample_time=*/3.0);
+	REQUIRE(simulation::interpolateCoarseStreamingPaths(cache, rx, 2.5).empty());
+}
+
+TEST_CASE("updateCoarseStreamingCache tracks multiple paths by source index and path_id independently",
+		  "[simulation][channel_model][coarse]")
+{
+	radar::Platform rx_platform("rx_plat");
+	setupPlatform(rx_platform, math::Vec3{0.0, 0.0, 0.0});
+	radar::Receiver rx(&rx_platform, "rx", 42, radar::OperationMode::CW_MODE);
+
+	core::ReceiverTrackerCache cache;
+	cache.coarse_path_samples.resize(1);
+
+	auto path_a = makeDirectPath(&rx, 100.0, 0.5); // path_id == 0 (direct)
+	auto path_b = makeDirectPath(&rx, 100.0, 0.5);
+	path_b.path_id = 99;
+	path_b.delay = path_a.delay + 10.0;
+
+	simulation::updateCoarseStreamingCache(cache, {path_a, path_b}, /*interval_start_time=*/-1.0,
+										   /*sample_time=*/0.0);
+
+	const auto both = simulation::interpolateCoarseStreamingPaths(cache, rx, 0.0);
+	REQUIRE(both.size() == 2);
+
+	// Only path_a disappears; path_b must survive, with its own real values untouched.
+	simulation::updateCoarseStreamingCache(cache, {path_b}, /*interval_start_time=*/0.0, /*sample_time=*/1.0);
+
+	const auto after = simulation::interpolateCoarseStreamingPaths(cache, rx, 1.0);
+	REQUIRE(after.size() == 2); // path_a is tapering (gain 0 at this instant), path_b is real.
+
+	const auto found_b = std::ranges::find_if(after, [](const auto& p) { return p.path_id == 99; });
+	REQUIRE(found_b != after.end());
+	REQUIRE_THAT(std::abs(found_b->gain), WithinAbs(std::abs(path_b.gain), 1e-9));
+
+	const auto found_a =
+		std::ranges::find_if(after, [&](const auto& p) { return p.path_id == path_a.path_id; });
+	REQUIRE(found_a != after.end());
+	REQUIRE_THAT(std::abs(found_a->gain), WithinAbs(0.0, 1e-12)); // fully tapered at this instant
+
+	// path_a is gone outright once it's still missing on a later round.
+	simulation::updateCoarseStreamingCache(cache, {path_b}, /*interval_start_time=*/1.0, /*sample_time=*/2.0);
+	const auto later = simulation::interpolateCoarseStreamingPaths(cache, rx, 2.0);
+	REQUIRE(later.size() == 1);
+	REQUIRE(later.front().path_id == 99);
 }

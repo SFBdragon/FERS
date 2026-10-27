@@ -9,6 +9,7 @@
 #include <cmath>
 
 #include "antenna/antenna_factory.h"
+#include "core/assets.h"
 #include "core/world.h"
 #include "math/coord.h"
 #include "math/path.h"
@@ -33,6 +34,12 @@ namespace serial::xml_serializer_utils
 	void setAttributeFromBool(const XmlElement& element, const std::string& name, const bool value)
 	{
 		element.setAttribute(name, value ? "true" : "false");
+	}
+
+	std::string formatComplexLiteral(const ComplexType value)
+	{
+		const std::string imag_sign = value.imag() < 0 ? "-" : "+";
+		return numberToString(value.real()) + imag_sign + numberToString(std::abs(value.imag())) + "i";
 	}
 
 	void serializeSchedule(const std::vector<radar::SchedulePeriod>& schedule, const XmlElement& parent)
@@ -63,6 +70,10 @@ namespace serial::xml_serializer_utils
 		if (p.sim_sampling_rate != 1000.0)
 		{
 			addChildWithNumber(parent, "simSamplingRate", p.sim_sampling_rate);
+		}
+		if (p.cw_coarse_sample_rate)
+		{
+			addChildWithNumber(parent, "cwSimSamplingRate", *p.cw_coarse_sample_rate);
 		}
 		if (p.random_seed)
 		{
@@ -102,6 +113,56 @@ namespace serial::xml_serializer_utils
 			cs.setAttribute("frame", "ECEF");
 			break;
 		}
+
+		if (p.propagation_model == params::PropagationModelKind::SbrRayTracing)
+		{
+			const XmlElement prop_elem = parent.addChild("propagation");
+			const XmlElement rt_elem = prop_elem.addChild("raytracing");
+			const auto& rt = p.ray_tracing_params;
+			const params::RayTracingParameters defaults;
+
+			if (rt.scatter_limit != defaults.scatter_limit)
+			{
+				setAttributeFromNumber(rt_elem, "scatter_limit", rt.scatter_limit);
+			}
+			if (rt.boresight_width != defaults.boresight_width)
+			{
+				setAttributeFromNumber(
+					rt_elem, "boresight_width",
+					rotation_angle_utils::radians_to_unit(rt.boresight_width, p.rotation_angle_unit));
+			}
+			if (rt.boresight_tube_solid_angle != defaults.boresight_tube_solid_angle)
+			{
+				setAttributeFromNumber(rt_elem, "boresight_tube_solid_angle", rt.boresight_tube_solid_angle);
+			}
+			if (rt.off_boresight_tube_solid_angle != defaults.off_boresight_tube_solid_angle)
+			{
+				setAttributeFromNumber(rt_elem, "off_boresight_tube_solid_angle", rt.off_boresight_tube_solid_angle);
+			}
+			if (rt.prune_below_max_db.has_value())
+			{
+				setAttributeFromNumber(rt_elem, "prune_below_max_db", *rt.prune_below_max_db);
+			}
+		}
+		else if (p.point_scatterer_params.polarimetric != params::PointScatterParameters{}.polarimetric)
+		{
+			const XmlElement prop_elem = parent.addChild("propagation");
+			const XmlElement ps_elem = prop_elem.addChild("pointscatter");
+			setAttributeFromBool(ps_elem, "polarimetric", p.point_scatterer_params.polarimetric);
+		}
+	}
+
+	void serializeMesh(const core::MeshAsset& mesh, const XmlElement& parent)
+	{
+		parent.setAttribute("name", mesh.name);
+		parent.setAttribute("filename", mesh.filename);
+	}
+
+	void serializeMaterial(const core::MaterialAsset& material, const XmlElement& parent)
+	{
+		parent.setAttribute("name", material.name);
+		addChildWithNumber(parent, "relative_permittivity", material.relative_permittivity);
+		addChildWithNumber(parent, "conductivity", material.conductivity);
 	}
 
 	void serializeWaveform(const fers_signal::RadarSignal& waveform, const XmlElement& parent)
@@ -252,6 +313,14 @@ namespace serial::xml_serializer_utils
 		if (antenna.getEfficiencyFactor() != 1.0)
 		{
 			addChildWithNumber(parent, "efficiency", antenna.getEfficiencyFactor());
+		}
+
+		const auto pol = antenna.getPolarisation();
+		if (pol.horizontal != ComplexType(1.0, 0.0) || pol.vertical != ComplexType(0.0, 0.0))
+		{
+			const auto pol_element = parent.addChild("boresight_polarisation");
+			pol_element.setAttribute("h", formatComplexLiteral(pol.horizontal));
+			pol_element.setAttribute("v", formatComplexLiteral(pol.vertical));
 		}
 	}
 
@@ -482,27 +551,38 @@ namespace serial::xml_serializer_utils
 		const XmlElement target_elem = parent.addChild("target");
 		target_elem.setAttribute("name", target.getName());
 
-		const XmlElement rcs_elem = target_elem.addChild("rcs");
-		if (const auto* iso = dynamic_cast<const radar::IsoTarget*>(&target))
+		if (const auto* rcs = target.getRcsSpec())
 		{
-			rcs_elem.setAttribute("type", "isotropic");
-			addChildWithNumber(rcs_elem, "value", iso->getConstRcs());
-		}
-		else if (const auto* file_target = dynamic_cast<const radar::FileTarget*>(&target))
-		{
-			rcs_elem.setAttribute("type", "file");
-			rcs_elem.setAttribute("filename", file_target->getFilename());
+			if (const auto* iso = dynamic_cast<const radar::IsoTargetRcs*>(rcs))
+			{
+				const XmlElement rcs_elem = target_elem.addChild("rcs");
+				rcs_elem.setAttribute("type", "isotropic");
+				addChildWithNumber(rcs_elem, "value", iso->getConstRcs());
+			}
+			else if (const auto* file_rcs = dynamic_cast<const radar::FileTargetRcs*>(rcs))
+			{
+				const XmlElement rcs_elem = target_elem.addChild("rcs");
+				rcs_elem.setAttribute("type", "file");
+				rcs_elem.setAttribute("filename", file_rcs->getFilename());
+			}
+
+			// Serialize fluctuation model if present
+			if (const auto* model = rcs->getFluctuationModel())
+			{
+				if (const auto* chi = dynamic_cast<const radar::RcsChiSquare*>(model))
+				{
+					XmlElement const model_elem = target_elem.addChild("model");
+					model_elem.setAttribute("type", "chisquare");
+					addChildWithNumber(model_elem, "k", chi->getK());
+				}
+			}
 		}
 
-		// Serialize fluctuation model if present
-		if (const auto* model = target.getFluctuationModel())
+		if (const auto& geometry = target.getGeometry())
 		{
-			if (const auto* chi = dynamic_cast<const radar::RcsChiSquare*>(model))
-			{
-				XmlElement const model_elem = target_elem.addChild("model");
-				model_elem.setAttribute("type", "chisquare");
-				addChildWithNumber(model_elem, "k", chi->getK());
-			}
+			const XmlElement geometry_elem = target_elem.addChild("geometry");
+			geometry_elem.setAttribute("mesh", geometry->mesh->name);
+			geometry_elem.setAttribute("material", geometry->material->name);
 		}
 	}
 
