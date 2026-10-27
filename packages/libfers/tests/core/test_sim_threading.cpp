@@ -753,7 +753,8 @@ TEST_CASE("SimulationEngine calculates mathematically correct CW physics", "[cor
 			core::makeActiveSource(tx, 0.0, std::numeric_limits<RealType>::max())};
 
 		ComplexType actual_total{0.0, 0.0};
-		for (const auto& path : prop.traceFromReceivers(nullptr, {rx}, sources, 0.0).at(rx))
+		const auto paths = prop.traceFromReceivers(nullptr, {rx}, sources, 0.0);
+		for (const auto& path : paths.at(rx))
 		{
 			actual_total +=
 				path.gain * std::polar(RealType(1.0), -2.0 * PI * tx->getSignal()->getCarrier() * path.delay);
@@ -783,7 +784,8 @@ TEST_CASE("SimulationEngine calculates mathematically correct CW physics", "[cor
 			core::makeActiveSource(tx, 0.0, std::numeric_limits<RealType>::max())};
 
 		ComplexType actual_total{0.0, 0.0};
-		for (const auto& path : prop.traceFromReceivers(nullptr, {rx}, sources, 0.0).at(rx))
+		const auto paths = prop.traceFromReceivers(nullptr, {rx}, sources, 0.0);
+		for (const auto& path : paths.at(rx))
 		{
 			actual_total +=
 				path.gain * std::polar(RealType(1.0), -2.0 * PI * tx->getSignal()->getCarrier() * path.delay);
@@ -1331,7 +1333,8 @@ TEST_CASE("SimulationEngine processStreamingPhysics uses buffered shared timing 
 	const std::vector<core::ActiveStreamingSource> sources = {
 		core::makeActiveSource(tx_ptr, params::startTime(), params::endTime())};
 	ComplexType expected{0.0, 0.0};
-	for (const auto& path : prop.traceFromReceivers(nullptr, {rx_ptr}, sources, 0.5).at(rx_ptr))
+	const auto paths = prop.traceFromReceivers(nullptr, {rx_ptr}, sources, 0.5);
+	for (const auto& path : paths.at(rx_ptr))
 	{
 		const auto& source = sources[path.source_index];
 		expected += simulation::calculateStreamingPathContribution(source, rx_ptr, path, 0.5, &lookup);
@@ -1416,13 +1419,15 @@ TEST_CASE("SimulationEngine traces multiple active streaming receivers independe
 		core::makeActiveSource(tx_ptr, params::startTime(), params::endTime())};
 
 	ComplexType expected1{0.0, 0.0};
-	for (const auto& path : prop.traceFromReceivers(nullptr, {rx1_ptr}, sources, 0.5).at(rx1_ptr))
+	const auto paths1 = prop.traceFromReceivers(nullptr, {rx1_ptr}, sources, 0.5);
+	for (const auto& path : paths1.at(rx1_ptr))
 	{
 		expected1 +=
 			simulation::calculateStreamingPathContribution(sources[path.source_index], rx1_ptr, path, 0.5, &lookup);
 	}
 	ComplexType expected2{0.0, 0.0};
-	for (const auto& path : prop.traceFromReceivers(nullptr, {rx2_ptr}, sources, 0.5).at(rx2_ptr))
+	const auto paths2 = prop.traceFromReceivers(nullptr, {rx2_ptr}, sources, 0.5);
+	for (const auto& path : paths2.at(rx2_ptr))
 	{
 		expected2 +=
 			simulation::calculateStreamingPathContribution(sources[path.source_index], rx2_ptr, path, 0.5, &lookup);
@@ -1470,7 +1475,8 @@ TEST_CASE("CW coarse sampling is disabled by default and leaves streaming output
 	const propagation::pointscatter::PointScatterModel prop(fixture.world.get());
 	const std::vector<core::ActiveStreamingSource> sources = {core::makeActiveSource(fixture.tx, 0.0, 0.5)};
 	ComplexType expected{0.0, 0.0};
-	for (const auto& path : prop.traceFromReceivers(nullptr, {fixture.rx}, sources, 0.4).at(fixture.rx))
+	const auto paths = prop.traceFromReceivers(nullptr, {fixture.rx}, sources, 0.4);
+	for (const auto& path : paths.at(fixture.rx))
 	{
 		expected += simulation::calculateStreamingPathContribution(sources[path.source_index], fixture.rx, path, 0.4);
 	}
@@ -1670,7 +1676,8 @@ TEST_CASE("SimulationEngine phase-noise lookup covers pre-start retarded streami
 	const propagation::pointscatter::PointScatterModel prop(world.get());
 	const std::vector<core::ActiveStreamingSource> sources = {core::makeActiveSource(tx_ptr, -0.2, params::endTime())};
 	ComplexType expected{0.0, 0.0};
-	for (const auto& path : prop.traceFromReceivers(nullptr, {rx_ptr}, sources, 0.1).at(rx_ptr))
+	const auto paths = prop.traceFromReceivers(nullptr, {rx_ptr}, sources, 0.1);
+	for (const auto& path : paths.at(rx_ptr))
 	{
 		const auto& source = sources[path.source_index];
 		expected += simulation::calculateStreamingPathContribution(source, rx_ptr, path, 0.1, &expected_lookup);
