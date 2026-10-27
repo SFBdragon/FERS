@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -162,17 +163,35 @@ namespace propagation::raytracing
 		Float3x4 obj_to_world;
 	};
 
-
-	/// Produces a safety margin intended to mitigate self-intersection.
-	/// It ensures the next hit isn't within about 1 ULP of distance.
-	/// It's not perfect, and while 1 ULP is enough for normal incidence,
-	/// 1 ULPs may not be enough for grazing incidence.
-	/// There are various other methods which should be considered further.
-	HC_FN float minRayDistance(const Float3& pos)
+	/// Lifts a point that lies on a facet clear of that facet along `u_norm`, far enough that a
+	/// ray leaving it into `u_norm`'s half-space cannot intersect the facet it came from.
+	///
+	/// Every accelerated ray-tracing engine back-end accepts the ray origin in single precision.
+	/// When determining the ray origin, care needs to be taken to avoid the computed value ending
+	/// up on the wrong side of the nearby triangles, leading to a self-intersection/shadow acne.
+	///
+	/// This is the origin-biasing approach of Waechter and Binder (Ray Tracing Gems). Their
+	/// integer formulation didn't work as well as this simple formulation in my testing,
+	/// partly as their implementation is tuned to avoid self-intersection much more aggressively.
+	/// This simulator needs much tighter bounds to accurately determine returns from distant,
+	/// concave objects where over-displacing the origin results in missing the multi-hit continuation.
+	///
+	/// One ULP of the largest coordinate is the measured optimum between two failure modes.
+	/// A convex, electrically smooth target at range self-occludes below it, while a concave
+	/// target's multi-bounce return is over-filtered above it, the displacement being large enough
+	/// to step past the neighbouring facet across a shared edge.
+	///
+	/// Only the traced ray's origin moves, while the double-precision hit point is used for
+	/// path length and phase computations.
+	HC_FN Float3 offsetSurfaceOrigin(const Float3& pos, const Float3& u_norm)
 	{
-		return 1e-2f;
-		const float absmax = std::max({std::abs(pos.x), std::abs(pos.y), std::abs(pos.z), 10.0f});
-		return absmax / 16777216.0f; // 2^24 - the mantissa essentially has 24 significant bits
+		// 2^-23: a float's mantissa carries 24 significant bits, so consecutive representable
+		// values at magnitude m are m * 2^-23 apart. The magnitude is floored at 10 m so that a
+		// scene sitting at or near the world origin still gets a decent margin.
+		// Testing against a ground plane at the origin showed 10m was better than 1m.
+		constexpr float ULP_SCALE = 1.1920928955078125e-07f;
+		const float argmax = std::max({std::abs(pos.x), std::abs(pos.y), std::abs(pos.z), 10.0f});
+		return pos + (ULP_SCALE * argmax) * u_norm;
 	}
 
 	/// Bilinearly samples an `AntennaPatternView` at a local (azimuth, elevation), clamping
@@ -679,8 +698,8 @@ namespace propagation::raytracing
 	/**
 	 * @brief TODO
 	 *
-	 * @param shadow_test Engine-supplied occlusion test: `float(Float3 origin, Float3 segment)`,
-	 * returning the hit distance as a fraction of `|segment|`.
+	 * @param shadow_test Engine-supplied occlusion test: `float(Float3 origin, Float3 direction)`,
+	 * returning the distance along the ray to the nearest hit.
 	 * @param get_contrib_ptr Returns a location to write contribution data to. `Contribution*()`
 	 */
 	template <typename ShadowTest, typename GetContribPtr>
@@ -752,7 +771,8 @@ namespace propagation::raytracing
 
 			// Cast shadow ray from pos in direction po_seg.
 			// OptiX/Embree use floating-point precision here. Conversion is required.
-			const float t_shadow = shadow_test(Float3{pos}, u_scat);
+			// Facet self-intersection must be avoided here.
+			const float t_shadow = shadow_test(offsetSurfaceOrigin(Float3{pos}, u_norm), u_scat);
 			const double po_len = length(dst.position - pos);
 
 			// If t_shadow is less than po_len, the nearest object is less than po_len away,

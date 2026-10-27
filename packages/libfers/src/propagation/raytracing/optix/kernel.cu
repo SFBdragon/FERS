@@ -45,11 +45,11 @@ namespace propagation::raytracing::optix
 		return reinterpret_cast<T*>(static_cast<uintptr_t>(bits));
 	}
 
-	static constexpr inline __device__ float3 asF32(Double3& v)
+	static constexpr inline __device__ float3 asF32(const Double3& v)
 	{
 		return float3{static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)};
 	}
-	static constexpr inline __device__ float3 asF32(Float3& v) { return float3{v.x, v.y, v.z}; }
+	static constexpr inline __device__ float3 asF32(const Float3& v) { return float3{v.x, v.y, v.z}; }
 
 	/**
 	 * @brief Build an affine 3x4 transform from an OptiX transform float array.
@@ -91,7 +91,7 @@ namespace propagation::raytracing::optix
 	extern "C" __global__ void __miss__shadow() {}
 
 
-	static __device__ inline float shadowTest(Float3 origin, Float3 direction, OptixTraversableHandle ias)
+	static __device__ inline float shadowTest(const Float3& origin, const Float3& direction, OptixTraversableHandle ias)
 	{
 		// Default to unoccluded. Upon hit, this is updated.
 		float shadow_t = MAX_RAY_DISTANCE;
@@ -101,7 +101,7 @@ namespace propagation::raytracing::optix
 		optixTrace(ias, // AS handle
 				   float3{origin.x, origin.y, origin.z}, // rayOrigin
 				   float3{direction.x, direction.y, direction.z}, // rayDirection
-				   minRayDistance(origin), // tmin
+				   MIN_RAY_DISTANCE, // tmin
 				   MAX_RAY_DISTANCE, // tmax
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask TODO?
@@ -152,21 +152,23 @@ namespace propagation::raytracing::optix
 		auto* path = unpackPointer<PathState>(hi, lo);
 
 		const auto ias = shader_params.iass[path->time_index];
-		const auto shadow_test = [ias](Float3 origin, Float3 seg) { return shadowTest(origin, seg, ias); };
+		const auto shadow_test = [ias](const Float3& origin, const Float3& dir)
+		{ return shadowTest(origin, dir, ias); };
 
 		auto should_reflect = facetHit(shader_params.sbr, path, hit, shadow_test, getContributionPtr);
 
 		if (!should_reflect)
 			return; // we're done with this path
 
-		const auto origin = asF32(path->path_vertices[path->ray_count]);
+		const auto origin = asF32(offsetSurfaceOrigin(Float3{path->path_vertices[path->ray_count]},
+													  path->surface_normals[path->ray_count - 1]));
 		const auto dir = asF32(path->trace_directions[path->ray_count]);
 
 		// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index): can't use throwing .at() in CUDA
 		optixTrace(ias, // AS handle
 				   origin, // rayOrigin
 				   dir, // rayDirection
-				   minRayDistance(Float3{origin.x, origin.y, origin.z}), // tmin
+				   MIN_RAY_DISTANCE, // tmin
 				   MAX_RAY_DISTANCE, // tmax
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask
@@ -204,7 +206,8 @@ namespace propagation::raytracing::optix
 		unsigned int t_index = idx.z;
 
 		const auto ias = shader_params.iass[t_index];
-		const auto shadow_test = [ias](Float3 origin, Float3 seg) { return shadowTest(origin, seg, ias); };
+		const auto shadow_test = [ias](const Float3& origin, const Float3& dir)
+		{ return shadowTest(origin, dir, ias); };
 
 		// Zero-bounce direct-path check, piggybacked on spare X-lanes (dest_antenna_count is tiny).
 		// Looped, not `if`, so it stays correct even if rays_per_source < dest_antenna_count.
@@ -224,7 +227,7 @@ namespace propagation::raytracing::optix
 		optixTrace(ias, // AS handle
 				   origin, // rayOrigin
 				   asF32(path.trace_directions[0]), // rayDirection
-				   minRayDistance(Float3{origin.x, origin.y, origin.z}), // tmin
+				   MIN_RAY_DISTANCE, // tmin
 				   MAX_RAY_DISTANCE, // tmax
 				   0.0f, // rayTime
 				   OptixVisibilityMask(0xFF), // visibilityMask

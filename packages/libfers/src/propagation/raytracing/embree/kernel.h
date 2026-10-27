@@ -55,8 +55,14 @@ namespace propagation::raytracing::embree
 
 		for (;;)
 		{
-			const RTCRayHit hit =
-				castRay(scene, Float3{path.path_vertices.at(path.ray_count)}, path.trace_directions.at(path.ray_count));
+			// Past the launch, the ray leaves the facet just hit along its normal side, so its
+			// origin is lifted off that facet to ensure against self-intersection.
+			const Float3 origin = path.ray_count == 0
+				? Float3{path.path_vertices.at(0)}
+				: offsetSurfaceOrigin(Float3{path.path_vertices.at(path.ray_count)},
+									  path.surface_normals.at(path.ray_count - 1));
+
+			const RTCRayHit hit = castRay(scene, origin, path.trace_directions.at(path.ray_count));
 
 			if (hit.hit.geomID == RTC_INVALID_GEOMETRY_ID)
 				return; // Miss. The radar energy left the scene.

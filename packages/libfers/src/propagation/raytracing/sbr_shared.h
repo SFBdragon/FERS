@@ -37,6 +37,12 @@ namespace propagation::raytracing
 	/// Should be sufficient to avoid far-clipping valid geometry.
 	constexpr float MAX_RAY_DISTANCE = 1e16f;
 
+	/// A ray's minimum hit distance. Self-intersection is addressed by displacing the ray origin
+	/// off the surface with `offsetSurfaceOrigin`, which handles grazing launch angles better
+	/// than minimum ray intersection distance. Results are fairly insensitive to this value
+	/// per my testing, but it does need to be quite small.
+	constexpr float MIN_RAY_DISTANCE = 1e-5f;
+
 	/// SBR engine triangle mesh view.
 	struct TriangleMeshView
 	{

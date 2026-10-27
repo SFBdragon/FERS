@@ -21,7 +21,7 @@ namespace propagation::raytracing::embree
 		rh.ray.dir_x = direction.x;
 		rh.ray.dir_y = direction.y;
 		rh.ray.dir_z = direction.z;
-		rh.ray.tnear = minRayDistance(origin);
+		rh.ray.tnear = MIN_RAY_DISTANCE;
 		rh.ray.tfar = MAX_RAY_DISTANCE;
 		rh.ray.mask = 0xFFFFFFFFu;
 		rh.ray.flags = 0;
